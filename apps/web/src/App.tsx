@@ -20,7 +20,8 @@ import {
   type JobRole,
   type Materia,
   type OptimizerConstraints,
-  type SourceFamily
+  type SourceFamily,
+  type StatKey
 } from '@xiv-gear-lab/domain';
 import { exportToXivGearJson, XivGearExportError } from '@xiv-gear-lab/export';
 import type { OptimizerResult } from '@xiv-gear-lab/optimizer';
@@ -37,9 +38,11 @@ import {
 } from './storage';
 import { APP_RUNTIME_COMPATIBILITY, type DataRuntimeBootstrap } from './data-runtime';
 import { ComparisonView } from './ComparisonView';
+import { OptimizerRules } from './OptimizerRules';
 import { derivedCombatStats, percentage } from './derived-stats';
 import { trustedExternalUrl } from './external-links';
 import { itemStatDisplay, materiaSlotDisplay } from './item-display';
+import { equipmentSourceLabel, officialCloneItemGroups } from './item-options';
 import { communitySourcesForResult, resultMethodologyDescription } from './provenance-display';
 import { gearSetTimingDisplay } from './timing-display';
 import {
@@ -67,8 +70,12 @@ type View = 'optimize' | 'community' | 'saved' | 'about';
 type CustomDraft = {
   slot: GearSlot;
   name: string;
+  mode: 'final-stats' | 'meldable-base';
+  level: string;
+  expansionId: ExpansionId;
   itemLevel: string;
   mainStat: string;
+  vitality: string;
   resourceStat: string;
   criticalHit: string;
   determination: string;
@@ -76,8 +83,25 @@ type CustomDraft = {
   speedStat: string;
   weaponDamage: string;
   weaponDelay: string;
+  materiaSlots: string;
+  advancedMelding: boolean;
+  mainStatCap: string;
+  vitalityCap: string;
+  resourceStatCap: string;
+  criticalHitCap: string;
+  determinationCap: string;
+  directHitCap: string;
+  speedStatCap: string;
+  sourceDescription: string;
+  fixedCost: string;
+  notes: string;
+  iconProvenance: 'generic' | 'user' | 'reused-official';
+  iconUrl: string;
+  clonedFromItemId?: number | string;
 };
-type CustomLimitField = Exclude<keyof CustomDraft, 'slot' | 'name'>;
+type CustomLimitField = 'itemLevel' | 'mainStat' | 'vitality' | 'resourceStat' | 'criticalHit' | 'determination' | 'directHit' | 'speedStat' | 'weaponDamage' | 'weaponDelay';
+type CustomTextDraftField = Exclude<{ [K in keyof CustomDraft]: CustomDraft[K] extends string ? K : never }[keyof CustomDraft], undefined>;
+const CUSTOM_LIMIT_FIELDS: CustomLimitField[] = ['itemLevel', 'mainStat', 'vitality', 'resourceStat', 'criticalHit', 'determination', 'directHit', 'speedStat', 'weaponDamage', 'weaponDelay'];
 type CustomItemLimit = { recorded: number; minimum: number; maximum: number };
 type CustomItemLimits = Record<CustomLimitField, CustomItemLimit>;
 type PendingDeletion =
@@ -89,23 +113,73 @@ const createCustomDraft = (job: CombatJob, item?: EquipmentItem, slot: GearSlot 
   const referenceWeapon = gearSnapshot.items.find((candidate) =>
     candidate.origin === 'official' && candidate.slot === 'weapon' && candidate.jobs.includes(job) && candidate.weaponDelayMs > 0
   );
+  const useStoredCaps = item?.origin === 'official' || item?.customData?.mode === 'meldable-base';
+  const capFor = (stat: StatKey) =>
+    useStoredCaps ? item?.statCaps[stat] ?? item?.stats[stat] ?? 0 : item?.stats[stat] ?? 0;
   return {
     slot,
     name: item?.name ?? `Hypothetical ${profile.role} item`,
+    mode: item?.customData?.mode ?? 'final-stats',
+    level: String(item?.level ?? 100),
+    expansionId: item?.customData?.expansionId ?? gearSnapshot.registry.expansions.at(-1)!.id,
     itemLevel: String(item?.itemLevel ?? 790),
     mainStat: String(item?.stats[profile.mainStat] ?? 500),
+    vitality: String(item?.stats.vitality ?? 500),
     resourceStat: String(profile.resourceStat ? item?.stats[profile.resourceStat] ?? 0 : 0),
     criticalHit: String(item?.stats.criticalHit ?? 300),
     determination: String(item?.stats.determination ?? 200),
     directHit: String(item?.stats.directHit ?? 0),
     speedStat: String(item?.stats[profile.speedStat] ?? 0),
     weaponDamage: String(item?.weaponDamage ?? 158),
-    weaponDelay: ((item?.weaponDelayMs ?? referenceWeapon?.weaponDelayMs ?? 2_800) / 1_000).toFixed(2)
+    weaponDelay: ((item?.weaponDelayMs ?? referenceWeapon?.weaponDelayMs ?? 2_800) / 1_000).toFixed(2),
+    materiaSlots: String(item?.materiaSlots ?? 0),
+    advancedMelding: item?.advancedMelding ?? false,
+    mainStatCap: String(item ? capFor(profile.mainStat) : 500),
+    vitalityCap: String(item ? capFor('vitality') : 500),
+    resourceStatCap: String(profile.resourceStat ? item ? capFor(profile.resourceStat) : 0 : 0),
+    criticalHitCap: String(item ? capFor('criticalHit') : 300),
+    determinationCap: String(item ? capFor('determination') : 300),
+    directHitCap: String(item ? capFor('directHit') : 300),
+    speedStatCap: String(item ? capFor(profile.speedStat) : 300),
+    sourceDescription: item?.customData?.sourceDescription ?? 'User-created hypothetical equipment.',
+    fixedCost: item?.customData?.fixedCost ?? '',
+    notes: item?.customData?.notes ?? '',
+    iconProvenance: item?.customData?.iconProvenance ?? (item?.iconPath || item?.iconUrl ? 'reused-official' : 'generic'),
+    iconUrl: item?.iconUrl ?? '',
+    clonedFromItemId: item?.customData?.clonedFromItemId
   };
 };
 
 const itemMatchesGearSlot = (item: EquipmentItem, slot: GearSlot) =>
   item.slot === slot || (item.slot === 'ring' && (slot === 'ringLeft' || slot === 'ringRight'));
+
+const customItemExceedsAccess = (item: EquipmentItem, expansionId: ExpansionId, level: number) => {
+  if (item.origin !== 'custom') return false;
+  const selectedExpansion = gearSnapshot.registry.expansions.find((entry) => entry.id === expansionId);
+  const itemExpansion = gearSnapshot.registry.expansions.find((entry) => entry.id === item.customData?.expansionId);
+  return item.level > level || Boolean(itemExpansion && selectedExpansion && itemExpansion.order > selectedExpansion.order);
+};
+
+const withHypotheticalAccess = (
+  set: GearSet,
+  customItems: EquipmentItem[],
+  expansionId: ExpansionId,
+  level: number
+): GearSet => {
+  const selectedIds = new Set(Object.values(set.items).map((entry) => String(entry?.itemId)));
+  const inaccessible = customItems.filter((item) => selectedIds.has(String(item.id)) && customItemExceedsAccess(item, expansionId, level));
+  if (inaccessible.length === 0) {
+    const { hypotheticalAccess: _removed, ...normal } = set;
+    return normal;
+  }
+  return {
+    ...set,
+    hypotheticalAccess: {
+      itemIds: inaccessible.map((item) => item.id),
+      reason: `${inaccessible.map((item) => `${item.name} (${item.customData?.expansionId ?? 'unknown'} · level ${item.level})`).join(', ')} exceeds this build's selected access.`
+    }
+  };
+};
 
 const getCustomItemLimits = (job: CombatJob, slot: GearSlot): CustomItemLimits => {
   const profile = evaluatorProfileFor(job);
@@ -125,6 +199,7 @@ const getCustomItemLimits = (job: CombatJob, slot: GearSlot): CustomItemLimits =
   return {
     itemLevel: limitFor((item) => item.itemLevel, 1),
     mainStat: limitFor((item) => item.stats[profile.mainStat]),
+    vitality: limitFor((item) => item.stats.vitality),
     resourceStat: profile.resourceStat
       ? limitFor((item) => item.stats[profile.resourceStat!])
       : { recorded: 0, minimum: 0, maximum: 0 },
@@ -214,7 +289,17 @@ const defaultConstraints: OptimizerConstraints = {
   allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
   requiredItemIds: [],
   excludedItemIds: [],
-  frontierLimit: 1_800
+  frontierLimit: 1_800,
+  lockedItemIdsBySlot: {},
+  lockedMateriaBySlot: {},
+  gcdMode: 'exact',
+  gcdTargetName: 'Recommended target',
+  foodMode: 'allowed',
+  allowedMateriaStats: [...new Set(gearSnapshot.materia.map((entry) => entry.stat))],
+  allowedMateriaTiers: [...new Set(gearSnapshot.materia.map((entry) => entry.tier))],
+  allowOvermelds: false,
+  allowCustomItems: true,
+  allowExperimentalAccess: false
 };
 
 const findItem = (id: number | string, customItems: EquipmentItem[]) =>
@@ -335,16 +420,20 @@ function StatStrip({ set }: { set: GearSet }) {
 
 function DerivedStatStrip({ set }: { set: GearSet }) {
   const derived = derivedCombatStats(set.metrics.stats);
+  const role = evaluatorProfileFor(set.job).role;
   return (
     <div className="derived-stat-strip" aria-label="Derived combat stat effects">
       <div><span>Critical Hit</span><strong>{percentage(derived.criticalChance)} chance · {percentage(derived.criticalDamage)} damage</strong></div>
       <div><span>Direct Hit</span><strong>{percentage(derived.directChance)} chance · {percentage(derived.directDamage)} damage</strong></div>
       <div><span>Determination</span><strong>+{percentage(derived.determinationIncrease)} damage</strong></div>
+      {role === 'tank' && <div><span>Tenacity</span><strong>+{percentage(derived.tenacityDamageHealingIncrease)} damage/outgoing healing · {percentage(derived.tenacityDamageReduction)} damage reduction</strong></div>}
+      {role === 'healer' && <div><span>Piety</span><strong>{derived.pietyMpPerTick} MP / 3s tick · +{derived.pietyBonusMpPerTick} from Piety</strong></div>}
     </div>
   );
 }
 
 function ResultMethodology({ set, customItems }: { set: GearSet; customItems: EquipmentItem[] }) {
+  const role = evaluatorProfileFor(set.job).role;
   const equippedItems = gearSlotsForJob(set.job)
     .map((slot) => set.items[slot])
     .map((equipped) => equipped ? findItem(equipped.itemId, customItems) : undefined)
@@ -361,10 +450,15 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
         <span><strong>Item data</strong><SafeExternalLink href="https://v2.xivapi.com/docs/welcome/">XIVAPI v2</SafeExternalLink></span>
         <span><strong>Curated influence</strong>{communitySources.length > 0 ? communitySources.map((source) => source.provider).join(' + ') : 'None recorded'}</span>
         <span><strong>Formula reference</strong><SafeExternalLink href="https://xivgear.app/math/">XivGear maths</SafeExternalLink></span>
+        <span><strong>Role-stat reference</strong>{role === 'tank'
+          ? <SafeExternalLink href="https://www.akhmorning.com/allagan-studies/stats/ten/">Allagan Studies · Tenacity</SafeExternalLink>
+          : role === 'healer'
+            ? <SafeExternalLink href="https://www.akhmorning.com/allagan-studies/stats/piety/">Allagan Studies · Piety</SafeExternalLink>
+            : 'Not applicable'}</span>
         <span><strong>Implementation</strong>XIV Gear Lab clean-room proxy</span>
       </div>
       <p>{resultKind}</p>
-      <p className="methodology-caveat">Formula structure is cross-checked against XivGear's published maths page. This implementation and result ranking are XIV Gear Lab-owned. Level/job profile constants do not yet carry component-by-component external citations, so they are labelled internal/unverified rather than attributed to XivGear, Etro or The Balance.</p>
+      <p className="methodology-caveat">Formula structure is cross-checked against XivGear's published maths page; Dawntrail Tenacity and Piety effects use the directly linked Allagan Studies references. This implementation and result ranking are XIV Gear Lab-owned. Remaining level/job profile constants without an exact component citation are labelled internal/unverified rather than attributed to XivGear, Etro or The Balance.</p>
       <div className="methodology-context">
         <code>{set.calculationContext?.snapshotId ?? 'snapshot unknown'}</code>
         <code>{set.calculationContext?.rulesetId ?? 'ruleset unknown'}</code>
@@ -443,6 +537,11 @@ function SetDetails({
               Legacy result · calculation version unknown. Recalculate before treating it as current.
             </span>
           )}
+          {set.hypotheticalAccess && (
+            <span className="hypothetical-warning" data-hypothetical-result>
+              Hypothetical access override · {set.hypotheticalAccess.reason}
+            </span>
+          )}
           {previousSet && (
             <span className="change-legend">
               {gearChanged || foodChanged ? 'Highlighted rows changed since the previous optimisation.' : 'No item, meld, or food changes since the previous optimisation.'}
@@ -489,7 +588,7 @@ function SetDetails({
                   {itemChanged && <span className="previous-item">was {previousItem?.name ?? 'empty'}</span>}
                 </div>
                 <span>
-                  {item ? `i${item.itemLevel} · ${sourceLabel(item.sourceFamily)}` : 'Unresolved'}
+                  {item ? `i${item.itemLevel} · level ${item.level} · ${sourceLabel(item.sourceFamily)}${item.customData ? ` · ${item.customData.mode === 'meldable-base' ? 'meldable base' : 'final stats'} · ${item.customData.expansionId}` : ''}` : 'Unresolved'}
                 </span>
                 {item && (
                   <span className="item-stat-line" data-item-stats title="Final stats contributed by this item after its displayed materia; food and party bonuses are not included">
@@ -514,13 +613,13 @@ function SetDetails({
                       const materia = slot.materia;
                       return (
                         <span
-                          className={`materia-chip ${materia ? '' : 'empty'}`}
+                          className={`materia-chip ${materia ? '' : 'empty'} ${slot.advanced ? 'advanced' : ''}`}
                           key={`${materia?.id ?? 'empty'}-${slot.index}`}
-                          title={materia ? `${materia.name}: ${slot.statLabel} +${slot.applied}${slot.waste > 0 ? ` (${slot.waste} wasted at cap)` : ''}` : `Materia slot ${slot.index + 1}: empty`}
+                          title={materia ? `${slot.advanced ? 'Advanced meld · ' : ''}${materia.name}: ${slot.statLabel} +${slot.applied}${slot.waste > 0 ? ` (${slot.waste} wasted at cap)` : ''}` : `${slot.advanced ? 'Advanced meld' : 'Materia'} slot ${slot.index + 1}: empty`}
                           aria-label={materia ? `Slot ${slot.index + 1}, ${materia.name}, adds ${slot.applied} ${slot.statLabel}` : `Materia slot ${slot.index + 1}, empty`}
                         >
                           <span className="meld-icon">{materia ? <SafeIcon src={materia.iconUrl} /> : <span className="empty-meld-icon" aria-hidden="true">◇</span>}</span>
-                          <small className="materia-key" aria-hidden="true">{materia ? materiaShortKey(materia) : 'Empty'}</small>
+                          <small className="materia-key" aria-hidden="true">{materia ? `${materiaShortKey(materia)}${slot.advanced ? ' · O' : ''}` : 'Empty'}</small>
                           {materia && <small className="materia-contribution" aria-hidden="true">{slot.statLabel} +{slot.applied}</small>}
                         </span>
                       );
@@ -607,6 +706,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const [editingCustomId, setEditingCustomId] = useState<string>();
   const [customJob, setCustomJob] = useState<CombatJob>(initialJobDefinition.id);
   const [customDraft, setCustomDraft] = useState<CustomDraft>(() => createCustomDraft(initialJobDefinition.id));
+  const [customCloneSourceId, setCustomCloneSourceId] = useState<string>('');
   const [allowUnrealisticCustomValues, setAllowUnrealisticCustomValues] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion>();
   const [dataUpdateState, setDataUpdateState] = useState<'idle' | 'checking' | 'error'>('idle');
@@ -701,6 +801,13 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available';
 
   useEffect(() => {
+    const accessChecked = withHypotheticalAccess(selectedSet, customItems, expansion, activeLevel);
+    if (JSON.stringify(accessChecked.hypotheticalAccess) !== JSON.stringify(selectedSet.hypotheticalAccess)) {
+      setSelectedSet(accessChecked);
+    }
+  }, [activeBuildId, activeLevel, expansion, customItems, selectedSet.hypotheticalAccess]);
+
+  useEffect(() => {
     if (jobIsAvailable(jobDefinition) && jobCanOptimize(jobDefinition)) return;
     const fallback = SUPPORTED_JOBS.find((entry) => jobIsAvailable(entry) && jobCanOptimize(entry));
     if (!fallback) return;
@@ -765,18 +872,30 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       setMessage('Choose at least one acquisition source. Even an ethereal orb cannot equip pure optimism.');
       return;
     }
+    const gcdMode = constraints.gcdMode ?? 'exact';
     const parsedGcdTarget = Number(gcdTarget);
-    if (!Number.isFinite(parsedGcdTarget) || parsedGcdTarget < 1.5 || parsedGcdTarget > 2.5) {
+    const requestedMinGcd = gcdMode === 'exact' ? parsedGcdTarget : Number(constraints.minGcd);
+    const requestedMaxGcd = gcdMode === 'exact' ? parsedGcdTarget : Number(constraints.maxGcd);
+    if (
+      !Number.isFinite(requestedMinGcd) || !Number.isFinite(requestedMaxGcd) ||
+      requestedMinGcd < 1.5 || requestedMaxGcd > 2.5 || requestedMinGcd > requestedMaxGcd
+    ) {
       setRunState('error');
-      setMessage('Enter a target GCD between 1.50 and 2.50 seconds. The orb refuses to optimise time itself.');
+      setMessage('Enter a valid GCD target from 1.50 to 2.50 seconds, with the minimum no higher than the maximum. The orb refuses to optimise time itself.');
       return;
     }
     const equippedIds = new Set(Object.values(selectedSet.items).map((entry) => String(entry?.itemId)));
     const activeCustomItems = customItems.filter((item) => equippedIds.has(String(item.id)) && item.jobs.includes(job));
     const optimizerConstraints = {
       ...constraints,
-      minGcd: parsedGcdTarget,
-      maxGcd: parsedGcdTarget,
+      minGcd: requestedMinGcd,
+      maxGcd: requestedMaxGcd,
+      gcdMode,
+      gcdTargetName: gcdMode === 'exact'
+        ? `${requestedMinGcd.toFixed(2)}s target`
+        : `${requestedMinGcd.toFixed(2)}–${requestedMaxGcd.toFixed(2)}s range`,
+      accessExpansion: expansion,
+      accessLevel: activeLevel,
       requiredItemIds: [...new Set([...constraints.requiredItemIds, ...activeCustomItems.map((item) => item.id)])]
     };
 
@@ -919,6 +1038,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       ...draft,
       itemLevel: String(Math.min(Number(draft.itemLevel), limits.itemLevel.maximum)),
       mainStat: String(Math.min(Number(draft.mainStat), limits.mainStat.maximum)),
+      vitality: String(Math.min(Number(draft.vitality), limits.vitality.maximum)),
       resourceStat: String(Math.min(Number(draft.resourceStat), limits.resourceStat.maximum)),
       criticalHit: String(Math.min(Number(draft.criticalHit), limits.criticalHit.maximum)),
       determination: String(Math.min(Number(draft.determination), limits.determination.maximum)),
@@ -926,6 +1046,25 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       speedStat: String(Math.min(Number(draft.speedStat), limits.speedStat.maximum)),
       weaponDamage: String(Math.min(Number(draft.weaponDamage), limits.weaponDamage.maximum)),
       weaponDelay: String(Math.min(limits.weaponDelay.maximum, Math.max(limits.weaponDelay.minimum, Number(draft.weaponDelay))))
+    });
+    setAllowUnrealisticCustomValues(false);
+    setCustomOpen(false);
+    setCustomEditorOpen(true);
+  };
+
+  const startCustomClone = (item: EquipmentItem) => {
+    const itemJob = item.jobs.includes(job) ? job : item.jobs[0] ?? job;
+    const preferredSlot = customPreferredSlots[String(item.id)] ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
+    const draft = createCustomDraft(itemJob, item, preferredSlot);
+    setEditingCustomId(undefined);
+    setCustomJob(itemJob);
+    setCustomDraft({
+      ...draft,
+      name: `${item.name} copy`,
+      clonedFromItemId: item.id,
+      iconProvenance: item.origin === 'official' || item.customData?.iconProvenance === 'reused-official'
+        ? 'reused-official'
+        : item.customData?.iconProvenance ?? 'generic'
     });
     setAllowUnrealisticCustomValues(false);
     setCustomOpen(false);
@@ -942,6 +1081,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const exceedsLimits =
       item.itemLevel > limits.itemLevel.maximum ||
       item.stats[profile.mainStat] > limits.mainStat.maximum ||
+      item.stats.vitality > limits.vitality.maximum ||
       (profile.resourceStat ? item.stats[profile.resourceStat] > limits.resourceStat.maximum : false) ||
       item.stats.criticalHit > limits.criticalHit.maximum ||
       item.stats.determination > limits.determination.maximum ||
@@ -961,16 +1101,16 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   };
 
   const updateCustomDraftField = (
-    field: Exclude<keyof CustomDraft, 'slot'>,
+    field: CustomTextDraftField,
     value: string
   ) => {
     let nextValue = value;
-    if (field !== 'name' && value !== '') {
+    if (CUSTOM_LIMIT_FIELDS.includes(field as CustomLimitField) && value !== '') {
       const parsed = Number(value);
       const absoluteMinimum = field === 'weaponDelay' ? 0.01 : field === 'itemLevel' ? 1 : 0;
       if (Number.isFinite(parsed) && parsed < absoluteMinimum) nextValue = String(absoluteMinimum);
       if (!allowUnrealisticCustomValues && Number.isFinite(parsed)) {
-        nextValue = String(Math.min(customItemLimits[field].maximum, Number(nextValue)));
+        nextValue = String(Math.min(customItemLimits[field as CustomLimitField].maximum, Number(nextValue)));
       }
     }
     setCustomDraft((current) => ({ ...current, [field]: nextValue }));
@@ -989,13 +1129,21 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         slot,
         itemLevel: clamp('itemLevel'),
         mainStat: clamp('mainStat'),
+        vitality: clamp('vitality'),
         resourceStat: clamp('resourceStat'),
         criticalHit: clamp('criticalHit'),
         determination: clamp('determination'),
         directHit: clamp('directHit'),
         speedStat: clamp('speedStat'),
         weaponDamage: clamp('weaponDamage'),
-        weaponDelay: clamp('weaponDelay')
+        weaponDelay: clamp('weaponDelay'),
+        mainStatCap: String(Math.min(Number(current.mainStatCap) || 0, limits.mainStat.maximum)),
+        vitalityCap: String(Math.min(Number(current.vitalityCap) || 0, limits.vitality.maximum)),
+        resourceStatCap: String(Math.min(Number(current.resourceStatCap) || 0, limits.resourceStat.maximum)),
+        criticalHitCap: String(Math.min(Number(current.criticalHitCap) || 0, limits.criticalHit.maximum)),
+        determinationCap: String(Math.min(Number(current.determinationCap) || 0, limits.determination.maximum)),
+        directHitCap: String(Math.min(Number(current.directHitCap) || 0, limits.directHit.maximum)),
+        speedStatCap: String(Math.min(Number(current.speedStatCap) || 0, limits.speedStat.maximum))
       };
     });
   };
@@ -1010,15 +1158,24 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       ));
       return {
         ...current,
+        level: String(Math.min(Number(current.level) || 1, Math.ceil(Math.max(...EXPANSIONS.map((entry) => entry.levelCap)) * 1.2))),
         itemLevel: clamp('itemLevel'),
         mainStat: clamp('mainStat'),
+        vitality: clamp('vitality'),
         resourceStat: clamp('resourceStat'),
         criticalHit: clamp('criticalHit'),
         determination: clamp('determination'),
         directHit: clamp('directHit'),
         speedStat: clamp('speedStat'),
         weaponDamage: clamp('weaponDamage'),
-        weaponDelay: clamp('weaponDelay')
+        weaponDelay: clamp('weaponDelay'),
+        mainStatCap: String(Math.min(Number(current.mainStatCap) || 0, customItemLimits.mainStat.maximum)),
+        vitalityCap: String(Math.min(Number(current.vitalityCap) || 0, customItemLimits.vitality.maximum)),
+        resourceStatCap: String(Math.min(Number(current.resourceStatCap) || 0, customItemLimits.resourceStat.maximum)),
+        criticalHitCap: String(Math.min(Number(current.criticalHitCap) || 0, customItemLimits.criticalHit.maximum)),
+        determinationCap: String(Math.min(Number(current.determinationCap) || 0, customItemLimits.determination.maximum)),
+        directHitCap: String(Math.min(Number(current.directHitCap) || 0, customItemLimits.directHit.maximum)),
+        speedStatCap: String(Math.min(Number(current.speedStatCap) || 0, customItemLimits.speedStat.maximum))
       };
     });
   };
@@ -1036,13 +1193,28 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       weaponDamage: Number(customDraft.weaponDamage),
       weaponDelay: Number(customDraft.weaponDelay)
     };
+    const extendedValues = {
+      level: Number(customDraft.level),
+      vitality: Number(customDraft.vitality),
+      materiaSlots: Number(customDraft.materiaSlots),
+      mainStatCap: Number(customDraft.mainStatCap),
+      vitalityCap: Number(customDraft.vitalityCap),
+      resourceStatCap: Number(customDraft.resourceStatCap),
+      criticalHitCap: Number(customDraft.criticalHitCap),
+      determinationCap: Number(customDraft.determinationCap),
+      directHitCap: Number(customDraft.directHitCap),
+      speedStatCap: Number(customDraft.speedStatCap)
+    };
     if (
       !customDraft.name.trim() ||
       !Object.values(rawNumericValues).every((value) => Number.isFinite(value) && value >= 0) ||
+      !Object.values(extendedValues).every((value) => Number.isFinite(value) && value >= 0) ||
       rawNumericValues.itemLevel < 1 ||
+      extendedValues.level < 1 ||
+      !Number.isInteger(extendedValues.materiaSlots) || extendedValues.materiaSlots > 5 ||
       (customDraft.slot === 'weapon' && rawNumericValues.weaponDelay <= 0)
     ) {
-      setMessage('Give the custom item a name, use valid non-negative stats, and use a weapon delay above zero.');
+      setMessage('Give the custom item a name, use valid non-negative values, keep materia slots from 0 to 5, and use a weapon delay above zero.');
       return;
     }
     const numericValues = allowUnrealisticCustomValues
@@ -1053,9 +1225,22 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           return [field, Math.min(limit.maximum, Math.max(limit.minimum, value))];
         })
       ) as typeof rawNumericValues;
+    const safeExtendedValues = allowUnrealisticCustomValues ? extendedValues : {
+      ...extendedValues,
+      level: Math.min(extendedValues.level, Math.ceil(Math.max(...EXPANSIONS.map((entry) => entry.levelCap)) * 1.2)),
+      vitality: Math.min(extendedValues.vitality, customItemLimits.vitality.maximum),
+      mainStatCap: Math.min(extendedValues.mainStatCap, customItemLimits.mainStat.maximum),
+      vitalityCap: Math.min(extendedValues.vitalityCap, customItemLimits.vitality.maximum),
+      resourceStatCap: Math.min(extendedValues.resourceStatCap, customItemLimits.resourceStat.maximum),
+      criticalHitCap: Math.min(extendedValues.criticalHitCap, customItemLimits.criticalHit.maximum),
+      determinationCap: Math.min(extendedValues.determinationCap, customItemLimits.determination.maximum),
+      directHitCap: Math.min(extendedValues.directHitCap, customItemLimits.directHit.maximum),
+      speedStatCap: Math.min(extendedValues.speedStatCap, customItemLimits.speedStat.maximum)
+    };
 
     const stats = emptyStats();
     stats[customEvaluatorProfile.mainStat] = numericValues.mainStat;
+    stats.vitality = safeExtendedValues.vitality;
     if (customEvaluatorProfile.resourceStat) {
       stats[customEvaluatorProfile.resourceStat] = numericValues.resourceStat;
     }
@@ -1063,34 +1248,59 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     stats.determination = numericValues.determination;
     stats.directHit = numericValues.directHit;
     stats[customEvaluatorProfile.speedStat] = numericValues.speedStat;
+    const statCaps = emptyStats();
+    statCaps[customEvaluatorProfile.mainStat] = Math.max(numericValues.mainStat, safeExtendedValues.mainStatCap);
+    statCaps.vitality = Math.max(safeExtendedValues.vitality, safeExtendedValues.vitalityCap);
+    if (customEvaluatorProfile.resourceStat) statCaps[customEvaluatorProfile.resourceStat] = Math.max(numericValues.resourceStat, safeExtendedValues.resourceStatCap);
+    statCaps.criticalHit = Math.max(numericValues.criticalHit, safeExtendedValues.criticalHitCap);
+    statCaps.determination = Math.max(numericValues.determination, safeExtendedValues.determinationCap);
+    statCaps.directHit = Math.max(numericValues.directHit, safeExtendedValues.directHitCap);
+    statCaps[customEvaluatorProfile.speedStat] = Math.max(numericValues.speedStat, safeExtendedValues.speedStatCap);
     const editingItem = editingCustomId
       ? customItems.find((item) => String(item.id) === editingCustomId)
       : undefined;
+    const cloneSource = customDraft.clonedFromItemId === undefined
+      ? undefined
+      : [...gearSnapshot.items, ...customItems].find((item) => String(item.id) === String(customDraft.clonedFromItemId));
     const customSlot = customDraft.slot;
+    const isMeldable = customDraft.mode === 'meldable-base';
     const custom: EquipmentItem = {
       id: editingItem?.id ?? `custom-${Date.now()}`,
       origin: 'custom',
       name: customDraft.name.trim(),
       slot: customSlot === 'ringLeft' || customSlot === 'ringRight' ? 'ring' : customSlot,
-      level: 100,
+      level: Math.round(safeExtendedValues.level),
       itemLevel: numericValues.itemLevel,
+      iconPath: customDraft.iconProvenance === 'reused-official' ? cloneSource?.iconPath ?? editingItem?.iconPath : undefined,
+      iconUrl: customDraft.iconProvenance === 'user' ? customDraft.iconUrl : customDraft.iconProvenance === 'reused-official' ? cloneSource?.iconUrl ?? editingItem?.iconUrl : undefined,
       stats,
-      statCaps: zeroCaps(),
+      statCaps: isMeldable ? statCaps : zeroCaps(),
       weaponDamage: customSlot === 'weapon' ? numericValues.weaponDamage : 0,
       weaponDelayMs: customSlot === 'weapon' ? Math.round(numericValues.weaponDelay * 1_000) : 0,
-      materiaSlots: 0,
-      advancedMelding: false,
+      materiaSlots: isMeldable ? safeExtendedValues.materiaSlots : 0,
+      advancedMelding: isMeldable && customDraft.advancedMelding,
       unique: customSlot === 'ringLeft' || customSlot === 'ringRight',
-      jobs: editingItem?.jobs ?? [customJob],
+      jobs: [customJob],
       sourceFamily: 'custom',
-      acquisitionNote: 'Local hypothetical item.',
+      acquisitionNote: customDraft.sourceDescription.trim() || 'Local hypothetical item.',
       provenance: editingItem?.provenance ?? [{
         kind: 'custom',
         provider: 'Local user data',
         schemaVersion: 'custom-item@1',
         retrievedAt: new Date().toISOString(),
         status: 'custom'
-      }]
+      }],
+      customData: {
+        schemaVersion: 'custom-equipment@1',
+        mode: customDraft.mode,
+        role: customEvaluatorProfile.role,
+        expansionId: customDraft.expansionId,
+        sourceDescription: customDraft.sourceDescription.trim(),
+        fixedCost: customDraft.fixedCost.trim(),
+        notes: customDraft.notes.trim(),
+        iconProvenance: customDraft.iconProvenance,
+        ...(customDraft.clonedFromItemId === undefined ? {} : { clonedFromItemId: customDraft.clonedFromItemId })
+      }
     };
 
     try {
@@ -1119,6 +1329,29 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           if (oldFallback) equippedItems[equippedSlot] = oldFallback;
           else delete equippedItems[equippedSlot];
 
+          const buildLevel = effectiveLevel(gearSnapshot.registry, build.expansion, build.level);
+          const exceedsBuildAccess = customItemExceedsAccess(custom, build.expansion, buildLevel);
+          if (!custom.jobs.includes(build.job) || (exceedsBuildAccess && !build.constraints.allowExperimentalAccess)) {
+            delete nextFallbacks[String(custom.id)];
+            const restoredSet = withHypotheticalAccess(recalculateWithCustomItems({
+              ...build.selectedSet,
+              id: `custom-set-${buildId}-${Date.now()}`,
+              items: equippedItems,
+              assumptions: build.selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`),
+              hypotheticalAccess: undefined
+            }, nextItems), nextItems, build.expansion, buildLevel);
+            return [buildId, {
+              ...build,
+              selectedSet: restoredSet,
+              customFallbacks: nextFallbacks,
+              result: undefined,
+              previousOptimizedSet: undefined,
+              runState: 'idle',
+              message: `${custom.name} changed compatibility or access and was safely unequipped from this build.`,
+              updatedAt: new Date().toISOString()
+            }];
+          }
+
           const targetEquipped = equippedItems[customSlot];
           const targetCustom = targetEquipped
             ? nextItems.find((item) => String(item.id) === String(targetEquipped.itemId))
@@ -1138,9 +1371,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
               `Custom override in ${slotLabel[customSlot]}.`
             ]
           };
+          const recalculated = recalculateWithCustomItems(updatedSet, nextItems);
           return [buildId, {
             ...build,
-            selectedSet: recalculateWithCustomItems(updatedSet, nextItems),
+            selectedSet: withHypotheticalAccess(recalculated, nextItems, build.expansion, buildLevel),
             customFallbacks: nextFallbacks,
             result: undefined,
             previousOptimizedSet: undefined,
@@ -1165,6 +1399,14 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       ? customFallbacks[String(replacedCustom.id)]?.equipped
       : currentEquipped;
     const nextItems = [...customItems, custom];
+    const exceedsAccess = customItemExceedsAccess(custom, expansion, activeLevel);
+    if (exceedsAccess && !constraints.allowExperimentalAccess) {
+      setCustomItems(nextItems);
+      setCustomEditorOpen(false);
+      setEditingCustomId(undefined);
+      setMessage(`${custom.name} was saved to the library but not equipped because it exceeds this build's expansion or level. Enable the experimental access override to use it.`);
+      return;
+    }
     const replaced: GearSet = {
       ...selectedSet,
       id: `custom-set-${Date.now()}`,
@@ -1175,7 +1417,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     };
     setCustomItems(nextItems);
     setCustomFallbacks((current) => ({ ...current, [String(custom.id)]: { slot: customSlot, equipped: fallback } }));
-    setSelectedSet(recalculateWithCustomItems(replaced, nextItems));
+    setSelectedSet(withHypotheticalAccess(recalculateWithCustomItems(replaced, nextItems), nextItems, expansion, activeLevel));
     setResult(undefined);
     setPreviousOptimizedSet(undefined);
     setCustomEditorOpen(false);
@@ -1187,6 +1429,11 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     stopPendingOptimizationForCustomChange();
     if (!item.jobs.includes(job)) {
       setMessage(`${item.name} belongs to ${item.jobs.join('/')} and cannot be applied to ${job}.`);
+      return;
+    }
+    const exceedsAccess = customItemExceedsAccess(item, expansion, activeLevel);
+    if (exceedsAccess && !constraints.allowExperimentalAccess) {
+      setMessage(`${item.name} exceeds this build's expansion or effective level. Enable the experimental access override before applying it.`);
       return;
     }
     const slot = customFallbacks[String(item.id)]?.slot ?? customPreferredSlots[String(item.id)] ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
@@ -1204,7 +1451,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       items: { ...selectedSet.items, [slot]: { itemId: item.id, materiaIds: [] } }
     };
     setCustomFallbacks((current) => ({ ...current, [String(item.id)]: { slot, equipped: fallback } }));
-    setSelectedSet(recalculateWithCustomItems(replaced, customItems));
+    setSelectedSet(withHypotheticalAccess(recalculateWithCustomItems(replaced, customItems), customItems, expansion, activeLevel));
     setResult(undefined);
     setPreviousOptimizedSet(undefined);
     setCustomOpen(false);
@@ -1232,7 +1479,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       items: equippedItems,
       assumptions: selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`)
     };
-    setSelectedSet(recalculateWithCustomItems(restored, customItems));
+    setSelectedSet(withHypotheticalAccess(recalculateWithCustomItems(restored, customItems), customItems, expansion, activeLevel));
     setCustomFallbacks((current) => ({
       ...current,
       [String(item.id)]: { slot: equippedSlot }
@@ -1246,6 +1493,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const usedBySavedSet = savedSets.some((set) =>
       Object.values(set.items).some((entry) => String(entry?.itemId) === String(item.id))
     );
+    if (usedBySavedSet) {
+      setMessage(`${item.name} is retained because a saved set references it. Delete those saved sets first, then delete the custom item.`);
+      return;
+    }
     const usedByBuildNames = workspaceBuildsUsingItem(workspaceState, item.id).map((build) => build.name);
     setPendingDeletion({ kind: 'custom-item', item, usedBySavedSet, usedByBuildNames });
   };
@@ -1284,7 +1535,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         };
         return [buildId, {
           ...build,
-          selectedSet: recalculateWithCustomItems(restored, nextItems),
+          selectedSet: withHypotheticalAccess(
+            recalculateWithCustomItems(restored, nextItems),
+            nextItems,
+            build.expansion,
+            effectiveLevel(gearSnapshot.registry, build.expansion, build.level)
+          ),
           customFallbacks: nextFallbacks,
           result: undefined,
           previousOptimizedSet: undefined,
@@ -1470,7 +1726,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     key={buildId}
                   >
                     <strong>{build.name}</strong>
-                    <span>{build.job} · {build.gcdTarget}s · {formatNumber.format(build.selectedSet.metrics.expectedAction100)}</span>
+                    <span>{build.job} · {(build.constraints.gcdMode ?? 'exact') === 'range' ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s` : `${build.gcdTarget}s`} · {formatNumber.format(build.selectedSet.metrics.expectedAction100)}{build.selectedSet.hypotheticalAccess ? ' · HYPOTHETICAL' : ''}</span>
                   </button>
                 );
               })}
@@ -1535,27 +1791,29 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     <small>{jobDefinition.name}: {evaluatorProfile.objective} {evaluatorProfile.limitation}</small>
                   </label>
                   <div className="control-field gcd-control">
-                    <label htmlFor="gcd-target">Target GCD</label>
-                    <div className="gcd-input-wrap">
-                      <input
-                        id="gcd-target"
-                        type="number"
-                        inputMode="decimal"
-                        min="1.5"
-                        max="2.5"
-                        step="0.01"
-                        value={gcdTarget}
-                        onChange={(event) => setGcdTarget(event.target.value)}
-                      />
-                      <span>seconds</span>
-                    </div>
+                    <label htmlFor="gcd-mode">Target type</label>
+                    <select id="gcd-mode" value={constraints.gcdMode ?? 'exact'} onChange={(event) => setConstraints((current) => ({ ...current, gcdMode: event.target.value as 'exact' | 'range' }))}>
+                      <option value="exact">Exact GCD</option>
+                      <option value="range">Minimum / maximum range</option>
+                    </select>
+                    {(constraints.gcdMode ?? 'exact') === 'exact' ? (
+                      <div className="gcd-input-wrap">
+                        <input id="gcd-target" aria-label="Exact target GCD" type="number" inputMode="decimal" min="1.5" max="2.5" step="0.01" value={gcdTarget} onChange={(event) => setGcdTarget(event.target.value)} />
+                        <span>seconds</span>
+                      </div>
+                    ) : (
+                      <div className="gcd-range-inputs">
+                        <label>Minimum<input aria-label="Minimum GCD" type="number" min="1.5" max="2.5" step="0.01" value={constraints.minGcd} onChange={(event) => setConstraints((current) => ({ ...current, minGcd: Number(event.target.value) }))} /></label>
+                        <label>Maximum<input aria-label="Maximum GCD" type="number" min="1.5" max="2.5" step="0.01" value={constraints.maxGcd} onChange={(event) => setConstraints((current) => ({ ...current, maxGcd: Number(event.target.value) }))} /></label>
+                      </div>
+                    )}
                     <small>Target state: {jobDefinition.timingEffects.find((effect) => effect.id === jobDefinition.targetTimingEffectId)?.name ?? 'base GCD'}. Base and effective GCD are displayed separately.</small>
                     <div className="gcd-suggestions" aria-label="Recommended GCD targets">
                       {jobDefinition.recommendedGcdTargets.map((target) => (
-                        <button type="button" onClick={() => setGcdTarget(target.toFixed(2))} key={target}>{target.toFixed(2)}s</button>
+                        <button type="button" onClick={() => { setGcdTarget(target.toFixed(2)); setConstraints((current) => ({ ...current, gcdMode: 'exact' })); }} key={target}>{target.toFixed(2)}s</button>
                       ))}
                     </div>
-                    <small>If the exact target is impossible, the closest attainable meld plan is shown and labelled.</small>
+                    <small>{(constraints.gcdMode ?? 'exact') === 'exact' ? 'If the exact target is impossible, the closest attainable meld plan is shown and labelled.' : 'Ranges are strict. If none can be reached, the optimiser explains which restriction to relax.'}</small>
                   </div>
                   {evaluatorProfile.resourceStat && <label>Minimum {evaluatorProfile.resourceLabel}
                     <input type="number" min={evaluatorProfile.baseStats[evaluatorProfile.resourceStat]} step="10" value={constraints.minResource} onChange={(event) => setConstraints((current) => ({ ...current, minResource: Number(event.target.value) }))} />
@@ -1580,6 +1838,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                       <p className="source-warning">Savage alone has only one unique ring in this prototype pool. Add Tomestone gear to fill both ring slots.</p>
                     )}
                   </fieldset>
+
+                  <OptimizerRules
+                    constraints={constraints}
+                    onChange={setConstraints}
+                    job={job}
+                    snapshot={gearSnapshot}
+                    customItems={customItems}
+                    selectedSet={selectedSet}
+                  />
 
                   <div className={`run-message ${runState}`} role="status"><span aria-hidden="true">{runState === 'running' ? '◌' : runState === 'error' ? '!' : '✓'}</span><p>{message}</p></div>
                   {result?.explanation.map((line) => <p className="explanation" key={line}>{line}</p>)}
@@ -1627,6 +1894,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     <span className="source-pill">Saved locally</span>
                     <h2>{set.name}</h2>
                     {set.legacyCalculationContext && <p className="source-warning">Legacy result · calculation version unknown</p>}
+                    {set.hypotheticalAccess && <p className="source-warning">Hypothetical access override · {set.hypotheticalAccess.reason}</p>}
                     <StatStrip set={set} />
                     <strong>Open set →</strong>
                   </button>
@@ -1643,7 +1911,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           <div className="about-grid">
             <article><p className="eyebrow">Official client data</p><h2>XIVAPI v2</h2><p>Items, stats, slots and icons are cached from version <code>{gearSnapshot.manifest.xivapiVersion}</code> using schema <code>{gearSnapshot.manifest.xivapiSchema}</code>.</p><SafeExternalLink href="https://v2.xivapi.com/docs/welcome/">Provider documentation ↗</SafeExternalLink></article>
             <article><p className="eyebrow">Community references</p><h2>Etro + The Balance</h2><p>Sixty final-tier recommendations across all 21 standard combat jobs retain exact source links. Fifty-one exact Etro/Balance overlaps are cross-attributed instead of duplicated; genuinely different source variants remain separate.</p><SafeExternalLink href="https://etro.gg/api/docs/">Etro API ↗</SafeExternalLink> · <SafeExternalLink href="https://www.thebalanceffxiv.com/jobs/">The Balance job guides ↗</SafeExternalLink></article>
-            <article><p className="eyebrow">Calculation</p><h2>Transparent evaluator profiles</h2><p>XivGear's published maths page is an external formula reference. The clean-room implementation, profile assembly and optimiser ranking are XIV Gear Lab-owned. Profile constants without an exact component citation are explicitly treated as internal/unverified rather than conveniently credited to a hosting platform.</p><SafeExternalLink href="https://xivgear.app/math/">XivGear maths reference ↗</SafeExternalLink></article>
+            <article><p className="eyebrow">Calculation</p><h2>Transparent evaluator profiles</h2><p>XivGear's published maths page is the general external formula reference; Dawntrail Tenacity and Piety effects are cross-checked directly against Allagan Studies. The clean-room implementation, profile assembly and optimiser ranking are XIV Gear Lab-owned. Uncited profile constants remain internal/unverified.</p><SafeExternalLink href="https://xivgear.app/math/">XivGear maths ↗</SafeExternalLink> · <SafeExternalLink href="https://www.akhmorning.com/allagan-studies/stats/ten/">Tenacity formula ↗</SafeExternalLink> · <SafeExternalLink href="https://www.akhmorning.com/allagan-studies/stats/piety/">Piety formula ↗</SafeExternalLink></article>
             <article><p className="eyebrow">Rights</p><h2>Public, non-commercial preview</h2><p>FINAL FANTASY XIV © SQUARE ENIX CO., LTD. FINAL FANTASY is a registered trademark of Square Enix Holdings Co., Ltd. XIV Gear Lab is an unfinished fan project and is not affiliated with or endorsed by Square Enix. FFXIV materials are used under the Materials Usage License; monetisation is not permitted.</p><SafeExternalLink href="https://support.na.square-enix.com/rule.php?id=5382&la=1&tag=authc">Materials usage licence ↗</SafeExternalLink></article>
           </div>
         )}
@@ -1682,6 +1950,24 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           <div className="modal custom-library" role="dialog" aria-modal="true" aria-labelledby="custom-library-title" data-custom-library>
             <div><p className="eyebrow">Shared local hypothetical gear</p><h2 id="custom-library-title">Custom items</h2><p>The library is shared. Apply state and replaced-item memory remain independent in each build; Apply currently targets {activeBuild.name}.</p></div>
             <button type="button" className="primary custom-library-create" data-custom-new onClick={startCustomCreate}>+ Create new item</button>
+            <div className="custom-clone-official">
+              <label>Clone an official {job} item
+                <select value={customCloneSourceId} onChange={(event) => setCustomCloneSourceId(event.target.value)}>
+                  <option value="">Choose an item…</option>
+                  {officialCloneItemGroups(gearSnapshot.items, job).map((group) => (
+                    <optgroup label={group.label} key={group.slot}>
+                      {group.items.map((item) => (
+                        <option value={item.id} key={item.id}>i{item.itemLevel} · {equipmentSourceLabel(item.sourceFamily)} · {item.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="ghost compact" disabled={!customCloneSourceId} onClick={() => {
+                const source = gearSnapshot.items.find((item) => String(item.id) === customCloneSourceId);
+                if (source) startCustomClone(source);
+              }}>Clone</button>
+            </div>
 
             {customItems.length === 0 ? (
               <div className="custom-library-empty"><span>◇</span><p>No custom items yet.</p></div>
@@ -1700,7 +1986,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     <article className="custom-item-row" data-custom-item={item.id} key={item.id}>
                       <div>
                         <strong>{item.name}</strong>
-                        <span>{item.jobs.join('/')} · i{item.itemLevel} · {equippedIn.length > 0 ? `active in ${equippedIn.join(', ')}` : `preferred ${slotLabel[preferredSlot]}`}</span>
+                        <span>{item.jobs.join('/')} · i{item.itemLevel} · {item.customData?.mode === 'meldable-base' ? `${item.materiaSlots} slots${item.advancedMelding ? ' + overmeld' : ''}` : 'final stats'} · {equippedIn.length > 0 ? `active in ${equippedIn.join(', ')}` : `preferred ${slotLabel[preferredSlot]}`}</span>
                       </div>
                       <div className="custom-item-actions">
                         <button
@@ -1713,6 +1999,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                           {equippedSlot ? 'Applied' : compatible ? 'Apply' : `Requires ${item.jobs.join('/')}`}
                         </button>
                         <button type="button" className="ghost compact" data-library-custom-edit={item.id} onClick={() => startCustomEdit(item)}>Edit</button>
+                        <button type="button" className="ghost compact" data-library-custom-duplicate={item.id} onClick={() => startCustomClone(item)}>Duplicate</button>
                         <button type="button" className="danger compact" data-library-custom-delete={item.id} onClick={() => requestCustomItemDeletion(item)}>Delete</button>
                       </div>
                     </article>
@@ -1740,12 +2027,19 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
               </select>
             </label>
             <label>Name<input name="name" value={customDraft.name} onChange={(event) => updateCustomDraftField('name', event.target.value)} required /></label>
+            <div className="field-grid custom-identity-fields">
+              <label>Job<select value={customJob} onChange={(event) => setCustomJob(event.target.value as CombatJob)}>{SUPPORTED_JOBS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</select><small>Role: {customEvaluatorProfile.role}</small></label>
+              <label>Mode<select data-custom-mode value={customDraft.mode} onChange={(event) => setCustomDraft((current) => ({ ...current, mode: event.target.value as CustomDraft['mode'] }))}><option value="final-stats">Final-stat item</option><option value="meldable-base">Meldable base item</option></select><small>{customDraft.mode === 'final-stats' ? 'Stats already include any imagined melds.' : 'The optimiser may add legal materia up to the caps.'}</small></label>
+              <label>Required level<input data-custom-level type="number" min="1" max={allowUnrealisticCustomValues ? undefined : Math.ceil(Math.max(...EXPANSIONS.map((entry) => entry.levelCap)) * 1.2)} value={customDraft.level} onChange={(event) => updateCustomDraftField('level', event.target.value)} required /></label>
+              <label>Expansion<select data-custom-expansion value={customDraft.expansionId} onChange={(event) => updateCustomDraftField('expansionId', event.target.value)}>{EXPANSIONS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</select></label>
+            </div>
             <div className="custom-limit-summary">
               Each field shows the highest value recorded on a current official {customJob} item for this slot and the maximum allowed value after the 20% buffer. Larger entries are clamped automatically.
             </div>
             <div className="field-grid">
               <label>Item level<input name="itemLevel" type="number" value={customDraft.itemLevel} onChange={(event) => updateCustomDraftField('itemLevel', event.target.value)} min="1" max={allowUnrealisticCustomValues ? undefined : customItemLimits.itemLevel.maximum} required /><small>Highest recorded {customItemLimits.itemLevel.recorded} | maximum {customItemLimits.itemLevel.maximum}</small></label>
               <label>{customEvaluatorProfile.mainStatLabel}<input name={customEvaluatorProfile.mainStat} data-custom-main-stat type="number" value={customDraft.mainStat} onChange={(event) => updateCustomDraftField('mainStat', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.mainStat.maximum} required /><small>Highest recorded {customItemLimits.mainStat.recorded} | maximum {customItemLimits.mainStat.maximum}</small></label>
+              <label>Vitality<input name="vitality" type="number" value={customDraft.vitality} onChange={(event) => updateCustomDraftField('vitality', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.vitality.maximum} required /><small>Highest recorded {customItemLimits.vitality.recorded} | maximum {customItemLimits.vitality.maximum}</small></label>
               {customEvaluatorProfile.resourceStat && <label>{customEvaluatorProfile.resourceLabel}<input name={customEvaluatorProfile.resourceStat} data-custom-resource-stat type="number" value={customDraft.resourceStat} onChange={(event) => updateCustomDraftField('resourceStat', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.resourceStat.maximum} required /><small>Highest recorded {customItemLimits.resourceStat.recorded} | maximum {customItemLimits.resourceStat.maximum}</small></label>}
               <label>Critical Hit<input name="criticalHit" type="number" value={customDraft.criticalHit} onChange={(event) => updateCustomDraftField('criticalHit', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.criticalHit.maximum} required /><small>Highest recorded {customItemLimits.criticalHit.recorded} | maximum {customItemLimits.criticalHit.maximum}</small></label>
               <label>Determination<input name="determination" type="number" value={customDraft.determination} onChange={(event) => updateCustomDraftField('determination', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.determination.maximum} required /><small>Highest recorded {customItemLimits.determination.recorded} | maximum {customItemLimits.determination.maximum}</small></label>
@@ -1758,6 +2052,37 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                 <label>Weapon delay (seconds)<input name="weaponDelay" data-custom-weapon-delay type="number" step="0.01" value={customDraft.weaponDelay} onChange={(event) => updateCustomDraftField('weaponDelay', event.target.value)} min={allowUnrealisticCustomValues ? 0.01 : customItemLimits.weaponDelay.minimum} max={allowUnrealisticCustomValues ? undefined : customItemLimits.weaponDelay.maximum} required /><small>Fastest recorded {customItemLimits.weaponDelay.recorded.toFixed(2)}s | minimum {customItemLimits.weaponDelay.minimum.toFixed(2)}s</small></label>
               </div>
             )}
+            {customDraft.mode === 'meldable-base' && (
+              <section className="custom-melding-fields">
+                <div><p className="eyebrow">Meldable base</p><h3>Slots and stat caps</h3><p>Caps are final ceilings. Materia that would exceed one records the unused amount as waste.</p></div>
+                <div className="field-grid">
+                  <label>Guaranteed materia slots<input data-custom-materia-slots type="number" min="0" max="5" step="1" value={customDraft.materiaSlots} onChange={(event) => updateCustomDraftField('materiaSlots', event.target.value)} required /></label>
+                  <label className="check-row"><input type="checkbox" checked={customDraft.advancedMelding} onChange={(event) => setCustomDraft((current) => ({ ...current, advancedMelding: event.target.checked }))} /><span><strong>Advanced melding allowed</strong><small>Permits extra slots only when the build constraint also allows overmelding.</small></span></label>
+                  <label>{customEvaluatorProfile.mainStatLabel} cap<input type="number" min={customDraft.mainStat} max={allowUnrealisticCustomValues ? undefined : customItemLimits.mainStat.maximum} value={customDraft.mainStatCap} onChange={(event) => updateCustomDraftField('mainStatCap', event.target.value)} /></label>
+                  <label>Vitality cap<input type="number" min={customDraft.vitality} max={allowUnrealisticCustomValues ? undefined : customItemLimits.vitality.maximum} value={customDraft.vitalityCap} onChange={(event) => updateCustomDraftField('vitalityCap', event.target.value)} /></label>
+                  {customEvaluatorProfile.resourceStat && <label>{customEvaluatorProfile.resourceLabel} cap<input type="number" min={customDraft.resourceStat} max={allowUnrealisticCustomValues ? undefined : customItemLimits.resourceStat.maximum} value={customDraft.resourceStatCap} onChange={(event) => updateCustomDraftField('resourceStatCap', event.target.value)} /></label>}
+                  <label>Critical Hit cap<input type="number" min={customDraft.criticalHit} max={allowUnrealisticCustomValues ? undefined : customItemLimits.criticalHit.maximum} value={customDraft.criticalHitCap} onChange={(event) => updateCustomDraftField('criticalHitCap', event.target.value)} /></label>
+                  <label>Determination cap<input type="number" min={customDraft.determination} max={allowUnrealisticCustomValues ? undefined : customItemLimits.determination.maximum} value={customDraft.determinationCap} onChange={(event) => updateCustomDraftField('determinationCap', event.target.value)} /></label>
+                  <label>Direct Hit cap<input type="number" min={customDraft.directHit} max={allowUnrealisticCustomValues ? undefined : customItemLimits.directHit.maximum} value={customDraft.directHitCap} onChange={(event) => updateCustomDraftField('directHitCap', event.target.value)} /></label>
+                  <label>{customEvaluatorProfile.speedStatLabel} cap<input type="number" min={customDraft.speedStat} max={allowUnrealisticCustomValues ? undefined : customItemLimits.speedStat.maximum} value={customDraft.speedStatCap} onChange={(event) => updateCustomDraftField('speedStatCap', event.target.value)} /></label>
+                </div>
+              </section>
+            )}
+            <section className="custom-description-fields">
+              <label>Source category<input value="Custom / hypothetical" readOnly /></label>
+              <label>Source description<input data-custom-source-description value={customDraft.sourceDescription} onChange={(event) => updateCustomDraftField('sourceDescription', event.target.value)} placeholder="Where this hypothetical item would come from" /></label>
+              <label>Fixed cost<input value={customDraft.fixedCost} onChange={(event) => updateCustomDraftField('fixedCost', event.target.value)} placeholder="Optional plain-language cost" /></label>
+              <label>Notes<textarea rows={3} value={customDraft.notes} onChange={(event) => updateCustomDraftField('notes', event.target.value)} /></label>
+              <label>Icon source<select value={customDraft.iconProvenance} onChange={(event) => setCustomDraft((current) => ({ ...current, iconProvenance: event.target.value as CustomDraft['iconProvenance'], iconUrl: event.target.value === 'user' ? current.iconUrl : '' }))}><option value="generic">Generic custom icon</option><option value="user">User image</option>{customDraft.clonedFromItemId !== undefined && <option value="reused-official">Reuse cloned item icon</option>}</select></label>
+              {customDraft.iconProvenance === 'user' && <label>Icon image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                if (file.size > 512_000) { setMessage('Custom icons must be 500 KB or smaller.'); return; }
+                const reader = new FileReader();
+                reader.onload = () => setCustomDraft((current) => ({ ...current, iconUrl: String(reader.result ?? '') }));
+                reader.readAsDataURL(file);
+              }} /><small>PNG, JPEG or WebP · maximum 500 KB · stored only on this device</small></label>}
+            </section>
             <label className={`check-row custom-limit-toggle ${allowUnrealisticCustomValues ? 'enabled' : ''}`}>
               <input type="checkbox" data-custom-unrealistic-toggle checked={allowUnrealisticCustomValues} onChange={(event) => toggleUnrealisticCustomValues(event.target.checked)} />
               <span><strong>Allow unrealistic values</strong><small>Values outside the standard limits—including unusually low weapon delay—can produce absurd calculations and may break the UI.</small></span>

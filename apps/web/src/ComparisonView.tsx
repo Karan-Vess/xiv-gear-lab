@@ -117,6 +117,7 @@ export function ComparisonView({
   const metricRows: MetricRow[] = [
     { label: 'Job', value: (build) => `${build.job} · ${snapshot.registry.jobs.find((job) => job.id === build.job)?.role ?? 'unknown role'}` },
     { label: 'Result', value: (build) => `${build.selectedSet.name} · ${build.selectedSet.origin}` },
+    { label: 'Access confidence', value: (build) => build.selectedSet.hypotheticalAccess ? `Hypothetical · ${build.selectedSet.hypotheticalAccess.reason}` : 'Within selected access' },
     { label: 'Evaluation', value: (build) => build.selectedSet.evaluation?.objective ?? 'Calculation version unknown' },
     { label: 'Expected single 100-potency hit', value: (build) => formatNumber.format(build.selectedSet.metrics.expectedAction100) },
     {
@@ -147,9 +148,21 @@ export function ComparisonView({
     },
     {
       label: 'MP regeneration',
-      value: (build) => getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles).role === 'healer'
-        ? 'Not modelled yet · compare Piety'
-        : 'Not applicable'
+      value: (build) => {
+        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        if (profile.role !== 'healer') return 'Not applicable';
+        const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+        return `${derived.pietyMpPerTick} MP / 3s tick · +${derived.pietyBonusMpPerTick} from Piety`;
+      }
+    },
+    {
+      label: 'Tenacity outcome',
+      value: (build) => {
+        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        if (profile.role !== 'tank') return 'Not applicable';
+        const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+        return `+${percentage(derived.tenacityDamageHealingIncrease)} damage/outgoing healing · ${percentage(derived.tenacityDamageReduction)} damage reduction`;
+      }
     },
     { label: 'Critical Hit', value: (build) => formatNumber.format(build.selectedSet.metrics.stats.criticalHit) },
     { label: 'Critical Hit outcome', value: (build) => {
@@ -193,7 +206,9 @@ export function ComparisonView({
     { label: 'Food', value: (build) => foodName(build.selectedSet, snapshot) },
     { label: 'Materia', value: (build) => `${materiaCount(build.selectedSet)} melds · ${formatNumber.format(build.selectedSet.metrics.materiaWaste)} waste` },
     { label: 'Allowed sources', value: sourceSummary },
-    { label: 'Target GCD', value: (build) => `${build.gcdTarget}s · ${timingFor(build.selectedSet, snapshot).target.name} state` },
+    { label: 'Target GCD', value: (build) => build.constraints.gcdMode === 'range'
+      ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s range`
+      : `${build.gcdTarget}s · ${timingFor(build.selectedSet, snapshot).target.name} state` },
     {
       label: 'Minimum resource',
       value: (build) => {

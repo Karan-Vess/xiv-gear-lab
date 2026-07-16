@@ -87,7 +87,7 @@ describe('pinned provider contracts', () => {
       { stat: 'criticalHit', percent: 10, cap: 120 },
       { stat: 'determination', percent: 10, cap: 72 }
     ]);
-    expect(normalizeEtroMateria(materiaFixture, { referencedIds: new Set([6001]), paramToStat })[0]).toMatchObject({ id: 6001, tier: 12, value: 54 });
+    expect(normalizeEtroMateria(materiaFixture, { referencedIds: new Set([6001]), paramToStat })[0]).toMatchObject({ id: 6001, tier: 12, value: 54, advancedMeldingLimit: 'first-slot-only' });
     expect(normalizeEtroEquippedItems({ weapon: 1001, materia: { 1001: { 0: 6001 } } }, { weapon: 'weapon' })).toEqual({
       weapon: { itemId: 1001, materiaIds: [6001] }
     });

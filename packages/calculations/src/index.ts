@@ -64,6 +64,15 @@ export const determinationMultiplier = (determination: number): number =>
 export const tenacityMultiplier = (tenacity: number): number =>
   (1000 + Math.floor((112 * (tenacity - LEVEL_100.baseSub)) / LEVEL_100.levelDiv)) / 1000;
 
+export const tenacityIncomingDamageMultiplier = (tenacity: number): number =>
+  (1000 - Math.floor((200 * (tenacity - LEVEL_100.baseSub)) / LEVEL_100.levelDiv)) / 1000;
+
+export const pietyMpBonusPerTick = (piety: number): number =>
+  Math.max(0, Math.floor((150 * (piety - LEVEL_100.baseMain)) / LEVEL_100.levelDiv));
+
+export const pietyMpPerTick = (piety: number): number =>
+  200 + pietyMpBonusPerTick(piety);
+
 export const criticalHitChance = (criticalHit: number): number =>
   Math.floor((200 * (criticalHit - LEVEL_100.baseSub)) / LEVEL_100.levelDiv + 50) / 1000;
 
@@ -118,17 +127,27 @@ export interface MeldResult {
 }
 
 export const applyMateria = (item: EquipmentItem, materiaIds: number[], materia: Materia[]): MeldResult => {
-  if (materiaIds.length > item.materiaSlots) {
-    throw new Error(`${item.name} only has ${item.materiaSlots} guaranteed materia slots.`);
+  const maximumMelds = item.advancedMelding ? Math.max(item.materiaSlots, 5) : item.materiaSlots;
+  if (materiaIds.length > maximumMelds) {
+    throw new Error(item.advancedMelding
+      ? `${item.name} accepts at most ${maximumMelds} total materia, including advanced melds.`
+      : `${item.name} only has ${item.materiaSlots} guaranteed materia slots.`);
   }
 
   const stats = { ...item.stats };
   const appliedByStat: Partial<Record<StatKey, number>> = {};
   let waste = 0;
 
-  for (const id of materiaIds) {
+  for (const [index, id] of materiaIds.entries()) {
     const meld = materia.find((entry) => entry.id === id);
     if (!meld) throw new Error(`Unknown materia ID ${id}.`);
+    if (index >= item.materiaSlots) {
+      const advancedLimit = meld.advancedMeldingLimit
+        ?? ([8, 10, 12].includes(meld.tier) ? 'first-slot-only' : [7, 9, 11].includes(meld.tier) ? 'unrestricted' : 'forbidden');
+      if (advancedLimit === 'forbidden' || (advancedLimit === 'first-slot-only' && index > item.materiaSlots)) {
+        throw new Error(`${meld.name} cannot be used in advanced meld slot ${index - item.materiaSlots + 1} on ${item.name}.`);
+      }
+    }
     const room = Math.max(0, item.statCaps[meld.stat] - stats[meld.stat]);
     const applied = Math.min(room, meld.value);
     stats[meld.stat] += applied;

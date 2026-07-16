@@ -15,7 +15,7 @@ describe('live combat-job reference fixtures', () => {
 
   it('passes the v0.5 runtime compatibility gate before activation', () => {
     const report = assessSnapshotCompatibility(gearSnapshot, {
-      appVersion: '0.7.3',
+      appVersion: '0.8.0',
       snapshotSchemas: ['gear-snapshot@1'],
       registrySchemas: ['game-registry@1'],
       rulesetSchemas: ['combat-ruleset@1'],

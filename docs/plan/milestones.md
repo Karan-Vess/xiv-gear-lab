@@ -44,7 +44,7 @@ The following requirements existed before this revision and must remain visible:
 10. Project import/export, backup/restore, durable migrations, sharing and hardened XivGear compatibility -> **M16**.
 11. Measured performance, accessibility, long-offline reliability, installer/update hardening and rights approval -> **M17**.
 12. Immediate, contextual attribution with direct source links and an explicit distinction between external and XIV Gear Lab calculations -> **M9, M12-M13 and M16-M17**.
-13. Curation-independent preliminary patch recommendations plus adaptive unattended patch watching and safe publication -> **M11-M11B**.
+13. Curation-independent preliminary patch recommendations plus an owner-run local patch-update assistant -> **M11-M11B**.
 
 ## Completed and partial foundation milestones
 
@@ -314,7 +314,7 @@ Performance:
 
 ### M10 - Optimiser controls and complete hypothetical equipment
 
-Status: **Planned**.
+Status: **Completed in v0.8.0 and polished in v0.8.1 (2026-07-16)**.
 
 Deliver:
 
@@ -378,38 +378,35 @@ Tests:
 - Synthetic patch roll-forward with no curated sets; partial pagination; missing weapon/slot; corrected provider data; unknown acquisition route; formula-compatible and formula-incompatible candidates.
 - If exact Lodestone links are implemented: known item, missing mapping, custom item and rejected non-allowlisted URL coverage.
 
-### M11B - Automated patch watch and provisional publishing
+### M11B - Local patch-update assistant
 
 Status: **Planned**.
 
 Deliver:
 
-- Persistent release-watch state machine with idle, announced, release-watch, candidate, stabilising, complete and quarantined states.
-- Cheap idle sentinel that checks official patch/version and announcement signals without repeatedly downloading every provider catalogue.
-- Announcement and maintenance dates arm more frequent checks but remain hints; actual patch identity, provider content fingerprints and signed release state remain authoritative.
-- Adaptive polling around an expected patch, with bounded retry/backoff when essential data is absent and automatic return to idle after the stabilisation window.
-- Candidate-readiness gates reuse M11 completeness checks and require a complete candidate to remain stable across two appropriately separated observations before unattended publication.
-- Automatic build, contract validation, compatibility checks, tests, signing, hosted verification and publication for safe data-only changes.
-- Essential official data gates publication; acquisition corrections and optional curated overlays can publish later without delaying the first preliminary recommendation.
-- Suspicious count/stat changes, unknown schemas, incompatible formulas/evaluators, new unsupported mechanics, provider contract drift and incomplete essential data are quarantined and reported rather than signed.
-- Dedicated automation signing key held in protected release secrets, with least privilege, auditable rotation/revocation and no access to the offline recovery key.
-- Post-publication correction watch, immutable release evidence, failure notification and a no-change fast exit.
+- One documented local command or launcher that the repository owner runs manually from their own Windows PC after a patch releases.
+- The assistant compares the official current patch and provider fingerprints with the active data-channel snapshot and exits quickly when nothing changed.
+- When a patch changed, it refreshes official and supporting providers, then reuses the M11 catalogue, acquisition, HQ-only, schema, formula and evaluator readiness gates.
+- Essential official data can produce a clearly labelled preliminary candidate without waiting for community curation; incomplete optional acquisition or curated overlays remain honest and may be refreshed later.
+- Suspicious count/stat changes, incomplete slot coverage, unknown schemas, incompatible formulas/evaluators, unsupported mechanics and provider drift stop the update and produce an actionable local report.
+- A successful run builds and verifies the candidate locally, presents the patch/version and validation summary, and requires explicit owner confirmation before signing and publishing it to the existing data channel.
+- Signing credentials and recovery keys remain only on the owner's PC. No hosted watcher, scheduled GitHub workflow or unattended publication is part of M11B.
+- The launcher and non-secret workflow may be source-controlled, but execution state and credentials remain local and ignored by Git.
 
 Accept when:
 
-- With no patch expected, scheduled runs perform only the bounded sentinel check and do not create or republish a snapshot.
-- An announcement can increase polling frequency but cannot by itself publish data or override validation.
-- A simulated compatible patch progresses from detection through stable candidate, signed publication, hosted verification and preliminary availability without human or agent interaction.
-- Providers updating gradually cannot publish a half-populated catalogue; a later complete stable candidate proceeds automatically.
-- Unsafe or incompatible changes enter quarantine, preserve the active channel and produce an actionable report.
-- The automation key can be revoked independently while the offline recovery key remains inaccessible to the scheduled environment.
-- After the correction window closes, the watcher returns to idle until another patch or meaningful source correction is detected.
+- Running the local assistant against the active patch exits without rebuilding or republishing anything.
+- A simulated compatible patch produces a locally verified preliminary candidate from official data even when curated sets are absent.
+- Gradually updating or unsafe providers cannot replace the active channel; the owner receives a precise report and can rerun the same command later.
+- Nothing is signed or published until the owner confirms the validated candidate summary.
+- After publication, hosted verification confirms that the channel serves the signed snapshot and the app can activate it.
+- A new machine without the local credentials can validate and build a candidate but cannot publish it.
 
 Tests:
 
-- Simulated announcement delay/cancellation, maintenance change and unannounced patch; clock/time-zone boundaries; duplicate scheduled runs and lost state.
-- Unchanged patch/content fingerprints; gradual pagination; unstable consecutive candidates; essential/optional provider outages; later acquisition and curation overlays.
-- Signing-secret absence/revocation, concurrent publication, interrupted upload, hosted verification failure, quarantine recovery and immutable audit evidence.
+- Unchanged patch/content fingerprints; compatible patch; gradual pagination; missing slot/job; essential and optional provider outages; later acquisition and curation overlays.
+- Unknown schema, formula/evaluator incompatibility, suspicious stat/count jumps, signing-secret absence, declined confirmation, interrupted publication and hosted verification failure.
+- Repeat runs after failure, after successful publication and from a clean machine with no publishing credentials.
 
 ### M12 - Bounded combat evaluator framework
 
@@ -565,6 +562,14 @@ Tests:
 
 - Full regression matrix; fresh install and migration from supported releases; data and executable update/rollback; long offline period; provider outage; malformed cache; minimum-hardware benchmarks; screen reader/keyboard/high zoom; security and distribution checklist.
 
+## Do later / explicitly deferred
+
+These ideas remain useful, but they are outside the committed milestones until their value justifies the added scope:
+
+- Select or lock an official item directly from its main build-slot row instead of opening the separate Equipment constraints menu. The M10 modal remains the supported path for now.
+- Hosted unattended patch watching, announcement-aware scheduling, adaptive polling and automatic publication. M11B deliberately provides a manual local launcher first; hosted automation can be reconsidered only after the patch workflow is proven and there is a real need for unattended operation.
+- Any Lodestone item-link implementation that fails M11's short feasibility check for a trustworthy, maintainable identifier mapping.
+
 ## Test layers used throughout
 
 - Unit tests for policy, integer arithmetic, caps, transformations and adapters.
@@ -586,7 +591,8 @@ Tests:
 | Full optimiser restrictions and hypothetical items | M10 |
 | Expansion/level content legality, sources and costs | M11 |
 | Preliminary patch recommendations without curated sets | M11-M13 |
-| Adaptive unattended patch watch and safe publication | M11B |
+| Owner-run local patch update and safe publication | M11B |
+| Hosted adaptive unattended patch watch | Do later |
 | Generic hit, opener and five-minute dummy | M12-M13 |
 | Crafting | M14 |
 | Gathering | M15 |

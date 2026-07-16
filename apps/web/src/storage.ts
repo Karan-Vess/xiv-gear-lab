@@ -6,7 +6,7 @@ import {
 } from './workspace';
 
 const DATABASE = 'xiv-gear-lab';
-const DATABASE_VERSION = 5;
+const DATABASE_VERSION = 6;
 const SAVED_SET_STORE = 'saved-sets';
 const CUSTOM_ITEM_STORE = 'custom-items';
 const METADATA_STORE = 'metadata';
@@ -62,7 +62,7 @@ const openDatabase = (): Promise<IDBDatabase> =>
         key: 'schema',
         databaseVersion: DATABASE_VERSION,
         savedSetSchema: 'saved-gear-set@2',
-        customItemSchema: 'custom-item@1',
+        customItemSchema: 'custom-item@2',
         workspaceSchema: 'build-workspace-state@1'
       });
     };
@@ -181,5 +181,17 @@ export const loadBuildWorkspaceState = async (
   if (!isBuildWorkspaceState(stored)) {
     throw new Error('Stored build workspaces use an unsupported or malformed schema.');
   }
-  return prepareBuildWorkspaceStateForStorage(stored);
+  const migrated: BuildWorkspaceState = {
+    ...stored,
+    builds: Object.fromEntries(Object.entries(stored.builds).map(([id, build]) => [id, {
+      ...build,
+      constraints: {
+        ...fallback.builds[id as keyof typeof fallback.builds].constraints,
+        ...build.constraints,
+        lockedItemIdsBySlot: build.constraints.lockedItemIdsBySlot ?? {},
+        lockedMateriaBySlot: build.constraints.lockedMateriaBySlot ?? {}
+      }
+    }])) as BuildWorkspaceState['builds']
+  };
+  return prepareBuildWorkspaceStateForStorage(migrated);
 };

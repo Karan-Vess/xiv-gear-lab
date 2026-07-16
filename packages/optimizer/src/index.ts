@@ -7,6 +7,7 @@ import {
   gearSlotItemLevelWeight,
   gearSlotWeightTotal,
   gearSlotsForJob,
+  resolveOptimizerConstraints,
   type CombatEvaluatorProfile,
   type CombatJob,
   type EquipmentItem,
@@ -14,6 +15,7 @@ import {
   type GearSet,
   type GearSlot,
   type OptimizerConstraints,
+  type ResolvedOptimizerConstraints,
   type SourceFamily,
   type StatBlock,
   type GearSnapshot
@@ -30,7 +32,7 @@ import {
 } from '@xiv-gear-lab/calculations';
 
 export const OPTIMIZER_RUNTIME_COMPATIBILITY = {
-  appVersion: '0.7.3',
+  appVersion: '0.8.0',
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],
@@ -79,29 +81,67 @@ export interface OptimizerResult {
 const candidateForSlot = (item: EquipmentItem, slot: GearSlot): boolean =>
   item.slot === slot || (item.slot === 'ring' && (slot === 'ringLeft' || slot === 'ringRight'));
 
-const combinationsWithReplacement = (ids: number[], count: number, start = 0): number[][] => {
-  if (count === 0) return [[]];
-  const result: number[][] = [];
-  for (let index = start; index < ids.length; index += 1) {
-    const id = ids[index];
-    if (id === undefined) continue;
-    for (const tail of combinationsWithReplacement(ids, count - 1, index)) result.push([id, ...tail]);
-  }
-  return result;
+const materiaAdvancedMeldingLimit = (tier: number, explicit?: 'forbidden' | 'first-slot-only' | 'unrestricted') => {
+  if (explicit) return explicit;
+  if ([8, 10, 12].includes(tier)) return 'first-slot-only' as const;
+  if ([7, 9, 11].includes(tier)) return 'unrestricted' as const;
+  return 'forbidden' as const;
+};
+
+const materiaAllowedAtItemIndex = (
+  item: EquipmentItem,
+  index: number,
+  materia: GearSnapshot['materia'][number]
+) => {
+  if (index < item.materiaSlots) return true;
+  const limit = materiaAdvancedMeldingLimit(materia.tier, materia.advancedMeldingLimit);
+  if (limit === 'forbidden') return false;
+  if (limit === 'first-slot-only') return index === item.materiaSlots;
+  return true;
 };
 
 const variantsForItem = (
   item: EquipmentItem,
+  slot: GearSlot,
   snapshot: GearSnapshot,
-  profile: CombatEvaluatorProfile
+  profile: CombatEvaluatorProfile,
+  constraints: ResolvedOptimizerConstraints
 ): Variant[] => {
   const relevantMateria = snapshot.materia.filter((entry) =>
-    profile.meldStats.includes(entry.stat)
+    profile.meldStats.includes(entry.stat) &&
+    constraints.allowedMateriaStats.includes(entry.stat) &&
+    constraints.allowedMateriaTiers.includes(entry.tier)
   );
-  const materiaChoices = combinationsWithReplacement(
-    relevantMateria.map((entry) => entry.id),
-    item.materiaSlots
-  );
+  const lockedMateria = constraints.lockedMateriaBySlot[slot] ?? [];
+  const capacity = item.materiaSlots + (constraints.allowOvermelds && item.advancedMelding
+    ? Math.max(0, 5 - item.materiaSlots)
+    : 0);
+  if (lockedMateria.length > capacity) return [];
+  if (lockedMateria.some((id, index) => {
+    const materia = snapshot.materia.find((entry) => entry.id === id);
+    return !materia || !materiaAllowedAtItemIndex(item, index, materia);
+  })) return [];
+  const generatedChoices: number[][] = [];
+  const generate = (ids: number[]) => {
+    const absoluteIndex = lockedMateria.length + ids.length;
+    if (absoluteIndex >= capacity) {
+      generatedChoices.push(ids);
+      return;
+    }
+    const legalChoices = relevantMateria.filter((materia) => materiaAllowedAtItemIndex(item, absoluteIndex, materia));
+    if (legalChoices.length === 0) {
+      generatedChoices.push(ids);
+      return;
+    }
+    for (const materia of legalChoices) generate([...ids, materia.id]);
+  };
+  generate([]);
+  const deduplicatedChoices = new Map<string, number[]>();
+  for (const ids of generatedChoices) {
+    const key = [...ids].sort((left, right) => left - right).join(':');
+    if (!deduplicatedChoices.has(key)) deduplicatedChoices.set(key, ids);
+  }
+  const materiaChoices = [...deduplicatedChoices.values()].map((ids) => [...lockedMateria, ...ids]);
 
   return materiaChoices.map((materiaIds) => {
     const melded = applyMateria(item, materiaIds, snapshot.materia);
@@ -152,7 +192,27 @@ const keepBoundedFrontier = (
   return { states: values.slice(0, limit), truncated: true };
 };
 
-const toGearSet = (state: SearchState, snapshot: GearSnapshot, foodId: number, rank: number, job: CombatJob): GearSet => {
+const customItemIsWithinAccess = (
+  item: EquipmentItem,
+  snapshot: GearSnapshot,
+  constraints: ResolvedOptimizerConstraints
+): boolean => {
+  if (item.origin !== 'custom') return true;
+  const levelAllowed = constraints.accessLevel === undefined || item.level <= constraints.accessLevel;
+  if (!item.customData?.expansionId || !constraints.accessExpansion) return levelAllowed;
+  const selectedExpansion = snapshot.registry.expansions.find((entry) => entry.id === constraints.accessExpansion);
+  const itemExpansion = snapshot.registry.expansions.find((entry) => entry.id === item.customData?.expansionId);
+  return levelAllowed && Boolean(selectedExpansion && itemExpansion && itemExpansion.order <= selectedExpansion.order);
+};
+
+const toGearSet = (
+  state: SearchState,
+  snapshot: GearSnapshot,
+  foodId: number | undefined,
+  rank: number,
+  job: CombatJob,
+  constraints: ResolvedOptimizerConstraints
+): GearSet => {
   const profile = getCombatEvaluatorProfile(job, snapshot.evaluatorProfiles);
   const ruleset = snapshot.rulesets.find((entry) => entry.id === profile.rulesetId);
   if (!ruleset) throw new Error(`Evaluator profile ${profile.id} references missing ruleset ${profile.rulesetId}.`);
@@ -162,6 +222,10 @@ const toGearSet = (state: SearchState, snapshot: GearSnapshot, foodId: number, r
   stats.vitality = Math.floor(stats.vitality * 1.05);
   stats = applyFood(stats, food);
   const gcd = gcdFromSpeed(stats[profile.speedStat], profile.baseGcdMs, profile.hastePercent);
+  const experimentalItems = Object.values(state.items).flatMap((entry) => {
+    const item = snapshot.items.find((candidate) => String(candidate.id) === String(entry?.itemId));
+    return item && item.origin === 'custom' && !customItemIsWithinAccess(item, snapshot, constraints) ? [item] : [];
+  });
 
   return {
     id: `generated-${rank}-${foodId}-${Math.round(gcd * 100)}`,
@@ -200,7 +264,10 @@ const toGearSet = (state: SearchState, snapshot: GearSnapshot, foodId: number, r
       `${job} baseline stats match the current source fixtures.`,
       `${job} uses ${profile.id}, a reference-validated level-100 ${profile.role} damage proxy.`,
       profile.limitation,
-      `Search is limited to the verified patch 7.4 ${job} reference pool.`
+      `Search is limited to the verified patch 7.4 ${job} reference pool.`,
+      ...(experimentalItems.length > 0
+        ? [`Experimental access override: ${experimentalItems.map((item) => item.name).join(', ')} is beyond the selected expansion or level.`]
+        : [])
     ],
     provenance: [
       {
@@ -214,29 +281,108 @@ const toGearSet = (state: SearchState, snapshot: GearSnapshot, foodId: number, r
         status: 'current'
       }
     ],
-    calculatedAt: new Date().toISOString()
+    calculatedAt: new Date().toISOString(),
+    ...(experimentalItems.length > 0 ? {
+      hypotheticalAccess: {
+        itemIds: experimentalItems.map((item) => item.id),
+        reason: `Experimental access override includes ${experimentalItems.map((item) => item.name).join(', ')} beyond the selected expansion or level.`
+      }
+    } : {})
   };
 };
 
 export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: OptimizerConstraints, job: CombatJob): OptimizerResult => {
   const started = performance.now();
   ensureSnapshotCompatible(snapshot);
+  const resolved = resolveOptimizerConstraints(constraints, snapshot.materia);
+  const fail = (message: string): OptimizerResult => ({
+    alternatives: [],
+    evaluatedStates: 0,
+    durationMs: performance.now() - started,
+    truncated: false,
+    explanation: [message]
+  });
   const capability = getEvaluatorCapability(snapshot.registry, job, 'standard', 'generic-hit');
   if (capability?.status !== 'available') {
     throw new Error(`Generic-hit evaluation is ${capability?.status ?? 'unsupported'} for ${job}.`);
   }
   const profile = getCombatEvaluatorProfile(job, snapshot.evaluatorProfiles);
   const gearSlots = gearSlotsForJob(job);
-  const excluded = new Set(constraints.excludedItemIds.map(String));
-  const required = new Set(constraints.requiredItemIds.map(String));
-  const allowed = new Set(constraints.allowedSources);
+  const excluded = new Set(resolved.excludedItemIds.map(String));
+  const required = new Set(resolved.requiredItemIds.map(String));
+  const allowed = new Set(resolved.allowedSources);
+  const lockedEntries = Object.entries(resolved.lockedItemIdsBySlot) as Array<[GearSlot, number | string]>;
+  const lockedIds = new Set(lockedEntries.map(([, id]) => String(id)));
+
+  if (!Number.isFinite(resolved.minGcd) || !Number.isFinite(resolved.maxGcd) || resolved.minGcd > resolved.maxGcd) {
+    return fail('The GCD range is invalid. Set a minimum that is less than or equal to the maximum.');
+  }
+  const directConflict = [...required].find((id) => excluded.has(id));
+  if (directConflict) {
+    const item = snapshot.items.find((entry) => String(entry.id) === directConflict);
+    return fail(`${item?.name ?? `Item ${directConflict}`} is both required and excluded. Remove one of those rules.`);
+  }
+  for (const [slot, id] of lockedEntries) {
+    const item = snapshot.items.find((entry) => String(entry.id) === String(id));
+    if (!item) return fail(`The item locked in ${slot} is missing from the active data. Choose another item or clear that lock.`);
+    if (!candidateForSlot(item, slot) || !item.jobs.includes(job)) {
+      return fail(`${item.name} cannot be equipped by ${job} in ${slot}. Clear or replace that equipment lock.`);
+    }
+    if (excluded.has(String(id))) return fail(`${item.name} is locked in ${slot} and also excluded. Remove one of those rules.`);
+    if (item.origin === 'custom' && !resolved.allowCustomItems) {
+      return fail(`${item.name} is locked in ${slot}, but hypothetical items are disabled. Enable custom items or clear the lock.`);
+    }
+    if (!customItemIsWithinAccess(item, snapshot, resolved) && !resolved.allowExperimentalAccess) {
+      return fail(`${item.name} is locked in ${slot} but exceeds the selected expansion or level. Enable the experimental access override or clear the lock.`);
+    }
+  }
+  for (const id of required) {
+    const item = snapshot.items.find((entry) => String(entry.id) === id);
+    if (!item) return fail(`Required item ${id} is missing from the active data. Remove the stale requirement or restore the custom item.`);
+    if (!item.jobs.includes(job)) return fail(`${item.name} is required but cannot be equipped by ${job}.`);
+    if (item.origin === 'custom' && !resolved.allowCustomItems) {
+      return fail(`${item.name} is required, but hypothetical items are disabled. Enable custom items or remove the requirement.`);
+    }
+    if (!customItemIsWithinAccess(item, snapshot, resolved) && !resolved.allowExperimentalAccess) {
+      return fail(`${item.name} is required but exceeds the selected expansion or level. Enable the experimental access override or remove it.`);
+    }
+  }
+  const requiredNonRingSlots = new Map<string, EquipmentItem[]>();
+  for (const id of required) {
+    const item = snapshot.items.find((entry) => String(entry.id) === id);
+    if (!item || item.slot === 'ring') continue;
+    requiredNonRingSlots.set(item.slot, [...(requiredNonRingSlots.get(item.slot) ?? []), item]);
+  }
+  const duplicateRequirement = [...requiredNonRingSlots.entries()].find(([, items]) => items.length > 1);
+  if (duplicateRequirement) return fail(`${duplicateRequirement[1].map((item) => item.name).join(' and ')} are both required for ${duplicateRequirement[0]}. Keep only one requirement.`);
+  for (const [slot, id] of lockedEntries) {
+    const requiredInSlot = requiredNonRingSlots.get(slot);
+    if (requiredInSlot?.some((item) => String(item.id) !== String(id))) {
+      const locked = snapshot.items.find((item) => String(item.id) === String(id));
+      return fail(`${locked?.name ?? id} is locked in ${slot}, but a different item is required there. Remove one of those rules.`);
+    }
+  }
+  for (const [slot, materiaIds] of Object.entries(resolved.lockedMateriaBySlot) as Array<[GearSlot, number[]]>) {
+    for (const materiaId of materiaIds) {
+      const materia = snapshot.materia.find((entry) => entry.id === materiaId);
+      if (!materia) return fail(`A locked meld in ${slot} references missing materia ${materiaId}. Clear that meld lock.`);
+      if (!profile.meldStats.includes(materia.stat)) return fail(`${materia.name} is not a relevant meld for ${job}. Clear the locked meld in ${slot}.`);
+      if (!resolved.allowedMateriaStats.includes(materia.stat) || !resolved.allowedMateriaTiers.includes(materia.tier)) {
+        return fail(`${materia.name} is locked in ${slot} but blocked by the materia-family or grade restrictions.`);
+      }
+    }
+  }
+  if (resolved.foodMode === 'locked' && !snapshot.foods.some((food) => food.id === resolved.lockedFoodId)) {
+    return fail('The locked food is missing from the active data. Choose another food or change the food rule.');
+  }
   const itemIsAllowed = (item: EquipmentItem) =>
     item.jobs.includes(job) &&
     !excluded.has(String(item.id)) &&
     (
       (item.origin === 'official' && allowed.has(item.sourceFamily)) ||
-      (item.origin === 'custom' && required.has(String(item.id)))
-    );
+      (item.origin === 'custom' && resolved.allowCustomItems && (required.has(String(item.id)) || lockedIds.has(String(item.id))))
+    ) &&
+    (customItemIsWithinAccess(item, snapshot, resolved) || resolved.allowExperimentalAccess);
   const ringCandidates = snapshot.items.filter(
     (item) =>
       item.slot === 'ring' &&
@@ -270,6 +416,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
   let truncated = false;
 
   for (const slot of gearSlots) {
+    const lockedItemId = resolved.lockedItemIdsBySlot[slot];
     const requiredForSlot = snapshot.items.filter(
       (item) => candidateForSlot(item, slot) && required.has(String(item.id))
     );
@@ -282,6 +429,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       (item) =>
         candidateForSlot(item, slot) &&
         itemIsAllowed(item) &&
+        (lockedItemId === undefined || String(item.id) === String(lockedItemId)) &&
         (hardRequiredIds.size === 0 || hardRequiredIds.has(String(item.id)))
     );
 
@@ -295,7 +443,16 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       };
     }
 
-    const variants = candidates.flatMap((item) => variantsForItem(item, snapshot, profile));
+    const variants = candidates.flatMap((item) => variantsForItem(item, slot, snapshot, profile, resolved));
+    if (variants.length === 0) {
+      return {
+        alternatives: [],
+        evaluatedStates,
+        durationMs: performance.now() - started,
+        truncated,
+        explanation: [`No ${slot} item can accept the locked melds under the selected materia and overmelding rules.`]
+      };
+    }
     const expanded: SearchState[] = [];
 
     for (const state of frontier) {
@@ -320,22 +477,27 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       }
     }
 
-    const bounded = keepBoundedFrontier(expanded, constraints.frontierLimit, constraints, profile);
+    const bounded = keepBoundedFrontier(expanded, resolved.frontierLimit, resolved, profile);
     frontier = bounded.states;
     truncated ||= bounded.truncated;
   }
 
   const feasible: GearSet[] = [];
   const resourceFeasible: GearSet[] = [];
+  const foodIds: Array<number | undefined> = resolved.foodMode === 'none'
+    ? [undefined]
+    : resolved.foodMode === 'locked'
+      ? [resolved.lockedFoodId]
+      : snapshot.foods.map((food) => food.id);
   for (const state of frontier) {
     const selectedIds = new Set(Object.values(state.items).map((entry) => String(entry?.itemId)));
     if ([...required].some((id) => !selectedIds.has(id))) continue;
 
-    for (const food of snapshot.foods) {
-      const set = toGearSet(state, snapshot, food.id, 0, job);
-      if (profile.resourceStat && set.metrics.stats[profile.resourceStat] < constraints.minResource) continue;
+    for (const foodId of foodIds) {
+      const set = toGearSet(state, snapshot, foodId, 0, job, resolved);
+      if (profile.resourceStat && set.metrics.stats[profile.resourceStat] < resolved.minResource) continue;
       resourceFeasible.push(set);
-      if (set.metrics.gcd >= constraints.minGcd && set.metrics.gcd <= constraints.maxGcd) feasible.push(set);
+      if (set.metrics.gcd >= resolved.minGcd && set.metrics.gcd <= resolved.maxGcd) feasible.push(set);
     }
   }
 
@@ -347,11 +509,25 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     if (equippedIds.length !== gearSlots.length) continue;
     if ([...required].some((id) => !equippedIds.includes(id))) continue;
     if (equippedIds.some((id) => excluded.has(id))) continue;
+    if (lockedEntries.some(([slot, id]) => String(sourceSet.items[slot]?.itemId) !== String(id))) continue;
+    if (resolved.foodMode === 'none' && sourceSet.foodId !== undefined) continue;
+    if (resolved.foodMode === 'locked' && sourceSet.foodId !== resolved.lockedFoodId) continue;
     const sourceLegal = equippedIds.every((id) => {
       const item = snapshot.items.find((candidate) => String(candidate.id) === id);
       return item?.origin === 'official' && item.jobs.includes(job) && allowed.has(item.sourceFamily);
     });
     if (!sourceLegal) continue;
+    const meldsLegal = gearSlots.every((slot) => {
+      const equipped = sourceSet.items[slot];
+      if (!equipped) return false;
+      const locked = resolved.lockedMateriaBySlot[slot] ?? [];
+      if (locked.some((id, index) => equipped.materiaIds[index] !== id)) return false;
+      return equipped.materiaIds.every((id) => {
+        const materia = snapshot.materia.find((entry) => entry.id === id);
+        return Boolean(materia && resolved.allowedMateriaStats.includes(materia.stat) && resolved.allowedMateriaTiers.includes(materia.tier));
+      });
+    });
+    if (!meldsLegal) continue;
 
     const calculated = recalculateGearSet(
       { ...sourceSet, id: `warm-${sourceSet.id}`, origin: 'generated' },
@@ -367,7 +543,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         calculationSchema: snapshot.rulesets.find((entry) => entry.id === profile.rulesetId)!.calculationSchema
       }
     );
-    if (!profile.resourceStat || calculated.metrics.stats[profile.resourceStat] >= constraints.minResource) {
+    if (!profile.resourceStat || calculated.metrics.stats[profile.resourceStat] >= resolved.minResource) {
       const verifiedWarmStart = {
         ...calculated,
         assumptions: [
@@ -376,7 +552,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         ]
       };
       resourceFeasible.push(verifiedWarmStart);
-      if (calculated.metrics.gcd >= constraints.minGcd && calculated.metrics.gcd <= constraints.maxGcd) {
+      if (calculated.metrics.gcd >= resolved.minGcd && calculated.metrics.gcd <= resolved.maxGcd) {
         feasible.push(verifiedWarmStart);
       }
     }
@@ -393,13 +569,13 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
   feasible.sort(compareSetQuality);
 
   const distanceFromRequestedBand = (set: GearSet) => {
-    if (set.metrics.gcd < constraints.minGcd) return constraints.minGcd - set.metrics.gcd;
-    if (set.metrics.gcd > constraints.maxGcd) return set.metrics.gcd - constraints.maxGcd;
+    if (set.metrics.gcd < resolved.minGcd) return resolved.minGcd - set.metrics.gcd;
+    if (set.metrics.gcd > resolved.maxGcd) return set.metrics.gcd - resolved.maxGcd;
     return 0;
   };
   let candidates = feasible;
   let speedFallback: OptimizerResult['speedFallback'];
-  if (candidates.length === 0 && resourceFeasible.length > 0) {
+  if (candidates.length === 0 && resourceFeasible.length > 0 && resolved.gcdMode === 'exact') {
     resourceFeasible.sort((left, right) => {
       const distance = distanceFromRequestedBand(left) - distanceFromRequestedBand(right);
       return distance !== 0 ? distance : compareSetQuality(left, right);
@@ -409,8 +585,8 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       .filter((set) => Math.abs(distanceFromRequestedBand(set) - closestDistance) < 0.000_001)
       .sort(compareSetQuality);
     speedFallback = {
-      requestedMinGcd: constraints.minGcd,
-      requestedMaxGcd: constraints.maxGcd,
+      requestedMinGcd: resolved.minGcd,
+      requestedMaxGcd: resolved.maxGcd,
       achievedGcd: candidates[0]!.metrics.gcd
     };
   }
@@ -422,12 +598,17 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       ? speedFallback ? 'Closest attainable result' : 'Best reference-pool result'
       : `Alternative ${index + 1}`
   }));
-  const requestedGcdLabel = constraints.minGcd === constraints.maxGcd
-    ? `${constraints.minGcd.toFixed(2)}s`
-    : `${constraints.minGcd.toFixed(2)}–${constraints.maxGcd.toFixed(2)}s`;
+  const requestedGcdLabel = resolved.minGcd === resolved.maxGcd
+    ? `${resolved.minGcd.toFixed(2)}s`
+    : `${resolved.minGcd.toFixed(2)}–${resolved.maxGcd.toFixed(2)}s`;
   const resourceRequirement = profile.resourceStat
-    ? `${constraints.minResource} ${profile.resourceLabel}`
+    ? `${resolved.minResource} ${profile.resourceLabel}`
     : undefined;
+  const unattainableExplanation = resourceFeasible.length > 0
+    ? `No set reaches the ${resolved.gcdTargetName} GCD range of ${requestedGcdLabel}. Widen the range or relax equipment, materia, food, or source restrictions.`
+    : profile.resourceStat
+      ? `No set reaches the minimum ${resolved.minResource} ${profile.resourceLabel}. Lower that minimum or relax equipment, materia, food, or source restrictions.`
+      : 'No complete set remains. Relax an equipment, materia, food, custom-item, or acquisition-source restriction.';
 
   return {
     best: selected[0],
@@ -440,18 +621,18 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       selected.length > 0
         ? speedFallback
           ? [
-            `No set in the selected acquisition pool can reach ${requestedGcdLabel}. Showing the closest attainable ${speedFallback.achievedGcd.toFixed(2)}s result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''}, then optimising its melds for the expected single 100-potency hit.`,
+            `No set in the selected acquisition pool can reach ${resolved.gcdTargetName} at ${requestedGcdLabel}. Showing the closest attainable ${speedFallback.achievedGcd.toFixed(2)}s result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''}, then optimising its melds for the expected single 100-potency hit.`,
             truncated
-              ? `The search retained a bounded ${constraints.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
+              ? `The search retained a bounded ${resolved.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
               : 'Every distinct stat state in the current reference pool was evaluated.'
           ]
           : [
-            `Selected the highest expected single 100-potency hit result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''} at the ${requestedGcdLabel} GCD target.`,
+            `Selected the highest expected single 100-potency hit result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''} at ${resolved.gcdTargetName} (${requestedGcdLabel}).`,
             truncated
-              ? `The search retained a bounded ${constraints.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
+              ? `The search retained a bounded ${resolved.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
               : 'Every distinct stat state in the current reference pool was evaluated.'
           ]
-        : ['No set in the current reference pool satisfies all selected constraints.']
+        : [unattainableExplanation]
   };
 };
 

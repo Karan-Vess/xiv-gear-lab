@@ -251,9 +251,9 @@ const createWindow = async () => {
       hasResourceControl: boolean;
     }> = [];
     for (const jobAudit of [
-      { job: 'SCH', targets: ['2.40s'], weaponPattern: /Codex/, evaluator: 'sch-healer-damage-proxy@1' },
-      { job: 'AST', targets: ['2.31s', '2.43s'], weaponPattern: /Astrometer|Star Globe/, evaluator: 'ast-healer-damage-proxy@1' },
-      { job: 'SGE', targets: ['2.39s', '2.44s', '2.45s'], weaponPattern: /Pendulums|Syrinxi/, evaluator: 'sge-healer-damage-proxy@1' },
+      { job: 'SCH', targets: ['2.40s'], weaponPattern: /Codex/, evaluator: 'sch-healer-damage-proxy@1', healer: true },
+      { job: 'AST', targets: ['2.31s', '2.43s'], weaponPattern: /Astrometer|Star Globe/, evaluator: 'ast-healer-damage-proxy@1', healer: true },
+      { job: 'SGE', targets: ['2.39s', '2.44s', '2.45s'], weaponPattern: /Pendulums|Syrinxi/, evaluator: 'sge-healer-damage-proxy@1', healer: true },
       { job: 'PLD', targets: ['2.50s'], weaponPattern: /Falchion|Sword/, evaluator: 'pld-tank-damage-proxy@1', tank: true, offHandPattern: /Shield/ },
       { job: 'WAR', targets: ['2.40s', '2.45s', '2.50s'], weaponPattern: /War Axe/, evaluator: 'war-tank-damage-proxy@1', tank: true },
       { job: 'DRK', targets: ['2.46s', '2.50s'], weaponPattern: /Guillotine/, evaluator: 'drk-tank-damage-proxy@1', tank: true },
@@ -311,6 +311,8 @@ const createWindow = async () => {
         !result.materiaSlots.includes('+') ||
         !result.derivedStats.includes('chance') ||
         !result.derivedStats.includes('damage') ||
+        (jobAudit.healer && (!result.derivedStats.includes('Piety') || !result.derivedStats.includes('MP / 3s tick'))) ||
+        (jobAudit.tank && (!result.derivedStats.includes('Tenacity') || !result.derivedStats.includes('outgoing healing') || !result.derivedStats.includes('damage reduction'))) ||
         JSON.stringify(result.roleGroups) !== JSON.stringify(['Tanks', 'Healers', 'DPS']) ||
         !result.evaluator.includes(jobAudit.evaluator) ||
         (jobAudit.tank && !['STR', 'TEN', 'SKS'].every((label) => result.statLabels.includes(label))) ||
@@ -528,6 +530,46 @@ const createWindow = async () => {
     }
     await window.webContents.executeJavaScript(`
       (() => {
+        const mode = document.querySelector('[data-custom-mode]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (!(mode instanceof HTMLSelectElement)) throw new Error('Custom item mode selector was not rendered.');
+        setter?.call(mode, 'meldable-base');
+        mode.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const slots = document.querySelector('[data-custom-materia-slots]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        if (!(slots instanceof HTMLInputElement)) throw new Error('Meldable custom-item slot control was not rendered.');
+        setter?.call(slots, '2');
+        slots.dispatchEvent(new Event('input', { bubbles: true }));
+        slots.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+    const customEquipmentAudit = await window.webContents.executeJavaScript(`
+      (() => ({
+        mode: document.querySelector('[data-custom-mode]')?.value ?? '',
+        level: document.querySelector('[data-custom-level]')?.value ?? '',
+        expansion: document.querySelector('[data-custom-expansion]')?.value ?? '',
+        materiaSlots: document.querySelector('[data-custom-materia-slots]')?.value ?? '',
+        hasSourceDescription: Boolean(document.querySelector('[data-custom-source-description]')),
+        hasCaps: (document.querySelector('[data-custom-editor]')?.textContent ?? '').includes('stat caps')
+      }))()
+    `) as { mode?: string; level?: string; expansion?: string; materiaSlots?: string; hasSourceDescription?: boolean; hasCaps?: boolean };
+    if (
+      customEquipmentAudit.mode !== 'meldable-base' ||
+      customEquipmentAudit.level !== '100' ||
+      !customEquipmentAudit.expansion ||
+      customEquipmentAudit.materiaSlots !== '2' ||
+      !customEquipmentAudit.hasSourceDescription ||
+      !customEquipmentAudit.hasCaps
+    ) {
+      throw new Error(`Packaged M10 custom-equipment audit failed: ${JSON.stringify(customEquipmentAudit)}`);
+    }
+    await window.webContents.executeJavaScript(`
+      (() => {
         const slot = document.querySelector('[data-custom-slot]');
         const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
         if (!(slot instanceof HTMLSelectElement)) throw new Error('Custom slot selector disappeared after weapon-delay audit.');
@@ -597,11 +639,14 @@ const createWindow = async () => {
         return {
           keptInLibrary: Boolean(item),
           hasLibraryDelete: Boolean(item?.querySelector('[data-library-custom-delete]')),
-          hasEquippedDelete: Boolean(document.querySelector('[data-equipped-custom-delete]'))
+          hasEquippedDelete: Boolean(document.querySelector('[data-equipped-custom-delete]')),
+          hasDuplicate: Boolean(item?.querySelector('[data-library-custom-duplicate]')),
+          showsMeldableSlots: (item?.textContent ?? '').includes('2 slots'),
+          hasOfficialClone: Boolean(document.querySelector('.custom-clone-official'))
         };
       })()
-    `) as { keptInLibrary?: boolean; hasLibraryDelete?: boolean; hasEquippedDelete?: boolean };
-    if (!unequipAudit.keptInLibrary || !unequipAudit.hasLibraryDelete || unequipAudit.hasEquippedDelete) {
+    `) as { keptInLibrary?: boolean; hasLibraryDelete?: boolean; hasEquippedDelete?: boolean; hasDuplicate?: boolean; showsMeldableSlots?: boolean; hasOfficialClone?: boolean };
+    if (!unequipAudit.keptInLibrary || !unequipAudit.hasLibraryDelete || unequipAudit.hasEquippedDelete || !unequipAudit.hasDuplicate || !unequipAudit.showsMeldableSlots || !unequipAudit.hasOfficialClone) {
       throw new Error(`Packaged Unequip/library audit failed: ${JSON.stringify(unequipAudit)}`);
     }
 
@@ -611,6 +656,56 @@ const createWindow = async () => {
         const close = library && [...library.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Close');
         if (!(close instanceof HTMLButtonElement)) throw new Error('Custom-item library could not be closed before workspace audit.');
         close.click();
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    await window.webContents.executeJavaScript(`document.querySelector('[data-optimizer-rules-open]')?.click()`);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
+    const optimizerRulesAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const modal = document.querySelector('[data-equipment-rules]');
+        const food = document.querySelector('[data-food-mode]');
+        const weaponLock = document.querySelector('[data-equipment-lock="weapon"]');
+        const itemRules = modal?.querySelectorAll('[data-item-rule]') ?? [];
+        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (food instanceof HTMLSelectElement) {
+          selectSetter?.call(food, 'none');
+          food.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const overmeld = document.querySelector('[data-allow-overmelds]');
+        if (overmeld instanceof HTMLInputElement && !overmeld.checked) overmeld.click();
+        if (weaponLock instanceof HTMLSelectElement && weaponLock.options.length > 1) {
+          selectSetter?.call(weaponLock, weaponLock.options[1].value);
+          weaponLock.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return {
+          hasModal: Boolean(modal),
+          foodMode: food?.value ?? '',
+          overmeldAllowed: overmeld instanceof HTMLInputElement && overmeld.checked,
+          hasExperimentalAccess: Boolean(document.querySelector('[data-experimental-access]')),
+          weaponLocked: weaponLock instanceof HTMLSelectElement && Boolean(weaponLock.value),
+          itemRuleCount: itemRules.length,
+          hasLockedMeldControls: (modal?.textContent ?? '').includes('Locked meld prefix')
+        };
+      })()
+    `) as { hasModal?: boolean; foodMode?: string; overmeldAllowed?: boolean; hasExperimentalAccess?: boolean; weaponLocked?: boolean; itemRuleCount?: number; hasLockedMeldControls?: boolean };
+    if (
+      !optimizerRulesAudit.hasModal ||
+      optimizerRulesAudit.foodMode !== 'none' ||
+      !optimizerRulesAudit.overmeldAllowed ||
+      !optimizerRulesAudit.hasExperimentalAccess ||
+      !optimizerRulesAudit.weaponLocked ||
+      !optimizerRulesAudit.itemRuleCount ||
+      !optimizerRulesAudit.hasLockedMeldControls
+    ) {
+      throw new Error(`Packaged M10 optimiser-rules audit failed: ${JSON.stringify(optimizerRulesAudit)}`);
+    }
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const modal = document.querySelector('[data-equipment-rules]');
+        const done = modal && [...modal.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Done');
+        if (!(done instanceof HTMLButtonElement)) throw new Error('M10 equipment-rules modal could not be closed.');
+        done.click();
         document.querySelector('[data-workspace-tab="build-2"]')?.click();
       })()
     `);
@@ -736,7 +831,9 @@ const createWindow = async () => {
         balanceSourceAudit,
         postConfirmationInputAudit,
         weaponDelayAudit,
+        customEquipmentAudit,
         unequipAudit,
+        optimizerRulesAudit,
         workspaceAudit,
         workspacePersistenceAudit
       }, null, 2));

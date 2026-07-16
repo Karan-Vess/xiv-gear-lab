@@ -3,10 +3,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { gearSnapshot } from '@xiv-gear-lab/data';
 import type { GearSet, OptimizerConstraints } from '@xiv-gear-lab/domain';
 import {
+  deleteCustomItem,
   loadBuildWorkspaceState,
+  loadCustomItems,
   loadSavedSets,
   pinnedSnapshotIdsForSavedSets,
-  saveBuildWorkspaceState
+  saveBuildWorkspaceState,
+  saveCustomItem
 } from './storage';
 import { createInitialBuildWorkspaceState } from './workspace';
 
@@ -75,7 +78,7 @@ describe('saved-set storage migration', () => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    expect(upgraded.version).toBe(5);
+    expect(upgraded.version).toBe(6);
     expect(upgraded.objectStoreNames.contains('metadata')).toBe(true);
     expect(upgraded.objectStoreNames.contains('workspaces')).toBe(true);
     upgraded.close();
@@ -145,5 +148,47 @@ describe('saved-set storage migration', () => {
     });
     expect(customRecord).toBeTruthy();
     upgraded.close();
+  });
+});
+
+describe('M10 custom-item persistence', () => {
+  it('round-trips meldability, access metadata, notes, costs and a local user icon', async () => {
+    const source = structuredClone(gearSnapshot.items.find((item) => item.jobs.includes('WHM') && item.slot === 'head')!);
+    const custom = {
+      ...source,
+      id: 'custom-round-trip',
+      origin: 'custom' as const,
+      sourceFamily: 'custom' as const,
+      materiaSlots: 2,
+      advancedMelding: true,
+      iconPath: undefined,
+      iconUrl: 'data:image/png;base64,AA==',
+      customData: {
+        schemaVersion: 'custom-equipment@1' as const,
+        mode: 'meldable-base' as const,
+        role: 'healer' as const,
+        expansionId: 'dawntrail',
+        sourceDescription: 'Synthetic source',
+        fixedCost: '10 test tokens',
+        notes: 'Keep this note after restart.',
+        iconProvenance: 'user' as const,
+        clonedFromItemId: source.id
+      }
+    };
+    await saveCustomItem(custom, 'head');
+    const loaded = await loadCustomItems();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({
+      id: custom.id,
+      preferredSlot: 'head',
+      item: {
+        materiaSlots: 2,
+        advancedMelding: true,
+        iconUrl: custom.iconUrl,
+        customData: custom.customData
+      }
+    });
+    await deleteCustomItem(custom.id);
+    expect(await loadCustomItems()).toEqual([]);
   });
 });

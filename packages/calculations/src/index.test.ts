@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyMateria,
   expectedAction100,
   gcdFromSpellSpeed,
-  getCombatEvaluatorProfile
+  getCombatEvaluatorProfile,
+  pietyMpBonusPerTick,
+  pietyMpPerTick,
+  tenacityIncomingDamageMultiplier,
+  tenacityMultiplier
 } from './index';
-import { emptyStats, type CombatEvaluatorProfile } from '@xiv-gear-lab/domain';
+import { emptyStats, type CombatEvaluatorProfile, type EquipmentItem, type Materia } from '@xiv-gear-lab/domain';
 
 const whmProfile: CombatEvaluatorProfile = {
   id: 'test-whm@1',
@@ -113,9 +118,34 @@ describe('level 100 combat proxy calculations', () => {
     }, 158, profile)).toBeCloseTo(7979.5, 2);
   });
 
+  it('matches the published level-100 Dawntrail Tenacity tiers', () => {
+    expect(tenacityMultiplier(420)).toBe(1);
+    expect(tenacityIncomingDamageMultiplier(420)).toBe(1);
+    expect(tenacityMultiplier(622)).toBe(1.008);
+    expect(tenacityIncomingDamageMultiplier(622)).toBe(0.986);
+  });
+
+  it('matches the published level-100 Piety recovery tick examples', () => {
+    expect(pietyMpBonusPerTick(440)).toBe(0);
+    expect(pietyMpPerTick(440)).toBe(200);
+    expect(pietyMpBonusPerTick(929)).toBe(26);
+    expect(pietyMpPerTick(929)).toBe(226);
+  });
+
   it('refuses missing or unsupported profiles instead of silently applying a generic one', () => {
     expect(() => getCombatEvaluatorProfile('BLU', [whmProfile])).toThrow('No combat evaluator profile');
     expect(() => getCombatEvaluatorProfile('WHM', [{ ...whmProfile, schemaVersion: 'future-formula@9' }]))
       .toThrow('unsupported schema');
+  });
+
+  it('rejects a high-grade materia in the second advanced meld slot', () => {
+    const item: EquipmentItem = {
+      id: 'advanced-test', origin: 'custom', name: 'Advanced test item', jobs: ['WHM'], slot: 'head', level: 100, itemLevel: 790,
+      stats: emptyStats(), statCaps: { ...emptyStats(), criticalHit: 999 }, weaponDamage: 0, weaponDelayMs: 0,
+      materiaSlots: 2, advancedMelding: true, unique: false, sourceFamily: 'custom', acquisitionNote: 'Test', provenance: []
+    };
+    const materia: Materia = { id: 1, name: 'Grade XII test', stat: 'criticalHit', value: 54, tier: 12, advancedMeldingLimit: 'first-slot-only' };
+    expect(() => applyMateria(item, [1, 1, 1], [materia])).not.toThrow();
+    expect(() => applyMateria(item, [1, 1, 1, 1], [materia])).toThrow('advanced meld slot 2');
   });
 });

@@ -283,6 +283,113 @@ describe('DPS optimisers', () => {
   }, 20_000);
 });
 
+describe('M10 optimiser restrictions', () => {
+  const base = {
+    minResource: 440,
+    minGcd: 1.5,
+    maxGcd: 2.5,
+    allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'] as const,
+    requiredItemIds: [] as Array<number | string>,
+    excludedItemIds: [] as Array<number | string>,
+    frontierLimit: 300,
+    gcdMode: 'range' as const,
+    gcdTargetName: 'Regression range'
+  };
+
+  it('reports a minimal required/excluded conflict', () => {
+    const item = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM'))!;
+    const result = optimizeWhm(gearSnapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [item.id], excludedItemIds: [item.id] });
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain('both required and excluded');
+  });
+
+  it('honours an exact slot lock and locked meld prefix', () => {
+    const weapon = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'weapon')!;
+    const materia = gearSnapshot.materia.find((entry) => entry.stat === 'criticalHit')!;
+    const result = optimizeWhm(gearSnapshot, {
+      ...base,
+      allowedSources: [...base.allowedSources],
+      lockedItemIdsBySlot: { weapon: weapon.id },
+      lockedMateriaBySlot: { weapon: [materia.id] }
+    });
+    expect(result.best?.items.weapon?.itemId).toBe(weapon.id);
+    expect(result.best?.items.weapon?.materiaIds[0]).toBe(materia.id);
+  }, 20_000);
+
+  it('supports no food and one locked food', () => {
+    const noFood = optimizeWhm(gearSnapshot, { ...base, allowedSources: [...base.allowedSources], foodMode: 'none' });
+    expect(noFood.best?.foodId).toBeUndefined();
+    const food = gearSnapshot.foods[0]!;
+    const locked = optimizeWhm(gearSnapshot, { ...base, allowedSources: [...base.allowedSources], foodMode: 'locked', lockedFoodId: food.id });
+    expect(locked.best?.foodId).toBe(food.id);
+  }, 20_000);
+
+  it('treats an impossible GCD range as a failure rather than a closest-result success', () => {
+    const result = optimizeWhm(gearSnapshot, { ...base, allowedSources: [...base.allowedSources], minGcd: 1.5, maxGcd: 1.51 });
+    expect(result.best).toBeUndefined();
+    expect(result.speedFallback).toBeUndefined();
+    expect(result.explanation[0]).toContain('GCD range');
+  }, 20_000);
+
+  it('honours high-grade advanced-meld slot legality', () => {
+    const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;
+    const custom: EquipmentItem = {
+      ...source,
+      id: 'custom-overmeld-head',
+      origin: 'custom',
+      sourceFamily: 'custom',
+      advancedMelding: true,
+      materiaSlots: 2,
+      unique: false
+    };
+    const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
+    const result = optimizeWhm(snapshot, {
+      ...base,
+      allowedSources: [...base.allowedSources],
+      requiredItemIds: [custom.id],
+      allowedMateriaStats: ['criticalHit'],
+      allowedMateriaTiers: [12],
+      allowOvermelds: true,
+      allowCustomItems: true
+    });
+    expect(result.best?.items.head?.materiaIds).toHaveLength(3);
+
+    const gradeEleven = { ...gearSnapshot.materia.find((entry) => entry.stat === 'criticalHit')!, id: 990_011, name: 'Regression grade XI', tier: 11, advancedMeldingLimit: 'unrestricted' as const };
+    const lowerGradeSnapshot: GearSnapshot = { ...snapshot, materia: [...snapshot.materia, gradeEleven] };
+    const fullPentameld = optimizeWhm(lowerGradeSnapshot, {
+      ...base,
+      allowedSources: [...base.allowedSources],
+      requiredItemIds: [custom.id],
+      allowedMateriaStats: ['criticalHit'],
+      allowedMateriaTiers: [11],
+      allowOvermelds: true,
+      allowCustomItems: true
+    });
+    expect(fullPentameld.best?.items.head?.materiaIds).toHaveLength(5);
+  }, 20_000);
+
+  it('requires an explicit override and marks an out-of-access custom result hypothetical', () => {
+    const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;
+    const custom: EquipmentItem = {
+      ...source,
+      id: 'custom-future-head',
+      origin: 'custom',
+      sourceFamily: 'custom',
+      level: 110,
+      customData: {
+        schemaVersion: 'custom-equipment@1', mode: 'final-stats', role: 'healer', expansionId: 'future',
+        sourceDescription: 'Test', fixedCost: '', notes: '', iconProvenance: 'generic'
+      }
+    };
+    const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
+    const denied = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dawntrail', accessLevel: 100 });
+    expect(denied.best).toBeUndefined();
+    expect(denied.explanation[0]).toContain('experimental access override');
+    const allowed = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dawntrail', accessLevel: 100, allowExperimentalAccess: true });
+    expect(allowed.best?.hypotheticalAccess?.itemIds).toContain(custom.id);
+  }, 20_000);
+});
+
 describe('future job onboarding contract', () => {
   const makeFutureSnapshot = (): GearSnapshot => {
     const snapshot = structuredClone(whmSnapshot);

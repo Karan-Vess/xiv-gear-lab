@@ -38,7 +38,9 @@ describe('three-build comparison', () => {
     expect(html).toContain('Base GCD');
     expect(html).toContain('Effective GCD');
     expect(html).toContain('MP regeneration');
-    expect(html).toContain('Not modelled yet · compare Piety');
+    expect(html).toContain('MP / 3s tick');
+    expect(html).toContain('from Piety');
+    expect(html).toContain('Tenacity outcome');
     expect(html).toContain('Critical Hit outcome');
     expect(html).toContain('Direct Hit outcome');
     expect(html).toContain('Determination damage');
@@ -60,6 +62,21 @@ describe('three-build comparison', () => {
     expect(html).toContain('Different data snapshots.');
     expect(html).toContain('Not directly comparable');
     expect(html).toContain('MNK');
+  });
+
+  it('shows Tenacity effects for tank comparisons', () => {
+    const state = createState();
+    const tankSet = gearSnapshot.curatedSets.find((set) => set.job === 'PLD')!;
+    for (const build of Object.values(state.builds)) {
+      build.job = 'PLD';
+      build.selectedSet = structuredClone(tankSet);
+    }
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+
+    expect(html).toContain('damage/outgoing healing');
+    expect(html).toContain('damage reduction');
   });
 
   it('warns for different rulesets, evaluator versions, schemas and unknown calculation context', () => {

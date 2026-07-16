@@ -17255,6 +17255,7 @@
       "stat": "directHit",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020298_hr1.tex",
       "iconUrl": "./icons/items/41771.png"
     },
@@ -17264,6 +17265,7 @@
       "stat": "criticalHit",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020298_hr1.tex",
       "iconUrl": "./icons/items/41772.png"
     },
@@ -17273,6 +17275,7 @@
       "stat": "determination",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020298_hr1.tex",
       "iconUrl": "./icons/items/41773.png"
     },
@@ -17282,6 +17285,7 @@
       "stat": "tenacity",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020292_hr1.tex",
       "iconUrl": "./icons/items/41774.png"
     },
@@ -17291,6 +17295,7 @@
       "stat": "skillSpeed",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020294_hr1.tex",
       "iconUrl": "./icons/items/41781.png"
     },
@@ -17300,6 +17305,7 @@
       "stat": "spellSpeed",
       "value": 54,
       "tier": 12,
+      "advancedMeldingLimit": "first-slot-only",
       "iconPath": "ui/icon/020000/020294_hr1.tex",
       "iconUrl": "./icons/items/41782.png"
     }

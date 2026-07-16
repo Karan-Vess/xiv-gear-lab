@@ -1,4 +1,5 @@
 export const TRUSTED_EXTERNAL_HOSTS = new Set([
+  'www.akhmorning.com',
   'etro.gg',
   'github.com',
   'na.finalfantasyxiv.com',
@@ -20,4 +21,3 @@ export const trustedExternalUrl = (value?: string): string | undefined => {
     return undefined;
   }
 };
-

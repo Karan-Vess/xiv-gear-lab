@@ -6,6 +6,32 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 No notable changes yet.
 
+## 0.8.1 - 2026-07-16
+
+### Changed
+
+- Tank build summaries and comparisons now show Tenacity's outgoing damage/healing increase and incoming damage reduction; healer views show total MP restored per three-second recovery tick and the amount added by Piety.
+- Added direct Allagan Studies formula attribution for the new Dawntrail Tenacity and Piety calculations.
+- Grouped official custom-item clone choices by equipment slot and sorted each group by descending item level, source and item name.
+- Removed the misleading editable GCD target-name field; result wording is now generated from the selected target values and timing state.
+- Renamed the equipment-rule launcher to `Equipment constraints`.
+- Replaced the planned hosted M11B patch watcher with a locally run, owner-controlled patch-update assistant; unattended hosted watching and direct per-slot equipment selection are explicitly deferred.
+
+## 0.8.0 - 2026-07-16
+
+### Added
+
+- Added named exact or ranged GCD targets, food off/automatic/locked modes, materia-family and grade filters, advanced-meld permission, and custom-item/access controls.
+- Added official-equipment required, excluded and exact-slot locks plus slot-specific locked meld prefixes with actionable conflict explanations.
+- Added complete hypothetical equipment with official/custom cloning, duplication, job and access metadata, final-stat and meldable-base modes, editable caps and slots, notes, costs, source descriptions, and generic, reused or local user icons.
+- Added an explicit experimental future/inaccessible access override; affected build tabs, details, comparisons and saved-set cards are marked hypothetical.
+
+### Changed
+
+- Grade XII materia is now restricted to the first advanced meld slot, while explicitly unrestricted lower-grade fixtures can fill later pentameld slots.
+- Custom-item deletion is blocked while a saved set references the item, and incompatible edits safely unequip it from affected workspaces.
+- Local storage now uses custom-item schema v2 and migrates older workspace constraints onto safe M10 defaults.
+
 ## 0.7.3 - 2026-07-16
 
 ### Changed

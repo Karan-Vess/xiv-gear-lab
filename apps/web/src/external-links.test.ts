@@ -6,6 +6,7 @@ describe('trusted external source links', () => {
     expect(trustedExternalUrl('https://v2.xivapi.com/api/sheet/Item/49604')).toBe('https://v2.xivapi.com/api/sheet/Item/49604');
     expect(trustedExternalUrl('https://www.thebalanceffxiv.com/jobs/healers/')).toBe('https://www.thebalanceffxiv.com/jobs/healers/');
     expect(trustedExternalUrl('https://xivgear.app/math/')).toBe('https://xivgear.app/math/');
+    expect(trustedExternalUrl('https://www.akhmorning.com/allagan-studies/stats/ten/')).toBe('https://www.akhmorning.com/allagan-studies/stats/ten/');
   });
 
   it('rejects lookalike hosts, non-HTTPS URLs and malformed input', () => {
@@ -14,4 +15,3 @@ describe('trusted external source links', () => {
     expect(trustedExternalUrl('javascript:alert(1)')).toBeUndefined();
   });
 });
-

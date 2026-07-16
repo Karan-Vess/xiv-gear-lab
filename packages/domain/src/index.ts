@@ -192,6 +192,19 @@ export interface EquipmentItem {
   sourceFamily: SourceFamily;
   acquisitionNote: string;
   provenance: Provenance[];
+  customData?: CustomEquipmentData;
+}
+
+export interface CustomEquipmentData {
+  schemaVersion: 'custom-equipment@1';
+  mode: 'final-stats' | 'meldable-base';
+  role: JobRole;
+  expansionId: ExpansionId;
+  sourceDescription: string;
+  fixedCost: string;
+  notes: string;
+  iconProvenance: 'generic' | 'user' | 'reused-official';
+  clonedFromItemId?: number | string;
 }
 
 export interface Materia {
@@ -200,6 +213,7 @@ export interface Materia {
   stat: StatKey;
   value: number;
   tier: number;
+  advancedMeldingLimit?: 'forbidden' | 'first-slot-only' | 'unrestricted';
   iconPath?: string;
   iconUrl?: string;
 }
@@ -273,6 +287,10 @@ export interface GearSet {
   assumptions: string[];
   provenance: Provenance[];
   calculatedAt?: string;
+  hypotheticalAccess?: {
+    itemIds: Array<number | string>;
+    reason: string;
+  };
 }
 
 export interface SnapshotManifest {
@@ -320,7 +338,51 @@ export interface OptimizerConstraints {
   requiredItemIds: Array<number | string>;
   excludedItemIds: Array<number | string>;
   frontierLimit: number;
+  /** Optional on legacy persisted workspaces; consumers must apply safe defaults. */
+  lockedItemIdsBySlot?: Partial<Record<GearSlot, number | string>>;
+  lockedMateriaBySlot?: Partial<Record<GearSlot, number[]>>;
+  gcdMode?: 'exact' | 'range';
+  gcdTargetName?: string;
+  foodMode?: 'allowed' | 'none' | 'locked';
+  lockedFoodId?: number;
+  allowedMateriaStats?: StatKey[];
+  allowedMateriaTiers?: number[];
+  allowOvermelds?: boolean;
+  allowCustomItems?: boolean;
+  accessExpansion?: ExpansionId;
+  accessLevel?: number;
+  allowExperimentalAccess?: boolean;
 }
+
+export interface ResolvedOptimizerConstraints extends OptimizerConstraints {
+  lockedItemIdsBySlot: Partial<Record<GearSlot, number | string>>;
+  lockedMateriaBySlot: Partial<Record<GearSlot, number[]>>;
+  gcdMode: 'exact' | 'range';
+  gcdTargetName: string;
+  foodMode: 'allowed' | 'none' | 'locked';
+  allowedMateriaStats: StatKey[];
+  allowedMateriaTiers: number[];
+  allowOvermelds: boolean;
+  allowCustomItems: boolean;
+  allowExperimentalAccess: boolean;
+}
+
+export const resolveOptimizerConstraints = (
+  constraints: OptimizerConstraints,
+  availableMateria: readonly Materia[] = []
+): ResolvedOptimizerConstraints => ({
+  ...constraints,
+  lockedItemIdsBySlot: constraints.lockedItemIdsBySlot ?? {},
+  lockedMateriaBySlot: constraints.lockedMateriaBySlot ?? {},
+  gcdMode: constraints.gcdMode ?? (constraints.minGcd === constraints.maxGcd ? 'exact' : 'range'),
+  gcdTargetName: constraints.gcdTargetName?.trim() || 'Custom target',
+  foodMode: constraints.foodMode ?? 'allowed',
+  allowedMateriaStats: constraints.allowedMateriaStats ?? [...new Set(availableMateria.map((entry) => entry.stat))],
+  allowedMateriaTiers: constraints.allowedMateriaTiers ?? [...new Set(availableMateria.map((entry) => entry.tier))],
+  allowOvermelds: constraints.allowOvermelds ?? false,
+  allowCustomItems: constraints.allowCustomItems ?? true,
+  allowExperimentalAccess: constraints.allowExperimentalAccess ?? false
+});
 
 export const emptyStats = (): StatBlock => ({
   strength: 0,

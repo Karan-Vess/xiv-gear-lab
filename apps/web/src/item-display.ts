@@ -23,6 +23,7 @@ export interface ItemStatDisplay {
 
 export interface MateriaSlotDisplay {
   index: number;
+  advanced: boolean;
   materia?: Materia;
   statLabel?: string;
   applied: number;
@@ -36,7 +37,7 @@ const meldedItemStats = (item: EquipmentItem, materiaIds: number[], materia: Mat
   for (let index = 0; index < Math.max(item.materiaSlots, materiaIds.length); index += 1) {
     const meld = materia.find((entry) => entry.id === materiaIds[index]);
     if (!meld) {
-      slots.push({ index, applied: 0, waste: 0 });
+      slots.push({ index, advanced: index >= item.materiaSlots, applied: 0, waste: 0 });
       continue;
     }
     const room = Math.max(0, item.statCaps[meld.stat] - stats[meld.stat]);
@@ -44,6 +45,7 @@ const meldedItemStats = (item: EquipmentItem, materiaIds: number[], materia: Mat
     stats[meld.stat] += applied;
     slots.push({
       index,
+      advanced: index >= item.materiaSlots,
       materia: meld,
       statLabel: statLabel[meld.stat],
       applied,

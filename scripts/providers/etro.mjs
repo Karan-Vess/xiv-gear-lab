@@ -153,7 +153,19 @@ export const normalizeEtroMateria = (catalogue, { referencedIds, paramToStat }) 
     for (let tier = 1; tier <= 12; tier += 1) {
       const row = family[`tier${tier}`];
       if (!row || !referencedIds.has(row.id)) continue;
-      materia.push({ id: row.id, name: row.name, stat, value: family[`tier${tier}Value`], tier, iconPath: row.iconPath });
+      const advancedMeldingLimit = [8, 10, 12].includes(tier)
+        ? 'first-slot-only'
+        : [7, 9, 11].includes(tier) ? 'unrestricted' : undefined;
+      materia.push({
+        id: row.id,
+        name: row.name,
+        stat,
+        value: family[`tier${tier}Value`],
+        tier,
+        // Explicitly evidenced expansion pairs. Unknown future tiers must be reviewed, not guessed.
+        ...(advancedMeldingLimit ? { advancedMeldingLimit } : {}),
+        iconPath: row.iconPath
+      });
     }
   }
   if (materia.length !== referencedIds.size) {
