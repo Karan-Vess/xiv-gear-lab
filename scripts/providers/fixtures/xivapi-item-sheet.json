@@ -1,0 +1,22 @@
+{
+  "version": "fixture-version-1",
+  "schema": "fixture-schema-1",
+  "rows": [
+    {
+      "row_id": 1001,
+      "fields": {
+        "Name": "Fixture Staff",
+        "LevelEquip": 100,
+        "LevelItem@as(raw)": 790
+      }
+    },
+    {
+      "row_id": 1002,
+      "fields": {
+        "Name": "Fixture Robe",
+        "LevelEquip": 100,
+        "LevelItem@as(raw)": 790
+      }
+    }
+  ]
+}

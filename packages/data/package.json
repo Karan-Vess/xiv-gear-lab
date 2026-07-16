@@ -1,0 +1,13 @@
+{
+  "name": "@xiv-gear-lab/data",
+  "version": "0.6.3",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@xiv-gear-lab/domain": "*"
+  },
+  "devDependencies": {
+    "@xiv-gear-lab/calculations": "*"
+  }
+}

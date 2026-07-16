@@ -1,0 +1,20 @@
+{
+  "job": "WHM",
+  "name": "Fixture XivGear Set",
+  "timestamp": "2026-07-15T00:00:00.000Z",
+  "food": 45001,
+  "computedStats": { "wdMag": 150 },
+  "items": {
+    "Weapon": { "id": 1001, "materia": [{ "id": 6001 }] },
+    "Head": { "id": 1002, "materia": [] },
+    "Body": { "id": 1003, "materia": [] },
+    "Hand": { "id": 1004, "materia": [] },
+    "Legs": { "id": 1005, "materia": [] },
+    "Feet": { "id": 1006, "materia": [] },
+    "Ears": { "id": 1007, "materia": [] },
+    "Neck": { "id": 1008, "materia": [] },
+    "Wrist": { "id": 1009, "materia": [] },
+    "RingLeft": { "id": 1010, "materia": [] },
+    "RingRight": { "id": 1011, "materia": [] }
+  }
+}

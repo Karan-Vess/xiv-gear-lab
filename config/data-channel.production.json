@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "data-channel-config@1",
+  "status": "unfinished-preview",
+  "repository": "Karan-Vess/xiv-gear-lab",
+  "channel": "preview",
+  "manifestUrl": "https://karan-vess.github.io/xiv-gear-lab/channel/manifest.json",
+  "snapshotBaseUrl": "https://karan-vess.github.io/xiv-gear-lab/channel/releases",
+  "allowedOrigins": [
+    "https://karan-vess.github.io"
+  ],
+  "signingKeyId": "stable-2026-07",
+  "trustedEd25519Keys": {
+    "stable-2026-07": "QiZ+fF7KcoyJ6AeuVaGK5BCSFtzxyFNS+ihHcfyBiXo=",
+    "recovery-2026-07": "nrwfD77+CHYEgd0AuF+E8AqjczareGT8D0UxjAq47yI="
+  }
+}

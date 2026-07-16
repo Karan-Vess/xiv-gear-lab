@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.cache/
+artifacts/
+*.log
+*.tsbuildinfo
+.vite/
+release/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.pkcs8
+*.pkcs8.b64

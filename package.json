@@ -1,0 +1,37 @@
+{
+  "name": "xiv-gear-lab",
+  "version": "0.6.3",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:web": "npm run dev -w @xiv-gear-lab/web",
+    "dev:desktop": "concurrently -k -n web,desktop \"npm run dev:web\" \"npm run dev -w @xiv-gear-lab/desktop\"",
+    "package:windows": "npm run build && npm run package:windows -w @xiv-gear-lab/desktop",
+    "sync:data": "node scripts/sync-whm-data.mjs",
+    "sync:whm": "npm run sync:data",
+    "build:data-release": "tsx scripts/build-data-release.ts",
+    "stage:data-production": "node scripts/stage-production-data-release.mjs",
+    "verify:data-production": "tsx scripts/verify-production-data-channel.ts",
+    "verify:data-hosted": "tsx scripts/verify-production-data-channel.ts --hosted",
+    "package:windows:production": "node scripts/package-production.mjs",
+    "drill:installed-update": "node scripts/run-installed-update-drill.mjs",
+    "drill:hosted-update": "node scripts/run-hosted-update-drill.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "4.1.10",
+    "concurrently": "10.0.3",
+    "fake-indexeddb": "^6.2.4",
+    "sharp": "0.35.3",
+    "tsx": "^4.21.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

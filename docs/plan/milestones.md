@@ -1,0 +1,512 @@
+# XIV Gear Lab roadmap, acceptance criteria, and test plan
+
+Status: revised through the v0.6.2 M8B implementation
+Date: 2026-07-16
+Current runnable baseline: Windows/browser-capable v0.6.2, level 100, current Dawntrail combat tier
+
+This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
+
+## Status definitions
+
+- **Complete**: the scoped deliverable and its current acceptance evidence exist.
+- **Complete for current-tier scope**: the deliberately bounded release slice is complete; broader content remains assigned elsewhere.
+- **Partial**: useful implementation exists, but one or more promised behaviours or tests are still missing.
+- **Planned**: not yet implemented beyond architecture or exploratory work.
+
+## Audit of the existing milestones
+
+| Milestone | Honest status | Current evidence | Work still owed |
+| --- | --- | --- | --- |
+| M0 Discovery and governance | Complete for private prototype | Product discovery, architecture, source policy, prototype boundary, provider attribution and private/non-commercial rights gate | Public distribution permissions and final licence review remain release work |
+| M1 Secure application shell | Partial | Shared React renderer, browser build, sandboxed Electron host, CSP, restricted navigation, packaged smoke path | Error boundary, formal linting, broader accessibility/zoom checks and security assertions |
+| M2 Versioned data and offline cache | Complete for private prototype | Versioned bundled/downloaded snapshots, signed candidate validation, atomic activation, last-known-good rollback, quota recovery, schema migrations, protected retention and installed offline-after-online evidence | Production hosting and key custody remain M8C release infrastructure |
+| M3 Expansion, job and acquisition eligibility | Partial | Expansion caps, effective-level calculation and job unlock filtering | Real lower-level catalogues, route-level expansion/quest checks, curated-set filtering, strict-verified mode and experimental-access overrides |
+| M4 Curated catalogue | Complete for current-tier scope | Sixty deduplicated Etro/The Balance references for all 21 standard combat jobs with source links, dates, assumptions, disagreement preservation and isolated runtime provider contracts | Historical/lower-level curated coverage |
+| M5 Shared set model and calculations | Partial | Unified set representation, current level-100 stats, food, guaranteed melds, caps, party bonus, Paladin off-hand, calculation provenance and formula compatibility gates | Legal overmelding, selectable race/clan, broader level rules and full meldable custom items |
+| M6 End-to-end combat optimiser prototype | Partial | Worker search, source filters, exact GCD targets, comfort constraints, custom-item forcing, closest-speed fallback, saving and generated-set explanations | UI locks/official required and excluded items, GCD ranges, food/materia controls, locked melds, practical comparison workflow and measured performance budgets |
+| M7 Standard combat-job expansion | Complete | All 21 standard combat jobs have current-tier gear, curated references, explicit proxy profiles, job speed targets, export and regression coverage | Limited jobs, the next expansion's two jobs, evolved modes and opener/dummy evaluators are deliberately assigned to later milestones |
+
+M7 is complete even though some earlier foundations remain partial. Those debts are not waived; they are explicitly reassigned below.
+
+## Carry-over register
+
+The following requirements existed before this revision and must remain visible:
+
+1. Runtime data refresh, offline-after-online cache, atomic rollback and provider failure isolation -> **M8**.
+2. Data-driven expansion/job definitions, new-job onboarding, formula compatibility and evolved-mode versioning -> **M8**.
+3. Three independent builds and meaningful set comparison -> **M9**.
+4. Required, excluded and locked official gear; GCD ranges; food, materia and overmeld controls -> **M10**.
+5. Complete hypothetical-item fields, cloning, meldable custom items and experimental access overrides -> **M10**.
+6. Lower-expansion and lower-level equipment, curated sets and route eligibility -> **M11**.
+7. Duties, vendors, currencies, recipes, upgrade chains, fixed costs and the full source taxonomy -> **M11**.
+8. Job-correct opener and sustained dummy evaluation without encounter simulation -> **M12-M13**.
+9. Crafting and gathering objectives, thresholds and optimisation -> **M14-M15**.
+10. Project import/export, backup/restore, durable migrations, sharing and hardened XivGear compatibility -> **M16**.
+11. Measured performance, accessibility, long-offline reliability, installer/update hardening and rights approval -> **M17**.
+
+## Completed and partial foundation milestones
+
+### M0 - Discovery and governance
+
+Status: **Complete for private prototype**.
+
+Delivered:
+
+- Product discovery, architecture, source policy, prototype scope and major-risk register.
+- Windows-first desktop decision with a shared browser-capable renderer.
+- Provider purpose/provenance classification and a private, non-commercial rights gate.
+
+Remaining release gate:
+
+- Public distribution, monetisation, third-party data republication and final FFXIV materials-licence review are handled in M17.
+
+### M1 - Workspace and secure application shell
+
+Status: **Complete for private prototype**.
+
+Delivered:
+
+- Typed workspace, browser host, Electron host, shared renderer, build/test/package commands and dark desktop UI.
+- Electron context isolation and sandboxing, no renderer Node integration, narrow preload surface, CSP and blocked arbitrary navigation/new windows.
+- Packaged executable smoke testing.
+
+Remaining:
+
+- Add a renderer error boundary and recoverable fatal-error screen.
+- Add formal lint/static-policy checks and automated Electron security assertions.
+- Complete keyboard, screen-reader, high-zoom and reduced-motion audits in M17.
+
+### M2 - Versioned static data baseline
+
+Status: **Partial**.
+
+Delivered:
+
+- Immutable bundled snapshot with game, tier, XIVAPI schema and calculation versions.
+- Official IDs, stats, caps, icons, food, materia and provenance.
+- Offline use of bundled and previously downloaded release data.
+- Signed runtime candidate validation, inert staging, atomic activation, previous-version repair/rollback and explicit provider freshness.
+- Version-two snapshot/icon cache migration, saved-set pins, bounded retention, abandoned-candidate cleanup and quota retry without deleting active, rollback or saved-set snapshots.
+- Packaged online-update/offline-relaunch drill plus a simulated six-month cache-age test.
+
+Production boundary:
+
+- The ordinary private build deliberately has no live update URL or production public key until the project-controlled M8C host and key-custody process exist.
+
+### M3 - Expansion, job and acquisition eligibility
+
+Status: **Partial**.
+
+Delivered:
+
+- Expansion definitions, effective level caps and job introduction/start-level checks.
+- Unsupported jobs are disabled for the selected access state.
+
+Not yet delivered:
+
+- The current catalogue is level-100/current-tier only; selecting a lower expansion does not produce a real historical recommendation pool.
+- Equipment, food, materia, curated sets and acquisition routes are not yet filtered through a complete versioned access graph.
+- Quest gates, duty access, strict-verified mode and explicit future-item overrides move to M10-M11.
+
+### M4 - Current-tier curated catalogue
+
+Status: **Complete for current-tier standard combat jobs**.
+
+Delivered:
+
+- Sixty current final-tier recommendations across the 21 standard combat jobs.
+- Exact source identity, links, dates, patch/tier, equipment, materia, food and assumptions.
+- Exact overlaps are cross-attributed; genuinely different Etro/Balance variants remain separate.
+- A curated source is reference evidence, not automatically the optimiser answer.
+
+Future extension:
+
+- Runtime provider adapters and partial-provider freshness move to M8.
+- Historical and lower-level curated discovery moves to M11.
+
+### M5 - Shared set model and current combat calculations
+
+Status: **Partial**.
+
+Delivered:
+
+- Curated, generated, saved and custom sets share a common model and renderer.
+- Current level-100 main stat, weapon damage, Determination, Critical Hit, Direct Hit, Tenacity, speed, GCD, party bonus, food and guaranteed materia calculations.
+- Stat-cap waste, unique-ring legality and Paladin weapon/off-hand weighting.
+- Calculation version and evaluator identity on results.
+
+Remaining:
+
+- Compatibility refusal when a snapshot requires an unsupported formula/ruleset schema -> M8.
+- NQ equipment is deliberately out of scope; future crafted-equipment ingestion must use HQ stats only -> M11.
+- Overmeld grade/slot legality, locked melds and fully meldable custom bases -> M10.
+- Selectable race/clan and broader level-scaling rules -> M10-M11.
+
+### M6 - End-to-end combat optimiser prototype
+
+Status: **Partial**.
+
+Delivered:
+
+- Responsive Web Worker search with a bounded frontier and cancellation.
+- Current Savage/tomestone filters, exact GCD targets, healer/tank comfort minimums, custom-item forcing and closest-attainable speed fallback.
+- Local saved sets and persistent custom items.
+- Changed item/meld highlighting after a rerun.
+
+Remaining:
+
+- Opaque automatic Alternatives 2-4 are replaced by the independent-build workflow in M9.
+- Expose official required/excluded/locked items, GCD ranges, food and materia restrictions in M10.
+- Add locked melds, overmelding controls and better unsatisfiable-cause reporting in M10.
+- Prove realistic p95 performance rather than relying only on bounded unit/smoke timings in M17.
+
+### M7 - Standard combat-job expansion
+
+Status: **Complete**.
+
+Delivered in v0.5.0:
+
+- WHM, SCH, AST, SGE, PLD, WAR, DRK, GNB, MNK, DRG, NIN, SAM, RPR, VPR, BRD, MCH, DNC, BLM, SMN, RDM and PCT.
+- Job-filtered official equipment, 60 curated references and explicit evaluator-profile identities.
+- Role-correct main/resource/speed stats, Paladin off-hand support and current job-specific GCD targets.
+- Haste-adjusted primary GCDs for MNK, NIN, SAM and VPR.
+- Official-only XivGear JSON export and unsupported-profile refusal.
+- Transparent expected-single-100-potency-hit limitation rather than a false rotation-DPS claim.
+
+Scope decision:
+
+- The former open-ended rotation/encounter requirement is removed from M7.
+- Bounded 30-second opener and 300-second dummy evaluation move to M12-M13.
+- Encounter timelines, boss downtime, movement and fight-specific scripting are not part of the current product target.
+
+## Revised forward roadmap
+
+### M8 - Runtime data, formula compatibility, and new-job onboarding
+
+Status: **In progress - foundation delivered in v0.6.0, M8A in v0.6.1 and M8B in v0.6.2**.
+
+Delivered in v0.6.0:
+
+- Project-controlled, cryptographically verified update manifest with provider allowlist, checksums, schema versions, minimum app version and formula/ruleset compatibility requirements.
+- Bounded HTTPS provider transport adapters with origin allowlists, timeouts, retries, content limits and provider-specific errors.
+- IndexedDB snapshot repository with inert candidate staging, atomic activation, bundled fallback, automatic last-known-good repair, manual rollback and pinned-snapshot lookup.
+- Signed snapshot publisher that embeds local PNG assets into the downloadable artifact for complete offline icons.
+- Provider freshness states in the signed manifest and honest bundled/downloaded, progress, failure, provider-issue and rollback UI.
+- Data-driven expansion and job registry instead of fixed operational assumptions such as exactly 21 jobs.
+- Versioned ruleset identity: expansion/patch, level band, job, mode, profile version and calculation schema.
+- Safe declarative profile packs for existing formula structures: main stat, modifiers, base stats, speed effects, recommended targets and capability flags.
+- Named timing effects with passive/maintained/temporary classification and an explicit target-GCD state.
+- Capability states per job: catalogue, generic-hit evaluator, opener evaluator and dummy evaluator.
+- Onboarding path for the next expansion's two jobs and evolved modes without rewriting UI or optimiser core logic.
+- New curated/generated/saved results pin their snapshot, ruleset, calculation schema and evaluator identity; compatible cached snapshots can be resolved by ID.
+
+Delivered in v0.6.1 (M8A):
+
+- XIVAPI, Etro, The Balance and XivGear have provider-specific fetch, shape-validation and normalisation modules with pinned contract fixtures.
+- Provider JSON is cached only after its live response passes the matching contract; timeouts or schema drift can reuse the last validated response and are marked stale.
+- Official, acquisition and curated data are assembled as separate versioned overlays by a shared snapshot builder.
+- Optional stale overlays can be safely retained while fresh sibling overlays publish; essential official data still fails closed when neither a valid candidate nor last-known-good fallback exists.
+- Signed release manifests inherit the exact per-provider and per-overlay freshness recorded by the snapshot.
+- A live 231-item/6-materia/4-food/60-set refresh and a forced Etro-outage drill both completed with reference counts intact and honest stale-source reporting.
+
+Delivered in v0.6.2 (M8B):
+
+- Snapshot IndexedDB v2 migrates old snapshot/candidate records, records storage and icon-schema identities, and preserves compatible active data during upgrade.
+- Retention protects active, rollback and saved-set-pinned snapshots, removes expired candidates and prunes oldest unreferenced versions to count/size budgets.
+- A quota failure triggers aggressive safe cleanup and one bounded retry; a second failure leaves protected snapshots untouched and reports a useful storage-full error.
+- Saved-set IndexedDB v4 marks pre-context results as calculation-version unknown while preserving their stored stats and never fabricating snapshot, ruleset or evaluator provenance.
+- The UI warns on legacy saved results, and current saved sets keep their real snapshot IDs pinned until the final referencing set is deleted.
+- A real packaged EXE updated from an ephemeral signed channel, reloaded from the downloaded cache, then launched again with that channel shut down; both phases optimised successfully with complete embedded icons.
+- Unit coverage also restores an active downloaded cache after a simulated six-month offline gap.
+
+Remaining before M8 is complete:
+
+- Choose and configure the project-controlled HTTPS update host and production Ed25519 signing key; no private key is stored in the application.
+- Run the publisher and updater against a real hosted release channel before declaring normal patch refresh complete.
+
+Accept when:
+
+- A normal gear-tier patch can update items, icons, food, materia and curated references without publishing a new executable.
+- A synthetic future job can enter the catalogue through registry/profile data without UI or optimiser-core edits.
+- A job with no compatible evaluator is visible as data-available/evaluator-pending and cannot be optimised deceptively.
+- Installing a compatible declarative generic-hit profile enables that capability without core-code changes.
+- Unknown formula schemas, evolved modes or provider shapes fail closed and leave the active snapshot untouched.
+- An interrupted, corrupt, partial or suspicious update cannot replace the last-known-good snapshot.
+- After one successful online update, the app launches and remains useful offline.
+- Old saved results remain reproducible against their pinned snapshot/ruleset.
+
+Tests:
+
+- Pinned provider contract fixtures; schema drift; renamed/removed fields; pagination; timeouts; retries; bad IDs; hostile sizes; checksum/count anomalies.
+- Partial provider outage; corrupt icons; cache quota; interrupted activation; rollback; long-offline launch; migration from the bundled v0.5 snapshot.
+- Synthetic next-expansion fixtures with two new jobs, a new level cap, one compatible profile, one unsupported formula schema and evolved-mode variants.
+- Formula/profile compatibility matrix and old-save reproducibility checks.
+
+Performance:
+
+- Cached interactive launch under 2 seconds on reference hardware.
+- Update work does not block the renderer; catalogue remains usable from the active snapshot during download/validation.
+
+### M9 - Three build workspaces and comparison clarity
+
+Status: **Planned**.
+
+Deliver:
+
+- Replace the current result/alternative tabs with persistent Build 1, Build 2, Build 3 and Comparison tabs.
+- Each build owns its job, expansion/level access, constraints, equipped set, custom-item usage, calculation mode and optimiser result.
+- Running or editing one build must not overwrite either of the others.
+- Shared custom-item library with independent equip state per build and clear multi-build edit impact.
+- Comparison table using Build 1 as the default baseline, with optional baseline selection.
+- Compare evaluation score and percentage delta, main/resource/secondary stats, base/effective GCD, item level, food, materia, waste, changed equipment, constraints, source availability, acquisition and costs when known.
+- Healer comparison shows Piety and MP regeneration rather than misleading fixed maximum-MP differences.
+- Cross-job or cross-evaluator comparisons remain viewable but clearly state which values are not directly comparable.
+- Role-coloured job choices: tank blue, healer green, DPS red, always accompanied by text/group labels so colour is not the only signal.
+- Named GCD presentation: base GCD plus relevant passive, maintained or temporary states such as Greased Lightning, Fuka, Swiftscaled or Ley Lines; the optimiser target identifies the state it uses.
+
+Accept when:
+
+- Three different jobs/constraints/custom-item combinations survive tab switches and app restarts independently.
+- Recalculating one build changes only that build and updates the comparison deterministically.
+- Item, meld, food and constraint causes of every displayed difference are inspectable.
+- Different rulesets/snapshots/evaluator modes trigger a compatibility warning instead of a misleading winner.
+- The Windows executable renders and operates the role-coded job picker reliably with keyboard and mouse input.
+
+Tests:
+
+- Workspace persistence/migration; independent state; delete/edit custom item referenced by one or more builds; stale/missing item recovery.
+- Same-job and cross-job comparisons; same/different snapshot; same/different evaluator mode; empty build; identical builds.
+- Base/effective GCD boundaries for passive, maintained and temporary effects.
+- Packaged Electron focus, dropdown, modal and keyboard regression tests.
+
+Performance:
+
+- Workspace switch and comparison refresh under 100 ms p95 for cached results.
+
+### M10 - Optimiser controls and complete hypothetical equipment
+
+Status: **Planned**.
+
+Deliver:
+
+- UI controls for required, excluded and locked official equipment and locked melds.
+- Minimum/maximum GCD ranges as well as exact targets, with named target-GCD state.
+- Food allowed/disallowed/locked, materia-family and grade restrictions, overmelding permission and custom-item permission.
+- Clear minimal useful cause when constraints are unsatisfiable.
+- Create a custom item from scratch or clone an official/custom item.
+- Full custom fields: name, job/role, slot, level, expansion, item level, main stat, Vitality, all relevant secondary stats, weapon damage/delay, materia slots, overmeld permission, stat caps, source category/description, fixed cost, notes and icon provenance.
+- Two custom modes: final-stat item and meldable base item.
+- Normal access enforcement plus an explicit experimental future/inaccessible override that marks every dependent result hypothetical.
+- Custom library edit/delete/duplicate controls and safe behaviour when saved sets/workspaces reference an item.
+
+Accept when:
+
+- Every exposed restriction is honoured by generated and warm-start candidates or produces an actionable failure.
+- Custom items cannot masquerade as official data and cannot enter official-only exports.
+- Legal custom melds respect slots, grades, overmeld rules and caps; deliberate unrealistic values require explicit warning acknowledgement.
+- Experimental-access results display the inaccessible expansion/level assumption everywhere relevant.
+
+Tests:
+
+- Required/excluded/locked conflicts; locked melds; food off/locked; materia restrictions; overmeld legality; impossible GCD/stat bands.
+- Clone/edit/delete/restart; final versus meldable mode; user/generic/reused icons; strange caps; future-level override; custom item referenced by multiple builds and saved sets.
+
+### M11 - Expansion/content eligibility, acquisition routes, and fixed costs
+
+Status: **Planned**.
+
+Deliver:
+
+- Historical/lower-level official catalogues, materia, food and curated sets needed for supported expansion/level choices.
+- HQ-only crafted equipment ingestion; NQ equipment variants are excluded from catalogues, recommendations and optimisation.
+- Versioned content/access graph for expansions, quests, duties, job unlocks, vendors, recipes, nodes and route prerequisites.
+- Full source taxonomy: crafted, normal raid, Savage, tomestone, augmented tomestone, dungeon, trial, alliance raid, relic, ultimate, quest, vendor, custom and explicitly classified additional families.
+- Multiple acquisition routes per item with provenance and access checks.
+- Fixed costs: gil vendor prices, tomestones/scrips, raid books/tokens, trial totems, upgrade materials, quest requirements, recipe materials and other deterministic currencies.
+- Weekly/one-time/recurring classifications and user-entered cost preferences where values are legitimately subjective.
+- No live market-board prices and no invented gil value for non-market rewards.
+- Curated and generated recommendations respect the selected expansion and effective level; later content may be shown only as clearly unavailable reference material.
+
+Accept when:
+
+- A lower-expansion user receives only legal jobs, items, food, materia, curated sets and routes.
+- Every crafted equipment candidate uses its HQ stats, and provider-supplied NQ variants are rejected during normalisation.
+- An item with one accessible and one inaccessible route remains usable through the legal route.
+- Recommendations explain how every official item is obtained and distinguish unknown, fixed, weekly and variable requirements.
+- Disabled source categories become functional only when their route coverage is validated.
+
+Tests:
+
+- Every expansion cap/job boundary; route alternatives; quest/duty gates; current and obsolete currencies; weekly limits; unavailable content; no-route and unknown-route failures.
+- HQ-only crafted-equipment fixtures, crafted ingredient expansion and circular recipes; upgrade chains; later-expansion leakage property tests.
+
+### M12 - Bounded combat evaluator framework
+
+Status: **Planned**.
+
+Deliver:
+
+- Evaluator contract with three standard modes:
+  1. Job-correct generic single 100-potency hit.
+  2. Fixed 30-second opener total and DPS.
+  3. Fixed 300-second single-target dummy total and DPS, including the opener.
+- Shared deterministic timing engine for GCDs, casts, animation locks, weaving, cooldowns/charges, buffs, DoTs, gauges, expected-value procs, pets/summons and relevant auto-attacks.
+- Fixed dummy assumptions: one stationary target, 100% uptime, no movement/downtime/phases, expected-value RNG, no external party buffs by default and a versioned latency/weave assumption.
+- Job evaluator supplies action catalogue, opener, ongoing priority rules, state/resource model and version metadata.
+- Personal-damage output is not presented as raid contribution; support-job contribution requires a separately defined future metric.
+- Fast proxy searches the full candidate space, then opener/dummy modes rerank a bounded finalist shortlist instead of simulating every frontier state.
+- At least four pilot evaluators representing deterministic melee, proc-heavy physical ranged, caster state/timing and pet/summon behaviour.
+
+Accept when:
+
+- The same gear produces deterministic results for a fixed evaluator/ruleset.
+- Speed changes can alter action count, cooldown drift or ranking and the explanation identifies why.
+- Generic-hit, opener and dummy modes never share labels that imply equivalent meaning.
+- Unsupported jobs/modes remain visibly unavailable rather than falling back to a generic rotation.
+- Encounter mechanics, movement and fight scripting are absent by design and stated clearly.
+
+Tests:
+
+- Action timelines, floor/round boundaries, clipping, double-weave legality, charges, buff snapshots, DoT ticks, resource overcap, expected proc values, pets, auto-attacks and cooldown drift.
+- 30.00-second and 300.00-second boundary actions; speed-tier action-count changes; deterministic replay; independent reference traces for pilot jobs.
+
+Performance:
+
+- Fast proxy remains the default interactive search.
+- A normal opener/dummy shortlist rerank completes within 5 seconds p95, is cancellable and never blocks the renderer.
+
+### M13 - Combat evaluator coverage and evolved modes
+
+Status: **Planned**.
+
+Deliver:
+
+- Expand validated opener/dummy evaluators across supported standard combat jobs in role-sized batches.
+- Add the next expansion's two jobs through the M8 onboarding contract.
+- Version existing jobs by ruleset and evolved/standard mode without overwriting Dawntrail profiles or saved results.
+- Explicit capability display for catalogue, generic hit, opener and dummy support.
+- Define whether and how limited jobs are supported; they remain outside normal recommendations until an evidence-backed objective and ruleset exist.
+
+Accept when:
+
+- Every selectable evaluator mode has job-specific fixtures and transparent assumptions.
+- New jobs using an existing supported formula/evaluator schema require only registry/profile/action data; genuinely new mechanics are isolated to a job evaluator module.
+- Old and new expansion modes can coexist and reproduce their own saved results.
+- No missing evaluator silently borrows another job's logic.
+
+Tests:
+
+- Per-job opener and five-minute traces; role-specific mechanic fixtures; evolved-mode boundaries; new-job gear/profile onboarding; old-save migration and cross-ruleset comparison warnings.
+
+### M14 - Crafting optimiser
+
+Status: **Planned**.
+
+Deliver:
+
+- Crafter job/access data, gear, materia, food and medicine.
+- Recipe target, craftsmanship/control/CP model, progress/quality/durability calculations, rotation assumptions and specialist/condition handling.
+- Threshold-aware optimisation prioritising recipe feasibility and reliability before cost/waste; overmelding and practical breakpoint alternatives.
+
+Accept when:
+
+- A result proves target-recipe feasibility and explains its required thresholds and rotation assumptions.
+- Optimisation prefers sufficient practical sets over meaningless maximum raw stats.
+- Inaccessible recipes/material routes cannot leak through expansion/access filtering.
+
+Tests:
+
+- Independent Teamcraft/MIT-compatible fixtures where legally usable; HQ/no-HQ, specialist, conditions, durability/star recipes, impossible recipe, rotation changes, materia waste and cost frontiers.
+
+### M15 - Gathering optimiser
+
+Status: **Planned**.
+
+Deliver:
+
+- Gatherer job/access data, gear, materia and food.
+- Target node/item, Gathering/Perception/GP, collectability, bonus thresholds, timed/legendary/folklore access and rotation assumptions.
+- Threshold-aware optimisation with practical cost/waste alternatives.
+
+Accept when:
+
+- Results prove node access and relevant threshold feasibility.
+- Unknown hidden/community data remains labelled instead of inferred.
+- Inaccessible nodes and folklore cannot leak through expansion/access filtering.
+
+Tests:
+
+- Normal, timed, legendary and collectable nodes; folklore; GP rotation thresholds; bonus boundaries; unavailable node; incomplete overlay and cost frontiers.
+
+### M16 - Persistence, sharing, and interoperability
+
+Status: **Planned**.
+
+Deliver:
+
+- Full saved-set and workspace management, naming, notes, folders/tags where justified and bulk comparison entry points.
+- Versioned XIV Gear Lab project format for import/export, sharing and backup/restore of settings, workspaces, sets, custom items and calculation context.
+- Durable schema migrations with preview, refusal and rollback for unsupported data.
+- Hardened XivGear adapter with verified current examples, supported relic allocations and explicit compatibility versions.
+- Continue to reject custom/missing identities from official XivGear export without silently dropping them.
+
+Accept when:
+
+- Historical results remain reproducible or migrate only through an explicit copied result.
+- A full local backup restores without changing identities or provenance.
+- Hostile, corrupt or future-schema imports fail safely.
+- XivGear exports pass periodic manual import validation against the live application.
+
+Tests:
+
+- Corrupt/hostile/large imports; duplicate identities; schema migrations; backup/restore; custom/official boundary; snapshot unavailable; current XivGear import checklist.
+
+### M17 - Reliability, accessibility, performance, and release readiness
+
+Status: **Planned**.
+
+Deliver:
+
+- Close remaining M1 hardening: error boundary, lint/static policy checks and Electron security assertions.
+- Measured performance tuning for realistic catalogues, optimiser pools, comparisons, updates and evaluator shortlist simulations.
+- Accessibility audit: keyboard, screen reader, contrast, high zoom, reduced motion and non-colour status communication.
+- Fresh-install/update/rollback, long-offline, provider-outage, malformed-cache and disk/quota recovery.
+- Windows installer/portable release policy, code signing and executable auto-update plan; browser deployment remains supported by the shared core.
+- Licences/notices, privacy statement, provider permissions and FFXIV materials-usage review for the intended distribution model.
+
+Accept when:
+
+- No supported job, level, content tier or evaluator mode lacks evidence-backed formulas and fixtures.
+- Normal recommendation, comparison and update paths meet declared p95 budgets on minimum reference hardware.
+- Release rights are documented; unsigned or unapproved public builds remain blocked as appropriate.
+- Critical journeys are usable with keyboard and assistive technology.
+
+Tests:
+
+- Full regression matrix; fresh install and migration from supported releases; data and executable update/rollback; long offline period; provider outage; malformed cache; minimum-hardware benchmarks; screen reader/keyboard/high zoom; security and distribution checklist.
+
+## Test layers used throughout
+
+- Unit tests for policy, integer arithmetic, caps, transformations and adapters.
+- Property tests for eligibility, dominance, deterministic ordering and optimiser legality.
+- Contract tests from pinned provider fixtures; normal CI never depends on the live network.
+- Differential tests against independently calculated small exhaustive searches and published references.
+- Integration tests for snapshot activation, offline fallback, persistence, workers and export.
+- UI tests for critical browser and packaged-Electron journeys plus manual accessibility/visual review.
+- Explicit, rate-limited release checks against live providers and XivGear.
+
+## Requirement traceability summary
+
+| Product requirement | Owning milestone(s) |
+| --- | --- |
+| Safe live data refresh and offline fallback | M8 |
+| Next expansion, two new jobs and evolved modes | M8, M13 |
+| Three independent builds and comparison | M9 |
+| Role colours and clear base/buffed GCDs | M9 |
+| Full optimiser restrictions and hypothetical items | M10 |
+| Expansion/level content legality, sources and costs | M11 |
+| Generic hit, opener and five-minute dummy | M12-M13 |
+| Crafting | M14 |
+| Gathering | M15 |
+| Save/share/backup/XivGear hardening | M16 |
+| Accessibility, performance, reliability and release | M17 |

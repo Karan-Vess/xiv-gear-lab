@@ -1,0 +1,48 @@
+{
+  "name": "@xiv-gear-lab/desktop",
+  "version": "0.6.3",
+  "description": "Windows-first desktop host for the XIV Gear Lab optimisation prototype.",
+  "author": "XIV Gear Lab contributors",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && cross-env XIV_GEAR_LAB_DEV_SERVER_URL=http://localhost:5173 wait-on http://localhost:5173 && electron .",
+    "package:windows": "electron-builder --win portable --x64",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "build": {
+    "appId": "tools.xivgearlab.desktop",
+    "productName": "XIV Gear Lab",
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "../../release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": "portable",
+      "artifactName": "XIV-Gear-Lab-${version}-portable.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "cross-env": "10.1.0",
+    "electron": "43.1.1",
+    "electron-builder": "26.15.3",
+    "wait-on": "9.0.10"
+  }
+}

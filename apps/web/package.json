@@ -1,0 +1,27 @@
+{
+  "name": "@xiv-gear-lab/web",
+  "version": "0.6.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@xiv-gear-lab/calculations": "*",
+    "@xiv-gear-lab/data": "*",
+    "@xiv-gear-lab/domain": "*",
+    "@xiv-gear-lab/export": "*",
+    "@xiv-gear-lab/optimizer": "*",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "vite": "8.1.4"
+  }
+}
