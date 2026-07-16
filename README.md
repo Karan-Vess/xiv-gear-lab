@@ -1,3 +1,5 @@
+This entire project is made by instructing chatgpt 5.6. As of this writing, no human has looked at the code. I am familiar with basic coding practices and concepts but I cannot evaluate code quality.
+
 # XIV Gear Lab
 
 > [!WARNING]
@@ -39,6 +41,10 @@ npm run dev:desktop
 - [Runtime data releases](docs/data/runtime-updates.md)
 - [Prototype definition](docs/prototype/vertical-slice.md)
 - [Milestones and acceptance criteria](docs/plan/milestones.md)
+
+## Changelog
+
+Notable project changes are recorded in [CHANGELOG.md](CHANGELOG.md). It is updated alongside user-visible changes, milestone completions and releases.
 
 ## Implemented slice
 
