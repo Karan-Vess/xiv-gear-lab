@@ -4,7 +4,9 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
-No notable changes yet.
+### Changed
+
+- Separated food, materia and custom-equipment controls into clearly labelled groups; materia grade restrictions now explain that selecting no grades intentionally leaves all materia slots empty.
 
 ## 0.8.1 - 2026-07-16
 

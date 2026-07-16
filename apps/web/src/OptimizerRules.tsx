@@ -104,7 +104,7 @@ export function OptimizerRules({
   return (
     <>
       <fieldset className="optimizer-rule-group">
-        <legend>Food and materia</legend>
+        <legend>Food</legend>
         <label>Food rule
           <select data-food-mode value={resolved.foodMode} onChange={(event) => patch({ foodMode: event.target.value as 'allowed' | 'none' | 'locked' })}>
             <option value="allowed">Allow optimiser to choose food</option>
@@ -120,6 +120,11 @@ export function OptimizerRules({
             </select>
           </label>
         )}
+      </fieldset>
+
+      <fieldset className="optimizer-rule-group">
+        <legend>Materia</legend>
+        <p className="optimizer-rule-note">Allowed materia families</p>
         <div className="rule-chip-grid" aria-label="Allowed materia families">
           {materiaStats.map((stat) => (
             <label className="rule-chip" key={stat}>
@@ -132,6 +137,7 @@ export function OptimizerRules({
             </label>
           ))}
         </div>
+        <p className="optimizer-rule-note">Allowed materia grades. If no grades are selected, the optimiser leaves all materia slots empty.</p>
         <div className="rule-chip-grid" aria-label="Allowed materia grades">
           {materiaTiers.map((tier) => (
             <label className="rule-chip" key={tier}>
@@ -148,6 +154,10 @@ export function OptimizerRules({
           <input type="checkbox" data-allow-overmelds checked={resolved.allowOvermelds} onChange={(event) => patch({ allowOvermelds: event.target.checked })} />
           <span><strong>Allow advanced melding</strong><small>Only items explicitly marked as overmeldable can gain extra slots, up to five total.</small></span>
         </label>
+      </fieldset>
+
+      <fieldset className="optimizer-rule-group">
+        <legend>Custom equipment</legend>
         <label className="check-row">
           <input type="checkbox" checked={resolved.allowCustomItems} onChange={(event) => patch({ allowCustomItems: event.target.checked })} />
           <span><strong>Allow custom items</strong><small>Equipped hypothetical items are kept only when this is enabled.</small></span>

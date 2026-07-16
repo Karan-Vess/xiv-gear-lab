@@ -681,6 +681,7 @@ const createWindow = async () => {
         return {
           hasModal: Boolean(modal),
           foodMode: food?.value ?? '',
+          ruleGroups: [...document.querySelectorAll('.optimizer-rule-group > legend')].map((entry) => entry.textContent?.trim() ?? ''),
           overmeldAllowed: overmeld instanceof HTMLInputElement && overmeld.checked,
           hasExperimentalAccess: Boolean(document.querySelector('[data-experimental-access]')),
           weaponLocked: weaponLock instanceof HTMLSelectElement && Boolean(weaponLock.value),
@@ -688,10 +689,11 @@ const createWindow = async () => {
           hasLockedMeldControls: (modal?.textContent ?? '').includes('Locked meld prefix')
         };
       })()
-    `) as { hasModal?: boolean; foodMode?: string; overmeldAllowed?: boolean; hasExperimentalAccess?: boolean; weaponLocked?: boolean; itemRuleCount?: number; hasLockedMeldControls?: boolean };
+    `) as { hasModal?: boolean; foodMode?: string; ruleGroups?: string[]; overmeldAllowed?: boolean; hasExperimentalAccess?: boolean; weaponLocked?: boolean; itemRuleCount?: number; hasLockedMeldControls?: boolean };
     if (
       !optimizerRulesAudit.hasModal ||
       optimizerRulesAudit.foodMode !== 'none' ||
+      !['Food', 'Materia', 'Custom equipment'].every((group) => optimizerRulesAudit.ruleGroups?.includes(group)) ||
       !optimizerRulesAudit.overmeldAllowed ||
       !optimizerRulesAudit.hasExperimentalAccess ||
       !optimizerRulesAudit.weaponLocked ||
