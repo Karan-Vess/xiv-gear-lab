@@ -15,6 +15,25 @@ const updateDrillMode = process.env.XIV_GEAR_LAB_UPDATE_DRILL_MODE;
 const updateDrillUserData = process.env.XIV_GEAR_LAB_UPDATE_DRILL_USER_DATA;
 const updateDrillStartedAt = Number(process.env.XIV_GEAR_LAB_UPDATE_DRILL_STARTED_AT);
 const automationResultPath = smokeResultPath ?? updateDrillResultPath;
+const trustedExternalHosts = new Set([
+  'etro.gg',
+  'github.com',
+  'na.finalfantasyxiv.com',
+  'support.na.square-enix.com',
+  'thebalanceffxiv.com',
+  'v2.xivapi.com',
+  'www.thebalanceffxiv.com',
+  'xivgear.app'
+]);
+
+const trustedExternalUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && trustedExternalHosts.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
 
 if (smokeScreenshot) app.setPath('userData', mkdtempSync(resolve(tmpdir(), 'xiv-gear-lab-packaged-smoke-')));
 if (updateDrillResultPath) {
@@ -43,7 +62,7 @@ const createWindow = async () => {
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) void shell.openExternal(url);
+    if (trustedExternalUrl(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => {
@@ -193,7 +212,7 @@ const createWindow = async () => {
     let rendered = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       rendered = await window.webContents.executeJavaScript(
-        `Boolean([...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief')))`
+        `Boolean(document.querySelector('[data-workspace-tab="build-1"]') && [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise Build 1')))`
       );
       if (rendered) break;
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
@@ -201,7 +220,7 @@ const createWindow = async () => {
     if (!rendered) throw new Error('Application UI did not finish runtime-data bootstrap within 10 seconds.');
     await window.webContents.executeJavaScript(`
       (() => {
-        const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+        const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise Build 1'));
         if (!button) throw new Error('Optimise button was not rendered.');
         button.click();
       })()
@@ -209,7 +228,7 @@ const createWindow = async () => {
     let completed = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       completed = await window.webContents.executeJavaScript(
-        `Boolean(document.querySelector('.alternative-tabs') && document.body.textContent?.includes('Searched'))`
+        `Boolean(document.querySelector('.workspace-tabs') && document.body.textContent?.includes('Searched'))`
       );
       if (completed) break;
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
@@ -222,6 +241,12 @@ const createWindow = async () => {
       weapon: string;
       offHand: string;
       statLabels: string[];
+      itemStats: string;
+      materiaSlots: string;
+      derivedStats: string;
+      gcdStateNote: string;
+      targetState: string;
+      roleGroups: string[];
       evaluator: string;
       hasResourceControl: boolean;
     }> = [];
@@ -233,16 +258,16 @@ const createWindow = async () => {
       { job: 'WAR', targets: ['2.40s', '2.45s', '2.50s'], weaponPattern: /War Axe/, evaluator: 'war-tank-damage-proxy@1', tank: true },
       { job: 'DRK', targets: ['2.46s', '2.50s'], weaponPattern: /Guillotine/, evaluator: 'drk-tank-damage-proxy@1', tank: true },
       { job: 'GNB', targets: ['2.40s', '2.45s', '2.50s'], weaponPattern: /Sawback/, evaluator: 'gnb-tank-damage-proxy@1', tank: true },
-      { job: 'MNK', targets: ['1.93s', '1.94s', '2.00s'], weaponPattern: /Baghnakhs/, evaluator: 'mnk-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'] },
+      { job: 'MNK', targets: ['1.93s', '1.94s', '2.00s'], weaponPattern: /Baghnakhs/, evaluator: 'mnk-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'], timing: ['Greased Lightning', 'optimiser target: Greased Lightning'], targetState: 'Target state: Greased Lightning' },
       { job: 'DRG', targets: ['2.50s'], weaponPattern: /Spear/, evaluator: 'drg-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'] },
-      { job: 'NIN', targets: ['2.12s'], weaponPattern: /Knives/, evaluator: 'nin-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'] },
-      { job: 'SAM', targets: ['2.08s', '2.14s'], weaponPattern: /Blade/, evaluator: 'sam-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'] },
+      { job: 'NIN', targets: ['2.12s'], weaponPattern: /Knives/, evaluator: 'nin-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'], timing: ['Ninja speed trait', 'optimiser target: Ninja speed trait'], targetState: 'Target state: Ninja speed trait' },
+      { job: 'SAM', targets: ['2.08s', '2.14s'], weaponPattern: /Blade/, evaluator: 'sam-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'], timing: ['Fuka', 'maintained', 'optimiser target: Fuka'], targetState: 'Target state: Fuka' },
       { job: 'RPR', targets: ['2.49s'], weaponPattern: /War Scythe/, evaluator: 'rpr-dps-damage-proxy@1', dps: true, labels: ['STR', 'DHT', 'SKS'] },
-      { job: 'VPR', targets: ['2.10s', '2.11s', '2.12s'], weaponPattern: /Twinfangs/, evaluator: 'vpr-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'] },
+      { job: 'VPR', targets: ['2.10s', '2.11s', '2.12s'], weaponPattern: /Twinfangs/, evaluator: 'vpr-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'], timing: ['Swiftscaled', 'maintained', 'optimiser target: Swiftscaled'], targetState: 'Target state: Swiftscaled' },
       { job: 'BRD', targets: ['2.48s', '2.49s', '2.50s'], weaponPattern: /Longbow/, evaluator: 'brd-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'] },
       { job: 'MCH', targets: ['2.50s'], weaponPattern: /Pistol/, evaluator: 'mch-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'] },
       { job: 'DNC', targets: ['2.50s'], weaponPattern: /War Quoits/, evaluator: 'dnc-dps-damage-proxy@1', dps: true, labels: ['DEX', 'DHT', 'SKS'] },
-      { job: 'BLM', targets: ['2.15s', '2.20s', '2.32s', '2.37s', '2.41s', '2.45s'], weaponPattern: /Rod/, evaluator: 'blm-dps-damage-proxy@1', dps: true, labels: ['INT', 'DHT', 'SPS'] },
+      { job: 'BLM', targets: ['2.15s', '2.20s', '2.32s', '2.37s', '2.41s', '2.45s'], weaponPattern: /Rod/, evaluator: 'blm-dps-damage-proxy@1', dps: true, labels: ['INT', 'DHT', 'SPS'], timing: ['Ley Lines', 'temporary', 'optimiser target: Base GCD'], targetState: 'Target state: Base GCD' },
       { job: 'SMN', targets: ['2.46s', '2.47s', '2.48s'], weaponPattern: /Index/, evaluator: 'smn-dps-damage-proxy@1', dps: true, labels: ['INT', 'DHT', 'SPS'] },
       { job: 'RDM', targets: ['2.48s', '2.49s', '2.50s'], weaponPattern: /Foil/, evaluator: 'rdm-dps-damage-proxy@1', dps: true, labels: ['INT', 'DHT', 'SPS'] },
       { job: 'PCT', targets: ['2.48s', '2.49s', '2.50s'], weaponPattern: /Flat Brush/, evaluator: 'pct-dps-damage-proxy@1', dps: true, labels: ['INT', 'DHT', 'SPS'] }
@@ -264,21 +289,37 @@ const createWindow = async () => {
           weapon: document.querySelector('.equipment-row .item-copy strong')?.textContent ?? '',
           offHand: [...document.querySelectorAll('.equipment-row')].find((entry) => entry.querySelector('.slot-name')?.textContent === 'Off-hand')?.querySelector('.item-copy strong')?.textContent ?? '',
           statLabels: [...(document.querySelector('.set-detail .stat-strip')?.querySelectorAll('.stat-cell span') ?? [])].map((entry) => entry.textContent ?? ''),
+          itemStats: document.querySelector('.equipment-row [data-item-stats]')?.textContent ?? '',
+          materiaSlots: document.querySelector('.equipment-row .meld-stack')?.textContent ?? '',
+          derivedStats: document.querySelector('.derived-stat-strip')?.textContent ?? '',
+          gcdStateNote: document.querySelector('.gcd-state-note')?.textContent ?? '',
+          targetState: document.querySelector('.gcd-control > small')?.textContent ?? '',
+          roleGroups: [...(document.querySelector('#job-select')?.querySelectorAll('optgroup') ?? [])].map((entry) => entry.label),
           evaluator: document.querySelector('.evaluation-note')?.textContent ?? '',
           hasResourceControl: [...document.querySelectorAll('.control-panel > label')].some((entry) => entry.textContent?.trim().startsWith('Minimum '))
         }))()
-      `) as { selectedJob?: string; targets: string[]; weapon: string; offHand: string; statLabels: string[]; evaluator: string; hasResourceControl: boolean };
+      `) as { selectedJob?: string; targets: string[]; weapon: string; offHand: string; statLabels: string[]; itemStats: string; materiaSlots: string; derivedStats: string; gcdStateNote: string; targetState: string; roleGroups: string[]; evaluator: string; hasResourceControl: boolean };
       expandedJobAudits.push(result);
       if (
         result.selectedJob !== jobAudit.job ||
         !jobAudit.targets.every((target) => result.targets.includes(target)) ||
         !jobAudit.weaponPattern.test(result.weapon) ||
+        !result.itemStats.includes('WD') ||
+        !result.itemStats.includes('VIT') ||
+        !result.itemStats.toUpperCase().includes('FINAL ITEM STATS') ||
+        !result.materiaSlots.toUpperCase().includes('MATERIA SLOTS') ||
+        !result.materiaSlots.includes('+') ||
+        !result.derivedStats.includes('chance') ||
+        !result.derivedStats.includes('damage') ||
+        JSON.stringify(result.roleGroups) !== JSON.stringify(['Tanks', 'Healers', 'DPS']) ||
         !result.evaluator.includes(jobAudit.evaluator) ||
         (jobAudit.tank && !['STR', 'TEN', 'SKS'].every((label) => result.statLabels.includes(label))) ||
         (jobAudit.labels && !jobAudit.labels.every((label) => result.statLabels.includes(label))) ||
         (jobAudit.dps && result.hasResourceControl) ||
         (jobAudit.offHandPattern && !jobAudit.offHandPattern.test(result.offHand)) ||
-        (!jobAudit.offHandPattern && result.offHand !== '')
+        (!jobAudit.offHandPattern && result.offHand !== '') ||
+        (jobAudit.timing && !jobAudit.timing.every((text) => result.gcdStateNote.includes(text))) ||
+        (jobAudit.targetState && !result.targetState.includes(jobAudit.targetState))
       ) {
         throw new Error(`Packaged combat-job audit failed for ${jobAudit.job}: ${JSON.stringify(result)}`);
       }
@@ -347,7 +388,7 @@ const createWindow = async () => {
 
     await window.webContents.executeJavaScript(`
       (() => {
-        const save = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Save set');
+        const save = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Save Build 1');
         if (!(save instanceof HTMLButtonElement)) throw new Error('Packaged save-set button was not rendered.');
         save.click();
       })()
@@ -446,6 +487,55 @@ const createWindow = async () => {
       throw new Error(`Packaged post-confirmation input audit failed: ${JSON.stringify(postConfirmationInputAudit)}`);
     }
 
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const slot = document.querySelector('[data-custom-slot]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (!(slot instanceof HTMLSelectElement)) throw new Error('Custom slot selector disappeared before weapon-delay audit.');
+        setter?.call(slot, 'weapon');
+        slot.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const delay = document.querySelector('[data-custom-weapon-delay]');
+        if (!(delay instanceof HTMLInputElement) || delay.disabled) throw new Error('Custom weapon delay input was not rendered.');
+        delay.focus();
+        delay.select();
+      })()
+    `);
+    window.webContents.insertText('2.64');
+    const weaponDelayAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const delay = document.querySelector('[data-custom-weapon-delay]');
+        return {
+          value: delay?.value,
+          minimum: delay?.getAttribute('min'),
+          maximum: delay?.getAttribute('max'),
+          limit: delay?.closest('label')?.querySelector('small')?.textContent ?? ''
+        };
+      })()
+    `) as { value?: string; minimum?: string | null; maximum?: string | null; limit?: string };
+    if (
+      weaponDelayAudit.value !== '2.64' ||
+      !weaponDelayAudit.minimum ||
+      !weaponDelayAudit.maximum ||
+      !weaponDelayAudit.limit?.includes('Fastest recorded') ||
+      !weaponDelayAudit.limit.includes('minimum')
+    ) {
+      throw new Error(`Packaged custom weapon-delay audit failed: ${JSON.stringify(weaponDelayAudit)}`);
+    }
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const slot = document.querySelector('[data-custom-slot]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (!(slot instanceof HTMLSelectElement)) throw new Error('Custom slot selector disappeared after weapon-delay audit.');
+        setter?.call(slot, 'body');
+        slot.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+
     window.showInactive();
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
     const image = await window.webContents.capturePage();
@@ -515,13 +605,140 @@ const createWindow = async () => {
       throw new Error(`Packaged Unequip/library audit failed: ${JSON.stringify(unequipAudit)}`);
     }
 
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const library = document.querySelector('[data-custom-library]');
+        const close = library && [...library.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Close');
+        if (!(close instanceof HTMLButtonElement)) throw new Error('Custom-item library could not be closed before workspace audit.');
+        close.click();
+        document.querySelector('[data-workspace-tab="build-2"]')?.click();
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const jobSelect = document.querySelector('#job-select');
+        if (!(jobSelect instanceof HTMLSelectElement)) throw new Error('Build 2 job selector was not rendered.');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        setter?.call(jobSelect, 'MNK');
+        jobSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+    const build2WorkspaceAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const build2Role = document.querySelector('#job-select')?.getAttribute('data-job-role') ?? '';
+        const build2Text = document.querySelector('.result-column')?.textContent ?? '';
+        const statLabels = [...document.querySelectorAll('.result-column .stat-cell span')].map((entry) => entry.textContent?.trim() ?? '');
+        return {
+          build2Role,
+          hasBaseGcd: statLabels.includes('BASE GCD'),
+          hasEffectiveGcd: statLabels.includes('GREASED LIGHTNING'),
+          hasNamedEffect: build2Text.includes('Greased Lightning')
+        };
+      })()
+    `) as {
+      build2Role?: string;
+      hasBaseGcd?: boolean;
+      hasEffectiveGcd?: boolean;
+      hasNamedEffect?: boolean;
+    };
+    await window.webContents.executeJavaScript(`document.querySelector('[data-workspace-tab="build-1"]')?.click()`);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    const build1Job = await window.webContents.executeJavaScript(`document.querySelector('#job-select')?.value ?? ''`) as string;
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const copy = document.querySelector('[data-copy-loadout-target="build-3"]');
+        if (!(copy instanceof HTMLButtonElement)) throw new Error('Build 1 copy-to-Build-3 control was not rendered.');
+        copy.click();
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    const copyLoadoutAudit = await window.webContents.executeJavaScript(`
+      (() => ({
+        build1StillActive: document.querySelector('[data-workspace-tab="build-1"]')?.getAttribute('aria-selected') === 'true',
+        build3Summary: document.querySelector('[data-workspace-tab="build-3"]')?.textContent ?? '',
+        confirmation: document.querySelector('.run-message')?.textContent ?? ''
+      }))()
+    `) as { build1StillActive?: boolean; build3Summary?: string; confirmation?: string };
+    if (
+      !copyLoadoutAudit.build1StillActive ||
+      !copyLoadoutAudit.build3Summary?.includes('SCH') ||
+      !copyLoadoutAudit.confirmation?.includes('copied to Build 3')
+    ) {
+      throw new Error(`Packaged loadout-copy audit failed: ${JSON.stringify(copyLoadoutAudit)}`);
+    }
+    await window.webContents.executeJavaScript(`document.querySelector('[data-workspace-tab="comparison"]')?.click()`);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
+    const comparisonAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const comparisonText = document.querySelector('[data-comparison-view]')?.textContent ?? '';
+        return {
+          hasComparison: Boolean(document.querySelector('[data-comparison-view]')),
+          refusesCrossJobWinner: comparisonText.includes('Different jobs') && comparisonText.includes('Not directly comparable'),
+          hasComparisonMetrics: comparisonText.includes('Expected single 100-potency hit') && comparisonText.includes('MP regeneration') && comparisonText.includes('Critical Hit outcome') && comparisonText.includes('Determination damage')
+        };
+      })()
+    `) as {
+      hasComparison?: boolean;
+      refusesCrossJobWinner?: boolean;
+      hasComparisonMetrics?: boolean;
+    };
+    const workspaceAudit = { ...build2WorkspaceAudit, build1Job, copyLoadoutAudit, ...comparisonAudit };
+    if (
+      workspaceAudit.build2Role !== 'dps' ||
+      !workspaceAudit.hasBaseGcd ||
+      !workspaceAudit.hasEffectiveGcd ||
+      !workspaceAudit.hasNamedEffect ||
+      workspaceAudit.build1Job !== 'SCH' ||
+      !workspaceAudit.hasComparison ||
+      !workspaceAudit.refusesCrossJobWinner ||
+      !workspaceAudit.hasComparisonMetrics
+    ) {
+      throw new Error(`Packaged M9 workspace audit failed: ${JSON.stringify(workspaceAudit)}`);
+    }
+
+    const comparisonImage = await window.webContents.capturePage();
+    await writeFile(smokeScreenshot, comparisonImage.toPNG());
+
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+    await window.webContents.reload();
+    let workspaceReloaded = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      workspaceReloaded = await window.webContents.executeJavaScript(`Boolean(document.querySelector('[data-workspace-tab="comparison"]'))`);
+      if (workspaceReloaded) break;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    }
+    if (!workspaceReloaded) throw new Error('Packaged M9 workspace did not return after reload.');
+    const workspacePersistenceAudit = await window.webContents.executeJavaScript(`
+      (() => ({
+        activeComparison: document.querySelector('[data-workspace-tab="comparison"]')?.getAttribute('aria-selected') === 'true',
+        build1Summary: document.querySelector('[data-workspace-tab="build-1"]')?.textContent ?? '',
+        build2Summary: document.querySelector('[data-workspace-tab="build-2"]')?.textContent ?? '',
+        build3Summary: document.querySelector('[data-workspace-tab="build-3"]')?.textContent ?? '',
+        customItemCount: document.querySelector('[data-custom-library-open]')?.textContent ?? ''
+      }))()
+    `) as { activeComparison?: boolean; build1Summary?: string; build2Summary?: string; build3Summary?: string; customItemCount?: string };
+    if (
+      !workspacePersistenceAudit.activeComparison ||
+      !workspacePersistenceAudit.build1Summary?.includes('SCH') ||
+      !workspacePersistenceAudit.build2Summary?.includes('MNK') ||
+      !workspacePersistenceAudit.build3Summary?.includes('SCH') ||
+      !workspacePersistenceAudit.customItemCount?.includes('1')
+    ) {
+      throw new Error(`Packaged M9 persistence audit failed: ${JSON.stringify(workspacePersistenceAudit)}`);
+    }
+
     if (smokeResultPath) {
       await writeFile(smokeResultPath, JSON.stringify({
         status: 'passed',
         expandedJobAudits,
         balanceSourceAudit,
         postConfirmationInputAudit,
-        unequipAudit
+        weaponDelayAudit,
+        unequipAudit,
+        workspaceAudit,
+        workspacePersistenceAudit
       }, null, 2));
     }
     app.exit(0);

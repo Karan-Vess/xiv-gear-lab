@@ -6,7 +6,7 @@ import {
 import type { GearSnapshot, RuntimeCompatibility } from '@xiv-gear-lab/domain';
 
 export const APP_RUNTIME_COMPATIBILITY: RuntimeCompatibility = {
-  appVersion: '0.6.3',
+  appVersion: '0.7.3',
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],

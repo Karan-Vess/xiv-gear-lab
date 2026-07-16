@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.6.3 M8C implementation
+Status: revised through the v0.7.3 M9 closure
 Date: 2026-07-16
-Current runnable baseline: Windows/browser-capable v0.6.3, level 100, current Dawntrail combat tier
+Current runnable baseline: Windows/browser-capable v0.7.3, level 100, current Dawntrail combat tier
 
 This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
 
@@ -256,7 +256,20 @@ Performance:
 
 ### M9 - Three build workspaces and comparison clarity
 
-Status: **Planned**.
+Status: **Complete in v0.7.3**.
+
+Delivered across v0.7.0-v0.7.3:
+
+- Build 1, Build 2 and Build 3 now retain independent jobs, access settings, constraints, selected gear, custom-item fallbacks, result state and calculation mode; the former unexplained alternative tabs are removed.
+- IndexedDB schema v5 adds a versioned workspace record without rewriting existing saved sets or custom items. Fresh and upgraded profiles seed three deep-independent builds, and interrupted searches recover to an honest idle state.
+- The shared custom-item library reports multi-build usage. Equipping and unequipping remain build-local, while edits recalculate every affected build and permanent deletion restores each build's remembered fallback where possible.
+- The Comparison tab has a selectable baseline and exposes score, comparable delta, stats, Piety/MP-regeneration limitation, base/effective GCD, item level, food, meld waste, equipment/meld/food differences, constraints, acquisition coverage and currently unknown costs.
+- Cross-job, snapshot, ruleset, evaluator and schema mismatches remain visible but suppress the misleading score delta and display compatibility warnings.
+- The job picker uses labelled tank/healer/DPS groups with blue/green/red backdrops, and hasted jobs display both base timing and the named effective state used by their evaluator.
+- Each result shows compact source attribution plus expandable methodology and exact community/item links. The generic-hit formula audit records XivGear as an external structure reference while explicitly marking uncited profile constants internal/unverified.
+- Browser and Electron external navigation use the same exact-host HTTPS allowlist. Lookalike domains, non-HTTPS URLs and script URLs fail closed.
+- The v0.7.0 portable EXE passed the all-job, focus/modal/input, shared custom-item, three-workspace, cross-job comparison and restart-persistence smoke path. The cached comparison render has an automated p95 budget below 100 ms.
+- The v0.7.1-v0.7.3 closure passes added direct loadout copying, final per-item and per-materia contribution clarity, complete custom-weapon delay handling, Black Mage Ley Lines timing alongside its base optimiser target and the missing comparison/timing/provenance regression cases.
 
 Deliver:
 
@@ -290,7 +303,7 @@ Accept when:
 Tests:
 
 - Workspace persistence/migration; independent state; delete/edit custom item referenced by one or more builds; stale/missing item recovery.
-- Same-job and cross-job comparisons; same/different snapshot; same/different evaluator mode; empty build; identical builds.
+- Same-job and cross-job comparisons; same/different snapshot, ruleset, evaluator and schema; seeded build before its first optimiser run; identical builds.
 - Base/effective GCD boundaries for passive, maintained and temporary effects.
 - Packaged Electron focus, dropdown, modal and keyboard regression tests.
 - Generated/curated/validated provenance states; partial or missing author metadata; exact and fallback source links; rejected non-allowlisted URLs.
@@ -338,6 +351,7 @@ Deliver:
 - Versioned content/access graph for expansions, quests, duties, job unlocks, vendors, recipes, nodes and route prerequisites.
 - Full source taxonomy: crafted, normal raid, Savage, tomestone, augmented tomestone, dungeon, trial, alliance raid, relic, ultimate, quest, vendor, custom and explicitly classified additional families.
 - Multiple acquisition routes per item with provenance and access checks.
+- Time-box research into making official item names open their exact Lodestone Eorzea Database pages. Implement it during M11 only if a trustworthy, maintainable identifier mapping is available with a few minutes of work; otherwise record it in a `Maybe later` list with the reason and continue M11 without expanding its scope.
 - Fixed costs: gil vendor prices, tomestones/scrips, raid books/tokens, trial totems, upgrade materials, quest requirements, recipe materials and other deterministic currencies.
 - Weekly/one-time/recurring classifications and user-entered cost preferences where values are legitimately subjective.
 - No live market-board prices and no invented gil value for non-market rewards.
@@ -355,12 +369,14 @@ Accept when:
 - Disabled source categories become functional only when their route coverage is validated.
 - With the curated overlay absent, a compatible new-patch official catalogue still produces clearly labelled preliminary recommendations rather than failing or pretending to be community validated.
 - Incomplete slot coverage, suspicious stat jumps or an incompatible evaluator prevents a normal-confidence recommendation and identifies the precise readiness failure.
+- The Lodestone-link research has a recorded outcome: exact allowlisted links if the mapping proved trivial, or an explicit `Maybe later` deferral if it did not.
 
 Tests:
 
 - Every expansion cap/job boundary; route alternatives; quest/duty gates; current and obsolete currencies; weekly limits; unavailable content; no-route and unknown-route failures.
 - HQ-only crafted-equipment fixtures, crafted ingredient expansion and circular recipes; upgrade chains; later-expansion leakage property tests.
 - Synthetic patch roll-forward with no curated sets; partial pagination; missing weapon/slot; corrected provider data; unknown acquisition route; formula-compatible and formula-incompatible candidates.
+- If exact Lodestone links are implemented: known item, missing mapping, custom item and rejected non-allowlisted URL coverage.
 
 ### M11B - Automated patch watch and provisional publishing
 

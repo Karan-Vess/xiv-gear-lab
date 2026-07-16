@@ -1,6 +1,6 @@
 {
   "name": "@xiv-gear-lab/desktop",
-  "version": "0.6.3",
+  "version": "0.7.3",
   "description": "Windows-first desktop host for the XIV Gear Lab optimisation prototype.",
   "author": "XIV Gear Lab contributors",
   "license": "UNLICENSED",

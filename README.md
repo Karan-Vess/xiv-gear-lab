@@ -5,13 +5,13 @@ This entire project is made by instructing chatgpt 5.6. As of this writing, no h
 > [!WARNING]
 > **Unfinished pre-release project.** This repository and its public data channel exist for active development and testing. The app is not a finished release, has no support or uptime promise, and should not yet be treated as authoritative gearing advice.
 
-XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.6.3 preview adds a project-controlled HTTPS update channel, production/recovery signing-key trust, local and hosted channel verification, and a repeatable installed online-to-offline drill.
+XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.7.3 preview completes the three-workspace M9 milestone with explicit final post-materia item stats, per-slot meld contributions, editable job-appropriate custom-weapon delay and complete named GCD-state presentation.
 
 The first end-to-end vertical slice began with current-patch White Mage. The combat-job expansion now supports all 21 standard combat jobs: four healers, four tanks, six melee DPS, three physical ranged DPS, and four magical ranged DPS.
 
 ## Try the Windows prototype
 
-Run `release/XIV-Gear-Lab-0.6.3-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
+Run `release/XIV-Gear-Lab-0.7.3-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
 
 The same renderer builds as a browser application. For local development:
 
@@ -38,6 +38,7 @@ npm run dev:desktop
 - [Product discovery](docs/discovery/product-discovery.md)
 - [Architecture](docs/architecture/architecture.md)
 - [Data and source policy](docs/data/source-policy.md)
+- [Combat proxy formula provenance](docs/data/formula-provenance.md)
 - [Runtime data releases](docs/data/runtime-updates.md)
 - [Prototype definition](docs/prototype/vertical-slice.md)
 - [Milestones and acceptance criteria](docs/plan/milestones.md)
@@ -58,8 +59,10 @@ Notable project changes are recorded in [CHANGELOG.md](CHANGELOG.md). It is upda
 - Signed/checksummed runtime snapshot support with HTTPS/provider allowlists, bounded downloads, atomic IndexedDB activation, last-known-good fallback, manual rollback, pinned result context and embedded offline icons.
 - Provider-specific XIVAPI, Etro, The Balance and XivGear contracts and normalisers, validated read-through response caches, independent official/acquisition/curated overlays, and safe stale-overlay publication when an optional source is unavailable.
 - Versioned snapshot/icon and saved-set storage migrations, protected snapshot retention, bounded quota recovery, explicit unknown-context legacy saves and a repeatable packaged online/offline update drill.
+- Three independently persistent build workspaces, a selectable-baseline comparison table, role-labelled job colours, named base/effective GCD states and per-result source/methodology details.
+- Final post-materia stats on every equipped item, actual per-slot meld contributions, derived Critical Hit/Direct Hit/Determination outcomes, and direct loadout-copy controls between builds.
 
-All 21 supported combat jobs use bounded expected-single-100-potency-hit proxy profiles rather than rotation or encounter simulation, and the UI labels that limitation explicitly. Tank profiles include the level-100 tank attack-power and Tenacity multipliers; DPS profiles include the relevant main stat, role action trait, and displayed GCD haste, but do not pretend a single-hit proxy is job DPS. The selectable acquisition pool contains current Savage and base/augmented tomestone gear; alliance raids, normal raids, trials, dungeons, and crafted gear are shown but disabled until their data is added. The v0.6.3 production build uses a public-read HTTPS channel with signed, immutable snapshots and a pre-trusted recovery key. Crafting, gathering, historical tiers, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
+All 21 supported combat jobs use bounded expected-single-100-potency-hit proxy profiles rather than rotation or encounter simulation, and the UI labels that limitation explicitly. Tank profiles include the level-100 tank attack-power and Tenacity multipliers; DPS profiles include the relevant main stat, role action trait, and displayed GCD haste, but do not pretend a single-hit proxy is job DPS. The selectable acquisition pool contains current Savage and base/augmented tomestone gear; alliance raids, normal raids, trials, dungeons, and crafted gear are shown but disabled until their data is added. The v0.7.3 production build uses the existing public-read HTTPS channel with signed, immutable snapshots and a pre-trusted recovery key. Crafting, gathering, historical tiers, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
 
 ## Rights and project status
 

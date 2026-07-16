@@ -1,6 +1,6 @@
 {
   "name": "xiv-gear-lab",
-  "version": "0.6.3",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "workspaces": [

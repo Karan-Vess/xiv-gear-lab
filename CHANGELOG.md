@@ -4,6 +4,47 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+No notable changes yet.
+
+## 0.7.3 - 2026-07-16
+
+### Changed
+
+- Black Mage results now show both base GCD and temporary Ley Lines GCD while explicitly identifying Base GCD as the optimiser target.
+- Completed M9 regression coverage for named timing states, comparison compatibility and incomplete or community-influenced provenance.
+
+## 0.7.2 - 2026-07-16
+
+### Changed
+
+- Equipped-item rows now separate final post-materia item stats from materia slots, with every slot showing its actual stat contribution after caps.
+- Custom weapons now use job-appropriate default delays and expose editable weapon delay with realistic fast/slow bounds plus the existing unrealistic-value override.
+
+## 0.7.1 - 2026-07-16
+
+### Added
+
+- Added compact raw-stat lines to every equipped item and derived Critical Hit, Direct Hit and Determination outcome percentages to build summaries and comparisons.
+- Added direct loadout-copy controls between build workspaces while keeping destination access and acquisition restrictions independent.
+
+### Changed
+
+- Simplified job-picker group labels to Tanks, Healers and DPS; the existing accessible role colours remain visual styling rather than redundant label text.
+
+## 0.7.0 - 2026-07-16
+
+### Added
+
+- Added three persistent, independent build workspaces and a comparison view with selectable baseline, compatibility warnings, stat/timing/constraint differences and inspectable equipment changes.
+- Added role-labelled and role-coloured job choices plus explicit base and maintained-haste GCD values.
+- Added per-result methodology and provenance details that distinguish provider data, curated influence, external formula references and XIV Gear Lab-owned calculations.
+- Added an exact-host allowlist for external source links in both the browser UI and packaged desktop host.
+
+### Changed
+
+- Shared custom-item edits and deletions now update every affected build while keeping equip state and replaced-item fallbacks independent per build.
+- Generated alternatives are no longer presented as unexplained result tabs; the optimiser's primary recommendation occupies the active build workspace.
+
 ### Documentation
 
 - Added the explicit AI-authorship and unreviewed-code disclosure to the top of the README.

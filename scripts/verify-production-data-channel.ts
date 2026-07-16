@@ -10,7 +10,7 @@ const config = JSON.parse(await readFile(resolve(workspace, 'config', 'data-chan
   trustedEd25519Keys: Record<string, string>;
 };
 const runtime: RuntimeCompatibility = {
-  appVersion: '0.6.3',
+  appVersion: '0.7.3',
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],

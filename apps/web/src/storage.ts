@@ -1,10 +1,16 @@
 import { emptyStats, type EquipmentItem, type GearSet, type GearSlot } from '@xiv-gear-lab/domain';
+import {
+  isBuildWorkspaceState,
+  prepareBuildWorkspaceStateForStorage,
+  type BuildWorkspaceState
+} from './workspace';
 
 const DATABASE = 'xiv-gear-lab';
-const DATABASE_VERSION = 4;
+const DATABASE_VERSION = 5;
 const SAVED_SET_STORE = 'saved-sets';
 const CUSTOM_ITEM_STORE = 'custom-items';
 const METADATA_STORE = 'metadata';
+const WORKSPACE_STORE = 'workspaces';
 
 const LEGACY_CALCULATION_CONTEXT = {
   status: 'unknown',
@@ -36,6 +42,9 @@ const openDatabase = (): Promise<IDBDatabase> =>
       if (!request.result.objectStoreNames.contains(METADATA_STORE)) {
         request.result.createObjectStore(METADATA_STORE, { keyPath: 'key' });
       }
+      if (!request.result.objectStoreNames.contains(WORKSPACE_STORE)) {
+        request.result.createObjectStore(WORKSPACE_STORE, { keyPath: 'id' });
+      }
       const transaction = request.transaction;
       if (!transaction) return;
       if ((event.oldVersion ?? 0) < 4 && request.result.objectStoreNames.contains(SAVED_SET_STORE)) {
@@ -53,7 +62,8 @@ const openDatabase = (): Promise<IDBDatabase> =>
         key: 'schema',
         databaseVersion: DATABASE_VERSION,
         savedSetSchema: 'saved-gear-set@2',
-        customItemSchema: 'custom-item@1'
+        customItemSchema: 'custom-item@1',
+        workspaceSchema: 'build-workspace-state@1'
       });
     };
     request.onsuccess = () => resolve(request.result);
@@ -141,4 +151,35 @@ export const deleteCustomItem = async (id: number | string): Promise<void> => {
     transaction.onerror = () => reject(transaction.error ?? new Error('Could not delete the custom item.'));
   });
   database.close();
+};
+
+export const saveBuildWorkspaceState = async (state: BuildWorkspaceState): Promise<void> => {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(WORKSPACE_STORE, 'readwrite');
+    transaction.objectStore(WORKSPACE_STORE).put(prepareBuildWorkspaceStateForStorage(state));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('Could not save build workspaces.'));
+  });
+  database.close();
+};
+
+export const loadBuildWorkspaceState = async (
+  fallback: BuildWorkspaceState
+): Promise<BuildWorkspaceState> => {
+  const database = await openDatabase();
+  const stored = await new Promise<unknown>((resolve, reject) => {
+    const request = database.transaction(WORKSPACE_STORE, 'readonly').objectStore(WORKSPACE_STORE).get('primary');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Could not load build workspaces.'));
+  });
+  database.close();
+  if (!stored) {
+    await saveBuildWorkspaceState(fallback);
+    return fallback;
+  }
+  if (!isBuildWorkspaceState(stored)) {
+    throw new Error('Stored build workspaces use an unsupported or malformed schema.');
+  }
+  return prepareBuildWorkspaceStateForStorage(stored);
 };

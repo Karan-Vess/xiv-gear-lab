@@ -17,6 +17,7 @@ import {
   type ExpansionId,
   type GearSet,
   type GearSlot,
+  type JobRole,
   type Materia,
   type OptimizerConstraints,
   type SourceFamily
@@ -26,13 +27,35 @@ import type { OptimizerResult } from '@xiv-gear-lab/optimizer';
 import {
   deleteCustomItem as deleteStoredCustomItem,
   deleteSavedSet,
+  loadBuildWorkspaceState,
   loadCustomItems,
   loadSavedSets,
   pinnedSnapshotIdsForSavedSets,
+  saveBuildWorkspaceState,
   saveCustomItem as saveStoredCustomItem,
   saveSet
 } from './storage';
 import { APP_RUNTIME_COMPATIBILITY, type DataRuntimeBootstrap } from './data-runtime';
+import { ComparisonView } from './ComparisonView';
+import { derivedCombatStats, percentage } from './derived-stats';
+import { trustedExternalUrl } from './external-links';
+import { itemStatDisplay, materiaSlotDisplay } from './item-display';
+import { communitySourcesForResult, resultMethodologyDescription } from './provenance-display';
+import { gearSetTimingDisplay } from './timing-display';
+import {
+  BUILD_IDS,
+  buildUsesItem,
+  copyBuildLoadout,
+  createInitialBuildWorkspaceState,
+  isBuildId,
+  workspaceBuildsUsingItem,
+  workspaceSnapshotIds,
+  type BuildId,
+  type BuildWorkspace,
+  type BuildWorkspaceState,
+  type CustomItemFallback,
+  type WorkspaceRunState
+} from './workspace';
 
 let gearSnapshot = bundledGearSnapshot;
 let EXPANSIONS = gearSnapshot.registry.expansions;
@@ -41,8 +64,6 @@ const evaluatorProfileFor = (job: CombatJob) =>
   getCombatEvaluatorProfile(job, gearSnapshot.evaluatorProfiles);
 
 type View = 'optimize' | 'community' | 'saved' | 'about';
-type RunState = 'idle' | 'running' | 'done' | 'error';
-type CustomFallback = { slot: GearSlot; equipped?: EquippedItem };
 type CustomDraft = {
   slot: GearSlot;
   name: string;
@@ -54,16 +75,20 @@ type CustomDraft = {
   directHit: string;
   speedStat: string;
   weaponDamage: string;
+  weaponDelay: string;
 };
 type CustomLimitField = Exclude<keyof CustomDraft, 'slot' | 'name'>;
-type CustomItemLimit = { recorded: number; maximum: number };
+type CustomItemLimit = { recorded: number; minimum: number; maximum: number };
 type CustomItemLimits = Record<CustomLimitField, CustomItemLimit>;
 type PendingDeletion =
   | { kind: 'saved-set'; set: GearSet }
-  | { kind: 'custom-item'; item: EquipmentItem; usedBySavedSet: boolean };
+  | { kind: 'custom-item'; item: EquipmentItem; usedBySavedSet: boolean; usedByBuildNames: string[] };
 
 const createCustomDraft = (job: CombatJob, item?: EquipmentItem, slot: GearSlot = 'head'): CustomDraft => {
   const profile = evaluatorProfileFor(job);
+  const referenceWeapon = gearSnapshot.items.find((candidate) =>
+    candidate.origin === 'official' && candidate.slot === 'weapon' && candidate.jobs.includes(job) && candidate.weaponDelayMs > 0
+  );
   return {
     slot,
     name: item?.name ?? `Hypothetical ${profile.role} item`,
@@ -74,7 +99,8 @@ const createCustomDraft = (job: CombatJob, item?: EquipmentItem, slot: GearSlot 
     determination: String(item?.stats.determination ?? 200),
     directHit: String(item?.stats.directHit ?? 0),
     speedStat: String(item?.stats[profile.speedStat] ?? 0),
-    weaponDamage: String(item?.weaponDamage ?? 158)
+    weaponDamage: String(item?.weaponDamage ?? 158),
+    weaponDelay: ((item?.weaponDelayMs ?? referenceWeapon?.weaponDelayMs ?? 2_800) / 1_000).toFixed(2)
   };
 };
 
@@ -89,19 +115,29 @@ const getCustomItemLimits = (job: CombatJob, slot: GearSlot): CustomItemLimits =
     const slotMaximum = Math.max(minimum, ...slotItems.map(read));
     const fallbackMaximum = Math.max(minimum, ...jobItems.map(read));
     const recorded = slotMaximum > minimum ? slotMaximum : fallbackMaximum;
-    return { recorded, maximum: Math.ceil(recorded * 1.2) };
+    return { recorded, minimum, maximum: Math.ceil(recorded * 1.2) };
   };
+  const weaponDelays = (slotItems.length > 0 ? slotItems : jobItems)
+    .map((item) => item.weaponDelayMs / 1_000)
+    .filter((delay) => delay > 0);
+  const fastestWeaponDelay = weaponDelays.length > 0 ? Math.min(...weaponDelays) : 2.8;
+  const slowestWeaponDelay = weaponDelays.length > 0 ? Math.max(...weaponDelays) : fastestWeaponDelay;
   return {
     itemLevel: limitFor((item) => item.itemLevel, 1),
     mainStat: limitFor((item) => item.stats[profile.mainStat]),
     resourceStat: profile.resourceStat
       ? limitFor((item) => item.stats[profile.resourceStat!])
-      : { recorded: 0, maximum: 0 },
+      : { recorded: 0, minimum: 0, maximum: 0 },
     criticalHit: limitFor((item) => item.stats.criticalHit),
     determination: limitFor((item) => item.stats.determination),
     directHit: limitFor((item) => item.stats.directHit),
     speedStat: limitFor((item) => item.stats[profile.speedStat]),
-    weaponDamage: limitFor((item) => item.weaponDamage)
+    weaponDamage: limitFor((item) => item.weaponDamage),
+    weaponDelay: {
+      recorded: fastestWeaponDelay,
+      minimum: Math.floor(fastestWeaponDelay * 80) / 100,
+      maximum: Math.ceil(slowestWeaponDelay * 120) / 100
+    }
   };
 };
 
@@ -113,6 +149,12 @@ const SOURCE_GROUPS: Array<{ id: string; sources: SourceFamily[]; label: string;
     label: 'Tomestone gear',
     detail: 'Bygone Brass and its augmented upgrades'
   }
+];
+
+const ROLE_GROUPS: Array<{ role: JobRole; label: string }> = [
+  { role: 'tank', label: 'Tanks' },
+  { role: 'healer', label: 'Healers' },
+  { role: 'dps', label: 'DPS' }
 ];
 
 const UNAVAILABLE_SOURCE_OPTIONS = [
@@ -207,6 +249,15 @@ function SafeIcon({ src }: { src?: string }) {
     : <span className="icon-fallback" aria-hidden="true">?</span>;
 }
 
+function SafeExternalLink({ href, children }: { href?: string; children: React.ReactNode }) {
+  const trusted = trustedExternalUrl(href);
+  return trusted
+    ? <a href={trusted} target="_blank" rel="noreferrer">{children}</a>
+    : <span className="blocked-source-link" title="This source URL is missing or is not on the application allowlist.">{children} · link unavailable</span>;
+}
+
+const gcdTimingForSet = (set: GearSet) => gearSetTimingDisplay(set, gearSnapshot);
+
 function DataStatus() {
   const online = navigator.onLine;
   return (
@@ -257,6 +308,7 @@ function RuntimeDataStatus({
 function StatStrip({ set }: { set: GearSet }) {
   const stats = set.metrics.stats;
   const profile = evaluatorProfileFor(set.job);
+  const timing = gcdTimingForSet(set);
   const secondary: [string, number] = profile.resourceStat
     ? [profile.resourceStatAbbreviation!, stats[profile.resourceStat]]
     : ['DHT', stats.directHit];
@@ -266,16 +318,79 @@ function StatStrip({ set }: { set: GearSet }) {
     ['CRT', stats.criticalHit],
     ['DET', stats.determination],
     [profile.speedStatAbbreviation, stats[profile.speedStat]],
-    ['GCD', `${set.metrics.gcd.toFixed(2)}s`]
+    [timing.additionalStates.length > 0 ? 'BASE GCD' : 'GCD', `${timing.base.toFixed(2)}s`],
+    ...timing.additionalStates.map((state) => [state.name.toUpperCase(), `${state.gcd.toFixed(2)}s`])
   ];
   return (
-    <div className="stat-strip">
+    <div className={`stat-strip stat-count-${values.length}`}>
       {values.map(([label, value]) => (
         <div className="stat-cell" key={label}>
           <span>{label}</span>
           <strong>{typeof value === 'number' ? formatNumber.format(value) : value}</strong>
         </div>
       ))}
+    </div>
+  );
+}
+
+function DerivedStatStrip({ set }: { set: GearSet }) {
+  const derived = derivedCombatStats(set.metrics.stats);
+  return (
+    <div className="derived-stat-strip" aria-label="Derived combat stat effects">
+      <div><span>Critical Hit</span><strong>{percentage(derived.criticalChance)} chance · {percentage(derived.criticalDamage)} damage</strong></div>
+      <div><span>Direct Hit</span><strong>{percentage(derived.directChance)} chance · {percentage(derived.directDamage)} damage</strong></div>
+      <div><span>Determination</span><strong>+{percentage(derived.determinationIncrease)} damage</strong></div>
+    </div>
+  );
+}
+
+function ResultMethodology({ set, customItems }: { set: GearSet; customItems: EquipmentItem[] }) {
+  const equippedItems = gearSlotsForJob(set.job)
+    .map((slot) => set.items[slot])
+    .map((equipped) => equipped ? findItem(equipped.itemId, customItems) : undefined)
+    .filter((item): item is EquipmentItem => Boolean(item));
+  const communitySources = communitySourcesForResult(set);
+  const itemReferences = equippedItems.flatMap((item) => item.provenance
+    .filter((entry) => entry.kind === 'official-client' || entry.kind === 'acquisition-overlay')
+    .map((entry) => ({ item, source: entry }))
+  );
+  const resultKind = resultMethodologyDescription(set, communitySources);
+  return (
+    <div className="methodology-panel">
+      <div className="methodology-summary">
+        <span><strong>Item data</strong><SafeExternalLink href="https://v2.xivapi.com/docs/welcome/">XIVAPI v2</SafeExternalLink></span>
+        <span><strong>Curated influence</strong>{communitySources.length > 0 ? communitySources.map((source) => source.provider).join(' + ') : 'None recorded'}</span>
+        <span><strong>Formula reference</strong><SafeExternalLink href="https://xivgear.app/math/">XivGear maths</SafeExternalLink></span>
+        <span><strong>Implementation</strong>XIV Gear Lab clean-room proxy</span>
+      </div>
+      <p>{resultKind}</p>
+      <p className="methodology-caveat">Formula structure is cross-checked against XivGear's published maths page. This implementation and result ranking are XIV Gear Lab-owned. Level/job profile constants do not yet carry component-by-component external citations, so they are labelled internal/unverified rather than attributed to XivGear, Etro or The Balance.</p>
+      <div className="methodology-context">
+        <code>{set.calculationContext?.snapshotId ?? 'snapshot unknown'}</code>
+        <code>{set.calculationContext?.rulesetId ?? 'ruleset unknown'}</code>
+        <code>{set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId ?? 'evaluator unknown'}{set.calculationContext?.evaluatorVersion ? ` @ ${set.calculationContext.evaluatorVersion}` : ''}</code>
+      </div>
+      {communitySources.length > 0 && (
+        <div className="methodology-links">
+          <strong>Original community references</strong>
+          {communitySources.map((source) => (
+            <SafeExternalLink href={source.sourceUrl} key={`${source.provider}:${source.sourceUrl ?? source.providerRecordId ?? ''}`}>
+              {source.provider}{source.providerRecordId ? ` · ${source.providerRecordId}` : ''} ↗
+            </SafeExternalLink>
+          ))}
+        </div>
+      )}
+      <details>
+        <summary>Applicable item and acquisition references · {itemReferences.length}</summary>
+        <ul>
+          {itemReferences.map(({ item, source }, index) => (
+            <li key={`${item.id}:${source.kind}:${source.provider}:${index}`}>
+              <strong>{item.name}</strong> · {source.kind === 'official-client' ? 'item data' : 'acquisition'} ·{' '}
+              <SafeExternalLink href={source.sourceUrl}>{source.provider}{source.providerRecordId ? ` ${source.providerRecordId}` : ''}</SafeExternalLink>
+            </li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }
@@ -294,6 +409,7 @@ function SetDetails({
   onUnequipCustom: (item: EquipmentItem) => void;
 }) {
   const food = gearSnapshot.foods.find((entry) => entry.id === set.foodId);
+  const timing = gcdTimingForSet(set);
   const previousFood = gearSnapshot.foods.find((entry) => entry.id === previousSet?.foodId);
   const foodChanged = Boolean(previousSet && previousSet.foodId !== set.foodId);
   const communitySources = [...new Map(
@@ -317,6 +433,11 @@ function SetDetails({
               {set.evaluation.profileId} · reference-validated proxy
             </span>
           )}
+          <span className="gcd-state-note">
+            Base {timing.base.toFixed(2)}s
+            {timing.additionalStates.map((state) => ` · ${state.name} ${state.gcd.toFixed(2)}s (${state.kind})`)}
+            {` · optimiser target: ${timing.target.name} ${timing.target.gcd.toFixed(2)}s`}
+          </span>
           {set.legacyCalculationContext && (
             <span className="change-legend" title={set.legacyCalculationContext.message}>
               Legacy result · calculation version unknown. Recalculate before treating it as current.
@@ -335,7 +456,15 @@ function SetDetails({
         </div>
       </div>
 
+      <div className="attribution-strip" aria-label="Result sources and ownership">
+        <span>Items · <SafeExternalLink href="https://v2.xivapi.com/docs/welcome/">XIVAPI v2</SafeExternalLink></span>
+        <span>Curated · {communitySources.length > 0 ? communitySources.map((source) => source.provider).join(' + ') : 'none used'}</span>
+        <span>Formula reference · <SafeExternalLink href="https://xivgear.app/math/">XivGear maths</SafeExternalLink></span>
+        <span>Calculation/ranking · XIV Gear Lab</span>
+      </div>
+
       <StatStrip set={set} />
+      <DerivedStatStrip set={set} />
 
       <div className="equipment-list">
         {gearSlots.map((slot) => {
@@ -345,6 +474,9 @@ function SetDetails({
           const previousItem = previousEquipped ? findItem(previousEquipped.itemId, customItems) : undefined;
           const itemChanged = Boolean(previousSet && String(previousEquipped?.itemId) !== String(equipped?.itemId));
           const meldsChanged = Boolean(previousSet && JSON.stringify(previousEquipped?.materiaIds ?? []) !== JSON.stringify(equipped?.materiaIds ?? []));
+          const displayedMateriaSlots = item && equipped
+            ? materiaSlotDisplay(item, equipped.materiaIds, gearSnapshot.materia)
+            : [];
           return (
             <div className={`equipment-row ${itemChanged || meldsChanged ? 'changed' : ''}`} key={slot}>
               <span className="slot-name">{slotLabel[slot]}</span>
@@ -359,6 +491,14 @@ function SetDetails({
                 <span>
                   {item ? `i${item.itemLevel} · ${sourceLabel(item.sourceFamily)}` : 'Unresolved'}
                 </span>
+                {item && (
+                  <span className="item-stat-line" data-item-stats title="Final stats contributed by this item after its displayed materia; food and party bonuses are not included">
+                    <b className="item-stat-heading">Final item stats</b>
+                    {itemStatDisplay(item, equipped?.materiaIds, gearSnapshot.materia).map((stat) => (
+                      <span className="item-stat" data-item-stat-key={stat.key} key={stat.key}><b>{stat.label}</b> {stat.value}</span>
+                    ))}
+                  </span>
+                )}
               </div>
               <div className="equipment-end">
                 {item?.origin === 'custom' && (
@@ -368,14 +508,20 @@ function SetDetails({
                   </div>
                 )}
                 <div className="meld-stack">
-                  <div className="melds" aria-label={`${equipped?.materiaIds.length ?? 0} materia`}>
-                    {(equipped?.materiaIds ?? []).map((id, index) => {
-                      const materia = gearSnapshot.materia.find((entry) => entry.id === id);
+                  {displayedMateriaSlots.length > 0 && <small className="meld-heading">Materia slots</small>}
+                  <div className="melds" aria-label={`${displayedMateriaSlots.length} materia slots`}>
+                    {displayedMateriaSlots.map((slot) => {
+                      const materia = slot.materia;
                       return (
-                        <span className="materia-chip" key={`${id}-${index}`} title={materia?.name}>
-                          <span className="meld-icon"><SafeIcon src={materia?.iconUrl} /></span>
-                          <small aria-hidden="true">{materiaShortKey(materia)}</small>
-                          <span className="sr-only">{materia?.name ?? 'Unknown materia'}</span>
+                        <span
+                          className={`materia-chip ${materia ? '' : 'empty'}`}
+                          key={`${materia?.id ?? 'empty'}-${slot.index}`}
+                          title={materia ? `${materia.name}: ${slot.statLabel} +${slot.applied}${slot.waste > 0 ? ` (${slot.waste} wasted at cap)` : ''}` : `Materia slot ${slot.index + 1}: empty`}
+                          aria-label={materia ? `Slot ${slot.index + 1}, ${materia.name}, adds ${slot.applied} ${slot.statLabel}` : `Materia slot ${slot.index + 1}, empty`}
+                        >
+                          <span className="meld-icon">{materia ? <SafeIcon src={materia.iconUrl} /> : <span className="empty-meld-icon" aria-hidden="true">◇</span>}</span>
+                          <small className="materia-key" aria-hidden="true">{materia ? materiaShortKey(materia) : 'Empty'}</small>
+                          {materia && <small className="materia-contribution" aria-hidden="true">{slot.statLabel} +{slot.applied}</small>}
                         </span>
                       );
                     })}
@@ -407,13 +553,14 @@ function SetDetails({
             <h3>Curated sources</h3>
             <div>
               {communitySources.map((source) => (
-                <a href={source.sourceUrl} target="_blank" rel="noreferrer" key={`${source.provider}:${source.sourceUrl}`}>
+                <SafeExternalLink href={source.sourceUrl} key={`${source.provider}:${source.sourceUrl}`}>
                   {source.provider} ↗
-                </a>
+                </SafeExternalLink>
               ))}
             </div>
           </div>
         )}
+        <ResultMethodology set={set} customItems={customItems} />
         <h3>What this result assumes</h3>
         <ul>
           {set.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}
@@ -435,50 +582,109 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   )!;
   const initialProfile = evaluatorProfileFor(initialJobDefinition.id);
   const initialSet = gearSnapshot.curatedSets.find((set) => set.job === initialJobDefinition.id) ?? gearSnapshot.curatedSets[0]!;
-  const [view, setView] = useState<View>('optimize');
-  const [expansion, setExpansion] = useState<ExpansionId>(latestExpansion.id);
-  const [level, setLevel] = useState(latestExpansion.levelCap);
-  const [constraints, setConstraints] = useState({
+  const initialConstraints = {
     ...defaultConstraints,
     minResource: initialProfile.resourceStat ? initialProfile.baseStats[initialProfile.resourceStat] : 0
-  });
-  const [gcdTarget, setGcdTarget] = useState(initialJobDefinition.defaultGcdTarget.toFixed(2));
-  const [runState, setRunState] = useState<RunState>('idle');
-  const [result, setResult] = useState<OptimizerResult>();
-  const [message, setMessage] = useState('Ready to search the verified current-tier pool.');
-  const [job, setJob] = useState<CombatJob>(initialJobDefinition.id);
-  const [selectedSet, setSelectedSet] = useState<GearSet>(initialSet);
+  };
+  const initialWorkspaceState = useMemo(() => createInitialBuildWorkspaceState({
+    expansion: latestExpansion.id,
+    level: latestExpansion.levelCap,
+    job: initialJobDefinition.id,
+    constraints: initialConstraints,
+    gcdTarget: initialJobDefinition.defaultGcdTarget.toFixed(2),
+    selectedSet: initialSet,
+    message: 'Ready to search the verified current-tier pool.'
+  }), []);
+  const [view, setView] = useState<View>('optimize');
+  const [workspaceState, setWorkspaceState] = useState<BuildWorkspaceState>(initialWorkspaceState);
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
   const [savedSets, setSavedSets] = useState<GearSet[]>([]);
   const [customItems, setCustomItems] = useState<EquipmentItem[]>([]);
+  const [customPreferredSlots, setCustomPreferredSlots] = useState<Record<string, GearSlot>>({});
   const [exportJson, setExportJson] = useState('');
   const [customOpen, setCustomOpen] = useState(false);
   const [customEditorOpen, setCustomEditorOpen] = useState(false);
   const [editingCustomId, setEditingCustomId] = useState<string>();
   const [customJob, setCustomJob] = useState<CombatJob>(initialJobDefinition.id);
-  const [customFallbacks, setCustomFallbacks] = useState<Record<string, CustomFallback>>({});
   const [customDraft, setCustomDraft] = useState<CustomDraft>(() => createCustomDraft(initialJobDefinition.id));
   const [allowUnrealisticCustomValues, setAllowUnrealisticCustomValues] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion>();
-  const [previousOptimizedSet, setPreviousOptimizedSet] = useState<GearSet>();
   const [dataUpdateState, setDataUpdateState] = useState<'idle' | 'checking' | 'error'>('idle');
   const [dataUpdateMessage, setDataUpdateMessage] = useState(dataRuntime.configurationMessage ?? dataRuntime.active.fallbackReason);
-  const workerRef = useRef<Worker | null>(null);
+  const workerRef = useRef<{ worker: Worker; buildId: BuildId } | null>(null);
+
+  const activeBuildId = workspaceState.activeBuildId;
+  const activeBuild = workspaceState.builds[activeBuildId];
+  const { expansion, level, constraints, gcdTarget, runState, result, message, job, selectedSet, previousOptimizedSet, customFallbacks } = activeBuild;
+
+  const updateBuildById = (id: BuildId, update: (build: BuildWorkspace) => BuildWorkspace) => {
+    setWorkspaceState((current) => {
+      const updated = update(current.builds[id]);
+      return {
+        ...current,
+        builds: { ...current.builds, [id]: { ...updated, updatedAt: new Date().toISOString() } },
+        updatedAt: new Date().toISOString()
+      };
+    });
+  };
+
+  const setBuildField = <K extends keyof BuildWorkspace,>(
+    field: K,
+    next: BuildWorkspace[K] | ((current: BuildWorkspace[K]) => BuildWorkspace[K])
+  ) => updateBuildById(activeBuildId, (build) => ({
+    ...build,
+    [field]: typeof next === 'function'
+      ? (next as (current: BuildWorkspace[K]) => BuildWorkspace[K])(build[field])
+      : next
+  }));
+
+  const setExpansion = (next: ExpansionId) => setBuildField('expansion', next);
+  const setLevel = (next: number) => setBuildField('level', next);
+  const setConstraints = (next: OptimizerConstraints | ((current: OptimizerConstraints) => OptimizerConstraints)) => setBuildField('constraints', next);
+  const setGcdTarget = (next: string) => setBuildField('gcdTarget', next);
+  const setRunState = (next: WorkspaceRunState) => setBuildField('runState', next);
+  const setResult = (next: OptimizerResult | undefined) => setBuildField('result', next);
+  const setMessage = (next: string) => setBuildField('message', next);
+  const setJob = (next: CombatJob) => setBuildField('job', next);
+  const setSelectedSet = (next: GearSet) => setBuildField('selectedSet', next);
+  const setPreviousOptimizedSet = (next: GearSet | undefined) => setBuildField('previousOptimizedSet', next);
+  const setCustomFallbacks = (
+    next: Record<string, CustomItemFallback> | ((current: Record<string, CustomItemFallback>) => Record<string, CustomItemFallback>)
+  ) => setBuildField('customFallbacks', next);
 
   useEffect(() => {
-    Promise.allSettled([loadSavedSets(), loadCustomItems()]).then(([savedResult, customResult]) => {
+    Promise.allSettled([
+      loadSavedSets(),
+      loadCustomItems(),
+      loadBuildWorkspaceState(initialWorkspaceState)
+    ]).then(([savedResult, customResult, workspaceResult]) => {
       if (customResult.status === 'fulfilled') {
         setCustomItems(customResult.value.map((record) => record.item));
-        setCustomFallbacks(Object.fromEntries(customResult.value.map((record) => [record.id, { slot: record.preferredSlot }])));
+        setCustomPreferredSlots(Object.fromEntries(customResult.value.map((record) => [record.id, record.preferredSlot])));
       }
       if (savedResult.status === 'fulfilled') {
         setSavedSets(savedResult.value);
-        void dataRuntime.repository.setPinnedSnapshotIds(pinnedSnapshotIdsForSavedSets(savedResult.value));
       }
+      if (workspaceResult.status === 'fulfilled') setWorkspaceState(workspaceResult.value);
       if (customResult.status === 'rejected') setMessage('Custom items could not be loaded; saved sets using them may show a missing item.');
       else if (savedResult.status === 'rejected') setMessage('Saved sets could not be loaded; the app still works without them.');
+      else if (workspaceResult.status === 'rejected') setMessage('Build workspaces could not be loaded. Safe independent defaults were created for this session.');
+      setWorkspaceHydrated(true);
     });
-    return () => workerRef.current?.terminate();
+    return () => workerRef.current?.worker.terminate();
   }, []);
+
+  useEffect(() => {
+    if (!workspaceHydrated) return;
+    const timeout = window.setTimeout(() => {
+      void saveBuildWorkspaceState(workspaceState);
+      void dataRuntime.repository.setPinnedSnapshotIds([
+        ...pinnedSnapshotIdsForSavedSets(savedSets),
+        ...workspaceSnapshotIds(workspaceState)
+      ]).catch(() => undefined);
+    }, 150);
+    return () => window.clearTimeout(timeout);
+  }, [workspaceHydrated, workspaceState, savedSets]);
 
   const activeLevel = effectiveLevel(gearSnapshot.registry, expansion, level);
   const jobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === job)!;
@@ -514,11 +720,6 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       ? `${jobDefinition.name} data is present, but its evaluator is not ready. Switched to ${fallback.name}.`
       : `${jobDefinition.name} is unavailable at the selected expansion or effective level. Switched to ${fallback.name}.`);
   }, [activeLevel, expansion, job, jobDefinition]);
-
-  const displayedSets = useMemo(
-    () => result?.best ? [result.best, ...result.alternatives] : [],
-    [result]
-  );
 
   const selectJob = (nextJob: CombatJob) => {
     const definition = SUPPORTED_JOBS.find((entry) => entry.id === nextJob)!;
@@ -579,45 +780,64 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       requiredItemIds: [...new Set([...constraints.requiredItemIds, ...activeCustomItems.map((item) => item.id)])]
     };
 
-    workerRef.current?.terminate();
+    const runBuildId = activeBuildId;
+    const priorWorker = workerRef.current;
+    priorWorker?.worker.terminate();
+    if (priorWorker) {
+      updateBuildById(priorWorker.buildId, (build) => ({
+        ...build,
+        runState: 'idle',
+        message: priorWorker.buildId === runBuildId
+          ? 'Previous search replaced by a new search. The brief was preserved.'
+          : `Search cancelled because ${activeBuild.name} started a new search. The brief was preserved.`
+      }));
+    }
     const worker = new Worker(new URL('./optimizer.worker.ts', import.meta.url), { type: 'module' });
-    workerRef.current = worker;
-    setRunState('running');
-    setMessage(activeCustomItems.length > 0
-      ? `Keeping ${activeCustomItems.length} active hypothetical item${activeCustomItems.length === 1 ? '' : 's'} while rebuilding the remaining slots…`
-      : 'Building legal meld frontiers and checking every retained stat state…');
+    workerRef.current = { worker, buildId: runBuildId };
+    updateBuildById(runBuildId, (build) => ({
+      ...build,
+      runState: 'running',
+      message: activeCustomItems.length > 0
+        ? `Keeping ${activeCustomItems.length} active hypothetical item${activeCustomItems.length === 1 ? '' : 's'} while rebuilding the remaining slots…`
+        : 'Building legal meld frontiers and checking every retained stat state…'
+    }));
     worker.onmessage = (event: MessageEvent) => {
       if (event.data.type === 'result') {
         const next = event.data.result as OptimizerResult;
         const previousBest = result?.best;
-        setResult(next);
-        setRunState('done');
-        if (next.best) {
-          setPreviousOptimizedSet(previousBest);
-          setSelectedSet(next.best);
-          setMessage(next.speedFallback
-            ? `Exact speed unavailable; showing the closest attainable ${next.speedFallback.achievedGcd.toFixed(2)}s set after searching ${next.evaluatedStates.toLocaleString()} states.`
-            : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms.`);
-        } else {
-          setPreviousOptimizedSet(undefined);
-          setMessage(next.explanation[0] ?? 'No legal set was found.');
-        }
+        updateBuildById(runBuildId, (build) => ({
+          ...build,
+          result: next,
+          runState: 'done',
+          previousOptimizedSet: next.best ? previousBest : undefined,
+          selectedSet: next.best ?? build.selectedSet,
+          message: next.best
+            ? next.speedFallback
+              ? `Exact speed unavailable; showing the closest attainable ${next.speedFallback.achievedGcd.toFixed(2)}s set after searching ${next.evaluatedStates.toLocaleString()} states.`
+              : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms.`
+            : next.explanation[0] ?? 'No legal set was found.'
+        }));
         worker.terminate();
+        if (workerRef.current?.worker === worker) workerRef.current = null;
       }
       if (event.data.type === 'error') {
-        setRunState('error');
-        setMessage(event.data.message);
+        updateBuildById(runBuildId, (build) => ({ ...build, runState: 'error', message: event.data.message }));
         worker.terminate();
+        if (workerRef.current?.worker === worker) workerRef.current = null;
       }
     };
     worker.postMessage({ type: 'optimize', constraints: optimizerConstraints, job, customItems, snapshot: gearSnapshot });
   };
 
   const cancelOptimizer = () => {
-    workerRef.current?.terminate();
+    const activeWorker = workerRef.current;
+    activeWorker?.worker.terminate();
     workerRef.current = null;
-    setRunState('idle');
-    setMessage('Search cancelled. Your filters are untouched.');
+    if (activeWorker) updateBuildById(activeWorker.buildId, (build) => ({
+      ...build,
+      runState: 'idle',
+      message: 'Search cancelled. Your filters are untouched.'
+    }));
   };
 
   const saveCurrent = async () => {
@@ -626,7 +846,6 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       await saveSet(saved);
       const nextSavedSets = [saved, ...savedSets];
       setSavedSets(nextSavedSets);
-      await dataRuntime.repository.setPinnedSnapshotIds(pinnedSnapshotIdsForSavedSets(nextSavedSets)).catch(() => undefined);
       setMessage('Set saved locally. It will still be here offline.');
     } catch {
       setMessage('The set could not be saved locally.');
@@ -642,7 +861,6 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       await deleteSavedSet(set.id);
       const nextSavedSets = savedSets.filter((entry) => entry.id !== set.id);
       setSavedSets(nextSavedSets);
-      await dataRuntime.repository.setPinnedSnapshotIds(pinnedSnapshotIdsForSavedSets(nextSavedSets)).catch(() => undefined);
       setMessage('Saved set deleted. Any set currently open on screen is left untouched.');
     } catch {
       setMessage('The saved set could not be deleted.');
@@ -678,9 +896,14 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   };
 
   const stopPendingOptimizationForCustomChange = () => {
-    workerRef.current?.terminate();
+    const pending = workerRef.current;
+    pending?.worker.terminate();
     workerRef.current = null;
-    setRunState('idle');
+    if (pending) updateBuildById(pending.buildId, (build) => ({
+      ...build,
+      runState: 'idle',
+      message: 'Search stopped because shared custom equipment changed. The brief was preserved.'
+    }));
   };
 
   const openCustomManager = () => {
@@ -701,7 +924,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       determination: String(Math.min(Number(draft.determination), limits.determination.maximum)),
       directHit: String(Math.min(Number(draft.directHit), limits.directHit.maximum)),
       speedStat: String(Math.min(Number(draft.speedStat), limits.speedStat.maximum)),
-      weaponDamage: String(Math.min(Number(draft.weaponDamage), limits.weaponDamage.maximum))
+      weaponDamage: String(Math.min(Number(draft.weaponDamage), limits.weaponDamage.maximum)),
+      weaponDelay: String(Math.min(limits.weaponDelay.maximum, Math.max(limits.weaponDelay.minimum, Number(draft.weaponDelay))))
     });
     setAllowUnrealisticCustomValues(false);
     setCustomOpen(false);
@@ -710,7 +934,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
 
   const startCustomEdit = (item: EquipmentItem) => {
     const equippedSlot = gearSlotsForJob(selectedSet.job).find((slot) => String(selectedSet.items[slot]?.itemId) === String(item.id));
-    const fallbackSlot = customFallbacks[String(item.id)]?.slot;
+    const fallbackSlot = customFallbacks[String(item.id)]?.slot ?? customPreferredSlots[String(item.id)];
     const slot = equippedSlot ?? fallbackSlot ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
     const itemJob = item.jobs[0] ?? job;
     const profile = evaluatorProfileFor(itemJob);
@@ -723,7 +947,11 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       item.stats.determination > limits.determination.maximum ||
       item.stats.directHit > limits.directHit.maximum ||
       item.stats[profile.speedStat] > limits.speedStat.maximum ||
-      item.weaponDamage > limits.weaponDamage.maximum;
+      item.weaponDamage > limits.weaponDamage.maximum ||
+      (slot === 'weapon' && (
+        item.weaponDelayMs / 1_000 < limits.weaponDelay.minimum ||
+        item.weaponDelayMs / 1_000 > limits.weaponDelay.maximum
+      ));
     setEditingCustomId(String(item.id));
     setCustomJob(itemJob);
     setCustomDraft(createCustomDraft(itemJob, item, slot));
@@ -739,9 +967,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     let nextValue = value;
     if (field !== 'name' && value !== '') {
       const parsed = Number(value);
-      if (Number.isFinite(parsed) && parsed < 0) nextValue = '0';
-      if (!allowUnrealisticCustomValues && Number.isFinite(parsed) && parsed > customItemLimits[field].maximum) {
-        nextValue = String(customItemLimits[field].maximum);
+      const absoluteMinimum = field === 'weaponDelay' ? 0.01 : field === 'itemLevel' ? 1 : 0;
+      if (Number.isFinite(parsed) && parsed < absoluteMinimum) nextValue = String(absoluteMinimum);
+      if (!allowUnrealisticCustomValues && Number.isFinite(parsed)) {
+        nextValue = String(Math.min(customItemLimits[field].maximum, Number(nextValue)));
       }
     }
     setCustomDraft((current) => ({ ...current, [field]: nextValue }));
@@ -751,7 +980,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const limits = getCustomItemLimits(customJob, slot);
     setCustomDraft((current) => {
       if (allowUnrealisticCustomValues) return { ...current, slot };
-      const clamp = (field: CustomLimitField) => String(Math.min(Number(current[field]) || 0, limits[field].maximum));
+      const clamp = (field: CustomLimitField) => String(Math.min(
+        limits[field].maximum,
+        Math.max(limits[field].minimum, Number(current[field]) || 0)
+      ));
       return {
         ...current,
         slot,
@@ -762,7 +994,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         determination: clamp('determination'),
         directHit: clamp('directHit'),
         speedStat: clamp('speedStat'),
-        weaponDamage: clamp('weaponDamage')
+        weaponDamage: clamp('weaponDamage'),
+        weaponDelay: clamp('weaponDelay')
       };
     });
   };
@@ -771,7 +1004,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     setAllowUnrealisticCustomValues(enabled);
     if (enabled) return;
     setCustomDraft((current) => {
-      const clamp = (field: CustomLimitField) => String(Math.min(Number(current[field]) || 0, customItemLimits[field].maximum));
+      const clamp = (field: CustomLimitField) => String(Math.min(
+        customItemLimits[field].maximum,
+        Math.max(customItemLimits[field].minimum, Number(current[field]) || 0)
+      ));
       return {
         ...current,
         itemLevel: clamp('itemLevel'),
@@ -781,7 +1017,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         determination: clamp('determination'),
         directHit: clamp('directHit'),
         speedStat: clamp('speedStat'),
-        weaponDamage: clamp('weaponDamage')
+        weaponDamage: clamp('weaponDamage'),
+        weaponDelay: clamp('weaponDelay')
       };
     });
   };
@@ -796,20 +1033,25 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       determination: Number(customDraft.determination),
       directHit: Number(customDraft.directHit),
       speedStat: Number(customDraft.speedStat),
-      weaponDamage: Number(customDraft.weaponDamage)
+      weaponDamage: Number(customDraft.weaponDamage),
+      weaponDelay: Number(customDraft.weaponDelay)
     };
     if (
       !customDraft.name.trim() ||
       !Object.values(rawNumericValues).every((value) => Number.isFinite(value) && value >= 0) ||
-      rawNumericValues.itemLevel < 1
+      rawNumericValues.itemLevel < 1 ||
+      (customDraft.slot === 'weapon' && rawNumericValues.weaponDelay <= 0)
     ) {
-      setMessage('Give the custom item a name and use valid non-negative numbers for every stat.');
+      setMessage('Give the custom item a name, use valid non-negative stats, and use a weapon delay above zero.');
       return;
     }
     const numericValues = allowUnrealisticCustomValues
       ? rawNumericValues
       : Object.fromEntries(
-        Object.entries(rawNumericValues).map(([field, value]) => [field, Math.min(value, customItemLimits[field as CustomLimitField].maximum)])
+        Object.entries(rawNumericValues).map(([field, value]) => {
+          const limit = customItemLimits[field as CustomLimitField];
+          return [field, Math.min(limit.maximum, Math.max(limit.minimum, value))];
+        })
       ) as typeof rawNumericValues;
 
     const stats = emptyStats();
@@ -835,7 +1077,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       stats,
       statCaps: zeroCaps(),
       weaponDamage: customSlot === 'weapon' ? numericValues.weaponDamage : 0,
-      weaponDelayMs: customSlot === 'weapon' ? 3440 : 0,
+      weaponDelayMs: customSlot === 'weapon' ? Math.round(numericValues.weaponDelay * 1_000) : 0,
       materiaSlots: 0,
       advancedMelding: false,
       unique: customSlot === 'ringLeft' || customSlot === 'ringRight',
@@ -857,47 +1099,61 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       setMessage('The custom item could not be saved locally. Nothing was changed.');
       return;
     }
+    setCustomPreferredSlots((current) => ({ ...current, [String(custom.id)]: customSlot }));
 
     if (editingItem) {
       const nextItems = customItems.map((item) => String(item.id) === String(custom.id) ? custom : item);
-      const equippedSlot = gearSlotsForJob(selectedSet.job).find((slot) => String(selectedSet.items[slot]?.itemId) === String(custom.id));
-      const nextFallbacks = { ...customFallbacks };
       setCustomItems(nextItems);
-      if (equippedSlot) {
-        const equippedItems = { ...selectedSet.items };
-        const oldFallback = customFallbacks[String(custom.id)]?.equipped;
-        if (oldFallback) equippedItems[equippedSlot] = oldFallback;
-        else delete equippedItems[equippedSlot];
+      const affectedBuilds = workspaceBuildsUsingItem(workspaceState, custom.id);
+      setWorkspaceState((current) => ({
+        ...current,
+        builds: Object.fromEntries(BUILD_IDS.map((buildId) => {
+          const build = current.builds[buildId];
+          const equippedSlot = gearSlotsForJob(build.selectedSet.job)
+            .find((slot) => String(build.selectedSet.items[slot]?.itemId) === String(custom.id));
+          if (!equippedSlot) return [buildId, build];
 
-        const targetEquipped = equippedItems[customSlot];
-        const targetCustom = targetEquipped
-          ? customItems.find((item) => String(item.id) === String(targetEquipped.itemId))
-          : undefined;
-        const targetFallback = targetCustom
-          ? customFallbacks[String(targetCustom.id)]?.equipped
-          : targetEquipped;
-        equippedItems[customSlot] = { itemId: custom.id, materiaIds: [] };
-        nextFallbacks[String(custom.id)] = { slot: customSlot, equipped: targetFallback };
-        const updatedSet: GearSet = {
-          ...selectedSet,
-          id: `custom-set-${Date.now()}`,
-          origin: 'custom',
-          items: equippedItems,
-          assumptions: [
-            ...selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`),
-            `Custom override in ${slotLabel[customSlot]}.`
-          ]
-        };
-        setSelectedSet(recalculateWithCustomItems(updatedSet, nextItems));
-      } else {
-        nextFallbacks[String(custom.id)] = { slot: customSlot };
-      }
-      setCustomFallbacks(nextFallbacks);
-      setResult(undefined);
-      setPreviousOptimizedSet(undefined);
+          const equippedItems = { ...build.selectedSet.items };
+          const nextFallbacks = { ...build.customFallbacks };
+          const oldFallback = build.customFallbacks[String(custom.id)]?.equipped;
+          if (oldFallback) equippedItems[equippedSlot] = oldFallback;
+          else delete equippedItems[equippedSlot];
+
+          const targetEquipped = equippedItems[customSlot];
+          const targetCustom = targetEquipped
+            ? nextItems.find((item) => String(item.id) === String(targetEquipped.itemId))
+            : undefined;
+          const targetFallback = targetCustom
+            ? build.customFallbacks[String(targetCustom.id)]?.equipped
+            : targetEquipped;
+          equippedItems[customSlot] = { itemId: custom.id, materiaIds: [] };
+          nextFallbacks[String(custom.id)] = { slot: customSlot, equipped: targetFallback };
+          const updatedSet: GearSet = {
+            ...build.selectedSet,
+            id: `custom-set-${buildId}-${Date.now()}`,
+            origin: 'custom',
+            items: equippedItems,
+            assumptions: [
+              ...build.selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`),
+              `Custom override in ${slotLabel[customSlot]}.`
+            ]
+          };
+          return [buildId, {
+            ...build,
+            selectedSet: recalculateWithCustomItems(updatedSet, nextItems),
+            customFallbacks: nextFallbacks,
+            result: undefined,
+            previousOptimizedSet: undefined,
+            runState: 'idle',
+            message: `${custom.name} was edited in the shared library and recalculated here.`,
+            updatedAt: new Date().toISOString()
+          }];
+        })) as Record<BuildId, BuildWorkspace>,
+        updatedAt: new Date().toISOString()
+      }));
       setCustomEditorOpen(false);
       setEditingCustomId(undefined);
-      setMessage(`Updated ${custom.name}${equippedSlot ? ' and recalculated the open set' : ''}.`);
+      setMessage(`Updated ${custom.name}${affectedBuilds.length > 0 ? ` and recalculated ${affectedBuilds.length} build${affectedBuilds.length === 1 ? '' : 's'}` : ''}.`);
       return;
     }
 
@@ -933,7 +1189,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       setMessage(`${item.name} belongs to ${item.jobs.join('/')} and cannot be applied to ${job}.`);
       return;
     }
-    const slot = customFallbacks[String(item.id)]?.slot ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
+    const slot = customFallbacks[String(item.id)]?.slot ?? customPreferredSlots[String(item.id)] ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
     const currentEquipped = selectedSet.items[slot];
     const replacedCustom = currentEquipped
       ? customItems.find((entry) => String(entry.id) === String(currentEquipped.itemId))
@@ -990,7 +1246,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const usedBySavedSet = savedSets.some((set) =>
       Object.values(set.items).some((entry) => String(entry?.itemId) === String(item.id))
     );
-    setPendingDeletion({ kind: 'custom-item', item, usedBySavedSet });
+    const usedByBuildNames = workspaceBuildsUsingItem(workspaceState, item.id).map((build) => build.name);
+    setPendingDeletion({ kind: 'custom-item', item, usedBySavedSet, usedByBuildNames });
   };
 
   const deleteCustomItemPermanently = async (item: EquipmentItem) => {
@@ -1002,31 +1259,49 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       return;
     }
     const nextItems = customItems.filter((entry) => String(entry.id) !== String(item.id));
-    const equippedSlot = gearSlotsForJob(selectedSet.job).find((slot) => String(selectedSet.items[slot]?.itemId) === String(item.id));
-    if (equippedSlot) {
-      const equippedItems = { ...selectedSet.items };
-      const rememberedFallback = customFallbacks[String(item.id)]?.equipped;
-      const referenceFallback = gearSnapshot.curatedSets.find((set) => set.job === selectedSet.job)?.items[equippedSlot];
-      const fallback = rememberedFallback ?? referenceFallback;
-      if (fallback) equippedItems[equippedSlot] = fallback;
-      else delete equippedItems[equippedSlot];
-      const restored: GearSet = {
-        ...selectedSet,
-        id: `custom-set-${Date.now()}`,
-        items: equippedItems,
-        assumptions: selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`)
-      };
-      setSelectedSet(recalculateWithCustomItems(restored, nextItems));
-      setResult(undefined);
-      setPreviousOptimizedSet(undefined);
-    }
+    const affectedBuildNames = workspaceBuildsUsingItem(workspaceState, item.id).map((build) => build.name);
+    setWorkspaceState((current) => ({
+      ...current,
+      builds: Object.fromEntries(BUILD_IDS.map((buildId) => {
+        const build = current.builds[buildId];
+        const equippedSlot = gearSlotsForJob(build.selectedSet.job)
+          .find((slot) => String(build.selectedSet.items[slot]?.itemId) === String(item.id));
+        const nextFallbacks = { ...build.customFallbacks };
+        delete nextFallbacks[String(item.id)];
+        if (!equippedSlot) return [buildId, { ...build, customFallbacks: nextFallbacks }];
+
+        const equippedItems = { ...build.selectedSet.items };
+        const rememberedFallback = build.customFallbacks[String(item.id)]?.equipped;
+        const referenceFallback = gearSnapshot.curatedSets.find((set) => set.job === build.selectedSet.job)?.items[equippedSlot];
+        const fallback = rememberedFallback ?? referenceFallback;
+        if (fallback) equippedItems[equippedSlot] = fallback;
+        else delete equippedItems[equippedSlot];
+        const restored: GearSet = {
+          ...build.selectedSet,
+          id: `custom-set-${buildId}-${Date.now()}`,
+          items: equippedItems,
+          assumptions: build.selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[equippedSlot]}.`)
+        };
+        return [buildId, {
+          ...build,
+          selectedSet: recalculateWithCustomItems(restored, nextItems),
+          customFallbacks: nextFallbacks,
+          result: undefined,
+          previousOptimizedSet: undefined,
+          runState: 'idle',
+          message: `${item.name} was deleted from the shared library; the previous ${slotLabel[equippedSlot].toLowerCase()} item was restored.`,
+          updatedAt: new Date().toISOString()
+        }];
+      })) as Record<BuildId, BuildWorkspace>,
+      updatedAt: new Date().toISOString()
+    }));
     setCustomItems(nextItems);
-    setCustomFallbacks((current) => {
+    setCustomPreferredSlots((current) => {
       const next = { ...current };
       delete next[String(item.id)];
       return next;
     });
-    setMessage(`${item.name} permanently deleted from your custom-item library${equippedSlot ? `; the previous ${slotLabel[equippedSlot].toLowerCase()} item was restored` : ''}.`);
+    setMessage(`${item.name} permanently deleted from your custom-item library${affectedBuildNames.length > 0 ? ` and removed safely from ${affectedBuildNames.join(', ')}` : ''}.`);
   };
 
   const confirmPendingDeletion = async () => {
@@ -1080,6 +1355,59 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     }
   };
 
+  const selectWorkspaceTab = (tab: BuildId | 'comparison') => {
+    setWorkspaceState((current) => ({
+      ...current,
+      activeTab: tab,
+      activeBuildId: isBuildId(tab) ? tab : current.activeBuildId,
+      updatedAt: new Date().toISOString()
+    }));
+    setView('optimize');
+  };
+
+  const setComparisonBaseline = (baselineBuildId: BuildId) => {
+    setWorkspaceState((current) => ({
+      ...current,
+      baselineBuildId,
+      updatedAt: new Date().toISOString()
+    }));
+  };
+
+  const copyActiveLoadoutTo = (targetId: BuildId) => {
+    if (workerRef.current?.buildId === targetId) {
+      workerRef.current.worker.terminate();
+      workerRef.current = null;
+    }
+    const profile = evaluatorProfileFor(activeBuild.job);
+    const minimumResource = profile.resourceStat ? profile.baseStats[profile.resourceStat] : 0;
+    setWorkspaceState((current) => copyBuildLoadout(current, activeBuildId, targetId, minimumResource));
+  };
+
+  const openSetInActiveBuild = (set: GearSet) => {
+    if (workerRef.current?.buildId === activeBuildId) {
+      workerRef.current.worker.terminate();
+      workerRef.current = null;
+    }
+    const definition = SUPPORTED_JOBS.find((entry) => entry.id === set.job);
+    const profile = evaluatorProfileFor(set.job);
+    updateBuildById(activeBuildId, (build) => ({
+      ...build,
+      job: set.job,
+      gcdTarget: set.metrics.gcd.toFixed(2),
+      constraints: {
+        ...build.constraints,
+        minResource: profile.resourceStat ? profile.baseStats[profile.resourceStat] : 0
+      },
+      selectedSet: structuredClone(set),
+      result: undefined,
+      previousOptimizedSet: undefined,
+      runState: 'idle',
+      message: `${set.name} opened in ${build.name}${definition ? ` for ${definition.name}` : ''}. Other builds were not changed.`
+    }));
+    setWorkspaceState((current) => ({ ...current, activeTab: activeBuildId }));
+    setView('optimize');
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1121,110 +1449,164 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           </div>
           <div className="top-actions">
             <button className="ghost" data-custom-library-open onClick={openCustomManager} disabled={!selectedSet}>Custom items{customItems.length > 0 ? ` · ${customItems.length}` : ''}</button>
-            <button className="ghost" onClick={saveCurrent}>Save set</button>
-            <button className="primary small" onClick={prepareExport}>XivGear JSON</button>
+            <button className="ghost" onClick={saveCurrent}>Save {activeBuild.name}</button>
+            <button className="primary small" onClick={prepareExport}>Export {activeBuild.name}</button>
           </div>
         </header>
 
         {view === 'optimize' && (
-          <div className="workspace">
-            <section className="control-panel" aria-label="Optimisation controls">
-              <div className="panel-title"><div><p className="eyebrow">Constraints</p><h2>Recommendation brief</h2></div><span className="verified-badge">{gearSnapshot.items.length} official items</span></div>
-
-              <label>Expansion access
-                <select value={expansion} onChange={(event) => setExpansion(event.target.value as ExpansionId)}>
-                  {EXPANSIONS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name} · cap {entry.levelCap}</option>)}
-                </select>
-              </label>
-              <label>Effective level
-                <input type="number" min="1" max="100" value={level} onChange={(event) => setLevel(Number(event.target.value))} />
-                <small>Applied: {activeLevel}. Expansion cap is enforced.</small>
-              </label>
-              <label>Job
-                <select id="job-select" value={job} onChange={(event) => selectJob(event.target.value as CombatJob)}>
-                  {SUPPORTED_JOBS.map((entry) => {
-                    const capability = getEvaluatorCapability(gearSnapshot.registry, entry.id, 'standard', 'generic-hit');
-                    const capabilityLabel = capability?.status === 'available' ? 'validated proxy' : `evaluator ${capability?.status ?? 'unsupported'}`;
-                    return <option value={entry.id} disabled={!jobIsAvailable(entry) || capability?.status !== 'available'} key={entry.id}>{entry.name} · {capabilityLabel}</option>;
-                  })}
-                </select>
-                <small>{jobDefinition.name}: {evaluatorProfile.objective} {evaluatorProfile.limitation}</small>
-              </label>
-              <div className="control-field gcd-control">
-                <label htmlFor="gcd-target">Target GCD</label>
-                <div className="gcd-input-wrap">
-                  <input
-                    id="gcd-target"
-                    type="number"
-                    inputMode="decimal"
-                    min="1.5"
-                    max="2.5"
-                    step="0.01"
-                    value={gcdTarget}
-                    onChange={(event) => setGcdTarget(event.target.value)}
-                  />
-                  <span>seconds</span>
-                </div>
-                <small>Current {job} reference targets:</small>
-                <div className="gcd-suggestions" aria-label="Recommended GCD targets">
-                  {jobDefinition.recommendedGcdTargets.map((target) => (
-                    <button type="button" onClick={() => setGcdTarget(target.toFixed(2))} key={target}>{target.toFixed(2)}s</button>
-                  ))}
-                </div>
-                <small>If the exact target is impossible, the closest attainable meld plan is shown and labelled.</small>
-              </div>
-              {evaluatorProfile.resourceStat && <label>Minimum {evaluatorProfile.resourceLabel}
-                <input type="number" min={evaluatorProfile.baseStats[evaluatorProfile.resourceStat]} step="10" value={constraints.minResource} onChange={(event) => setConstraints((current) => ({ ...current, minResource: Number(event.target.value) }))} />
-                <small>Comfort constraint, not silently baked into “best”.</small>
-              </label>}
-
-              <fieldset>
-                <legend>Allowed acquisition</legend>
-                {SOURCE_GROUPS.map((source) => (
-                  <label className="check-row" key={source.id}>
-                    <input type="checkbox" checked={source.sources.every((entry) => constraints.allowedSources.includes(entry))} onChange={(event) => setSourceAllowed(source.sources, event.target.checked)} />
-                    <span><strong>{source.label}</strong><small>{source.detail}</small></span>
-                  </label>
-                ))}
-                {UNAVAILABLE_SOURCE_OPTIONS.map((source) => (
-                  <label className="check-row unavailable" key={source.id} title="Planned for a broader data-pool milestone">
-                    <input type="checkbox" disabled />
-                    <span><strong>{source.label}<em>Not in pool</em></strong><small>{source.detail}</small></span>
-                  </label>
-                ))}
-                {constraints.allowedSources.length === 1 && constraints.allowedSources[0] === 'savage' && (
-                  <p className="source-warning">Savage alone has only one unique ring in this prototype pool. Add Tomestone gear to fill both ring slots.</p>
-                )}
-              </fieldset>
-
-              <div className={`run-message ${runState}`} role="status"><span aria-hidden="true">{runState === 'running' ? '◌' : runState === 'error' ? '!' : '✓'}</span><p>{message}</p></div>
-              {result?.explanation.map((line) => <p className="explanation" key={line}>{line}</p>)}
-              {runState === 'running'
-                ? <button className="danger wide" onClick={cancelOptimizer}>Cancel search</button>
-                : <button className="primary wide" onClick={runOptimizer}>Optimise this brief <span>→</span></button>}
-            </section>
-
-            <div className="result-column">
-              {displayedSets.length > 0 && (
-                <div className="alternative-tabs" role="tablist" aria-label="Generated alternatives">
-                  {displayedSets.map((set) => <button role="tab" aria-selected={selectedSet.id === set.id} className={selectedSet.id === set.id ? 'active' : ''} onClick={() => setSelectedSet(set)} key={set.id}>{set.name}<span>{set.metrics.gcd.toFixed(2)}s · {formatNumber.format(set.metrics.expectedAction100)}</span></button>)}
-                </div>
-              )}
-              <SetDetails
-                set={selectedSet}
-                previousSet={previousOptimizedSet}
-                customItems={customItems}
-                onEditCustom={startCustomEdit}
-                onUnequipCustom={unequipCustomItem}
-              />
+          <>
+            <div className="workspace-tabs" role="tablist" aria-label="Build workspaces and comparison">
+              {BUILD_IDS.map((buildId) => {
+                const build = workspaceState.builds[buildId];
+                return (
+                  <button
+                    type="button"
+                    role="tab"
+                    data-workspace-tab={buildId}
+                    aria-selected={workspaceState.activeTab === buildId}
+                    className={workspaceState.activeTab === buildId ? 'active' : ''}
+                    onClick={() => selectWorkspaceTab(buildId)}
+                    key={buildId}
+                  >
+                    <strong>{build.name}</strong>
+                    <span>{build.job} · {build.gcdTarget}s · {formatNumber.format(build.selectedSet.metrics.expectedAction100)}</span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                role="tab"
+                data-workspace-tab="comparison"
+                aria-selected={workspaceState.activeTab === 'comparison'}
+                className={workspaceState.activeTab === 'comparison' ? 'active comparison-tab' : 'comparison-tab'}
+                onClick={() => selectWorkspaceTab('comparison')}
+              >
+                <strong>Comparison</strong>
+                <span>Build 1 · Build 2 · Build 3</span>
+              </button>
             </div>
-          </div>
+
+            {workspaceState.activeTab === 'comparison' ? (
+              <ComparisonView
+                state={workspaceState}
+                snapshot={gearSnapshot}
+                customItems={customItems}
+                onBaselineChange={setComparisonBaseline}
+              />
+            ) : (
+              <>
+                <div className="build-copy-bar" aria-label={`Copy ${activeBuild.name} loadout`}>
+                  <span><strong>Copy current loadout</strong><small>Gear, melds, food, job and target GCD. Destination access and acquisition restrictions stay independent.</small></span>
+                  <div>
+                    {BUILD_IDS.filter((buildId) => buildId !== activeBuildId).map((buildId) => (
+                      <button type="button" className="ghost compact" data-copy-loadout-target={buildId} onClick={() => copyActiveLoadoutTo(buildId)} key={buildId}>
+                        Copy to {workspaceState.builds[buildId].name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="workspace">
+                <section className="control-panel" aria-label={`${activeBuild.name} optimisation controls`}>
+                  <div className="panel-title"><div><p className="eyebrow">{activeBuild.name} constraints</p><h2>Recommendation brief</h2></div><span className="verified-badge">{gearSnapshot.items.length} official items</span></div>
+
+                  <div className="evaluation-mode-summary"><span>Evaluation mode</span><strong>Expected single 100-potency hit</strong><small>{activeBuild.evaluationMode} · opener and dummy evaluators are not available yet</small></div>
+                  <label>Expansion access
+                    <select value={expansion} onChange={(event) => setExpansion(event.target.value as ExpansionId)}>
+                      {EXPANSIONS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name} · cap {entry.levelCap}</option>)}
+                    </select>
+                  </label>
+                  <label>Effective level
+                    <input type="number" min="1" max="100" value={level} onChange={(event) => setLevel(Number(event.target.value))} />
+                    <small>Applied: {activeLevel}. Expansion cap is enforced.</small>
+                  </label>
+                  <label>Job
+                    <select id="job-select" className={`job-select role-${jobDefinition.role}`} data-job-role={jobDefinition.role} value={job} onChange={(event) => selectJob(event.target.value as CombatJob)}>
+                      {ROLE_GROUPS.map((group) => (
+                        <optgroup label={group.label} className={`role-group role-${group.role}`} key={group.role}>
+                          {SUPPORTED_JOBS.filter((entry) => entry.role === group.role).map((entry) => {
+                            const capability = getEvaluatorCapability(gearSnapshot.registry, entry.id, 'standard', 'generic-hit');
+                            const capabilityLabel = capability?.status === 'available' ? 'validated proxy' : `evaluator ${capability?.status ?? 'unsupported'}`;
+                            return <option className={`role-option role-${entry.role}`} value={entry.id} disabled={!jobIsAvailable(entry) || capability?.status !== 'available'} key={entry.id}>{entry.name} · {capabilityLabel}</option>;
+                          })}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <small>{jobDefinition.name}: {evaluatorProfile.objective} {evaluatorProfile.limitation}</small>
+                  </label>
+                  <div className="control-field gcd-control">
+                    <label htmlFor="gcd-target">Target GCD</label>
+                    <div className="gcd-input-wrap">
+                      <input
+                        id="gcd-target"
+                        type="number"
+                        inputMode="decimal"
+                        min="1.5"
+                        max="2.5"
+                        step="0.01"
+                        value={gcdTarget}
+                        onChange={(event) => setGcdTarget(event.target.value)}
+                      />
+                      <span>seconds</span>
+                    </div>
+                    <small>Target state: {jobDefinition.timingEffects.find((effect) => effect.id === jobDefinition.targetTimingEffectId)?.name ?? 'base GCD'}. Base and effective GCD are displayed separately.</small>
+                    <div className="gcd-suggestions" aria-label="Recommended GCD targets">
+                      {jobDefinition.recommendedGcdTargets.map((target) => (
+                        <button type="button" onClick={() => setGcdTarget(target.toFixed(2))} key={target}>{target.toFixed(2)}s</button>
+                      ))}
+                    </div>
+                    <small>If the exact target is impossible, the closest attainable meld plan is shown and labelled.</small>
+                  </div>
+                  {evaluatorProfile.resourceStat && <label>Minimum {evaluatorProfile.resourceLabel}
+                    <input type="number" min={evaluatorProfile.baseStats[evaluatorProfile.resourceStat]} step="10" value={constraints.minResource} onChange={(event) => setConstraints((current) => ({ ...current, minResource: Number(event.target.value) }))} />
+                    <small>Comfort constraint, not silently baked into “best”.</small>
+                  </label>}
+
+                  <fieldset>
+                    <legend>Allowed acquisition</legend>
+                    {SOURCE_GROUPS.map((source) => (
+                      <label className="check-row" key={source.id}>
+                        <input type="checkbox" checked={source.sources.every((entry) => constraints.allowedSources.includes(entry))} onChange={(event) => setSourceAllowed(source.sources, event.target.checked)} />
+                        <span><strong>{source.label}</strong><small>{source.detail}</small></span>
+                      </label>
+                    ))}
+                    {UNAVAILABLE_SOURCE_OPTIONS.map((source) => (
+                      <label className="check-row unavailable" key={source.id} title="Planned for a broader data-pool milestone">
+                        <input type="checkbox" disabled />
+                        <span><strong>{source.label}<em>Not in pool</em></strong><small>{source.detail}</small></span>
+                      </label>
+                    ))}
+                    {constraints.allowedSources.length === 1 && constraints.allowedSources[0] === 'savage' && (
+                      <p className="source-warning">Savage alone has only one unique ring in this prototype pool. Add Tomestone gear to fill both ring slots.</p>
+                    )}
+                  </fieldset>
+
+                  <div className={`run-message ${runState}`} role="status"><span aria-hidden="true">{runState === 'running' ? '◌' : runState === 'error' ? '!' : '✓'}</span><p>{message}</p></div>
+                  {result?.explanation.map((line) => <p className="explanation" key={line}>{line}</p>)}
+                  {runState === 'running'
+                    ? <button className="danger wide" onClick={cancelOptimizer}>Cancel search</button>
+                    : <button className="primary wide" onClick={runOptimizer}>Optimise {activeBuild.name} <span>→</span></button>}
+                </section>
+
+                <div className="result-column">
+                  <SetDetails
+                    set={selectedSet}
+                    previousSet={previousOptimizedSet}
+                    customItems={customItems}
+                    onEditCustom={startCustomEdit}
+                    onUnequipCustom={unequipCustomItem}
+                  />
+                </div>
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {view === 'community' && (
           <div className="card-grid">
             {gearSnapshot.curatedSets.filter((set) => set.job === job).map((set) => (
-              <button className="set-card" key={set.id} onClick={() => { setSelectedSet(set); setView('optimize'); }}>
+              <button className="set-card" key={set.id} onClick={() => openSetInActiveBuild(set)}>
                 <div><span className="source-pill" data-curated-providers={curatedProviderLabel(set)}>{curatedProviderLabel(set)} · patch {set.patch}</span><span>{curatedUpdatedDate(set)}</span></div>
                 <h2>{set.name}</h2>
                 <StatStrip set={set} />
@@ -1241,7 +1623,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
               ? <div className="empty-state"><span>◇</span><h2>No saved sets yet</h2><p>Save any generated or community set. It is stored locally and remains available offline.</p></div>
               : savedSets.map((set) => (
                 <article className="set-card saved-set-card" key={set.id}>
-                  <button className="saved-set-summary" onClick={() => { setSelectedSet(set); setView('optimize'); }}>
+                  <button className="saved-set-summary" onClick={() => openSetInActiveBuild(set)}>
                     <span className="source-pill">Saved locally</span>
                     <h2>{set.name}</h2>
                     {set.legacyCalculationContext && <p className="source-warning">Legacy result · calculation version unknown</p>}
@@ -1259,10 +1641,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
 
         {view === 'about' && (
           <div className="about-grid">
-            <article><p className="eyebrow">Official client data</p><h2>XIVAPI v2</h2><p>Items, stats, slots and icons are cached from version <code>{gearSnapshot.manifest.xivapiVersion}</code> using schema <code>{gearSnapshot.manifest.xivapiSchema}</code>.</p><a href="https://v2.xivapi.com/docs/welcome/" target="_blank" rel="noreferrer">Provider documentation ↗</a></article>
-            <article><p className="eyebrow">Community references</p><h2>Etro + The Balance</h2><p>Sixty final-tier recommendations across all 21 standard combat jobs retain exact source links. Fifty-one exact Etro/Balance overlaps are cross-attributed instead of duplicated; genuinely different source variants remain separate.</p><a href="https://etro.gg/api/docs/" target="_blank" rel="noreferrer">Etro API ↗</a> · <a href="https://www.thebalanceffxiv.com/jobs/" target="_blank" rel="noreferrer">The Balance job guides ↗</a></article>
-            <article><p className="eyebrow">Calculation</p><h2>Transparent evaluator profiles</h2><p>Every supported combat job has an identifiable profile and independently recalculated level-100 reference fixtures. The objective is an expected single 100-potency hit comparison, not encounter DPS, healing, mitigation, raid-buff value, or a rotation simulation.</p><a href="https://xivgear.app/math/" target="_blank" rel="noreferrer">Independent maths reference ↗</a></article>
-            <article><p className="eyebrow">Rights</p><h2>Public, non-commercial preview</h2><p>FINAL FANTASY XIV © SQUARE ENIX CO., LTD. FINAL FANTASY is a registered trademark of Square Enix Holdings Co., Ltd. XIV Gear Lab is an unfinished fan project and is not affiliated with or endorsed by Square Enix. FFXIV materials are used under the Materials Usage License; monetisation is not permitted.</p><a href="https://support.na.square-enix.com/rule.php?id=5382&la=1&tag=authc" target="_blank" rel="noreferrer">Materials usage licence ↗</a></article>
+            <article><p className="eyebrow">Official client data</p><h2>XIVAPI v2</h2><p>Items, stats, slots and icons are cached from version <code>{gearSnapshot.manifest.xivapiVersion}</code> using schema <code>{gearSnapshot.manifest.xivapiSchema}</code>.</p><SafeExternalLink href="https://v2.xivapi.com/docs/welcome/">Provider documentation ↗</SafeExternalLink></article>
+            <article><p className="eyebrow">Community references</p><h2>Etro + The Balance</h2><p>Sixty final-tier recommendations across all 21 standard combat jobs retain exact source links. Fifty-one exact Etro/Balance overlaps are cross-attributed instead of duplicated; genuinely different source variants remain separate.</p><SafeExternalLink href="https://etro.gg/api/docs/">Etro API ↗</SafeExternalLink> · <SafeExternalLink href="https://www.thebalanceffxiv.com/jobs/">The Balance job guides ↗</SafeExternalLink></article>
+            <article><p className="eyebrow">Calculation</p><h2>Transparent evaluator profiles</h2><p>XivGear's published maths page is an external formula reference. The clean-room implementation, profile assembly and optimiser ranking are XIV Gear Lab-owned. Profile constants without an exact component citation are explicitly treated as internal/unverified rather than conveniently credited to a hosting platform.</p><SafeExternalLink href="https://xivgear.app/math/">XivGear maths reference ↗</SafeExternalLink></article>
+            <article><p className="eyebrow">Rights</p><h2>Public, non-commercial preview</h2><p>FINAL FANTASY XIV © SQUARE ENIX CO., LTD. FINAL FANTASY is a registered trademark of Square Enix Holdings Co., Ltd. XIV Gear Lab is an unfinished fan project and is not affiliated with or endorsed by Square Enix. FFXIV materials are used under the Materials Usage License; monetisation is not permitted.</p><SafeExternalLink href="https://support.na.square-enix.com/rule.php?id=5382&la=1&tag=authc">Materials usage licence ↗</SafeExternalLink></article>
           </div>
         )}
       </main>
@@ -1281,6 +1663,9 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
               {pendingDeletion.kind === 'custom-item' && pendingDeletion.usedBySavedSet && (
                 <p className="confirmation-warning">A locally saved set uses this item. Deleting it will make that saved set show a missing item.</p>
               )}
+              {pendingDeletion.kind === 'custom-item' && pendingDeletion.usedByBuildNames.length > 0 && (
+                <p className="confirmation-warning">Currently equipped in {pendingDeletion.usedByBuildNames.join(', ')}. Deletion will restore each build's remembered previous item where possible.</p>
+              )}
             </div>
             <div className="modal-actions">
               <button type="button" className="ghost" data-confirm-cancel autoFocus onClick={() => setPendingDeletion(undefined)}>Cancel</button>
@@ -1295,7 +1680,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       {customOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setCustomOpen(false); }}>
           <div className="modal custom-library" role="dialog" aria-modal="true" aria-labelledby="custom-library-title" data-custom-library>
-            <div><p className="eyebrow">Local hypothetical gear</p><h2 id="custom-library-title">Custom items</h2><p>Create items here, then apply any saved item to the set currently on screen.</p></div>
+            <div><p className="eyebrow">Shared local hypothetical gear</p><h2 id="custom-library-title">Custom items</h2><p>The library is shared. Apply state and replaced-item memory remain independent in each build; Apply currently targets {activeBuild.name}.</p></div>
             <button type="button" className="primary custom-library-create" data-custom-new onClick={startCustomCreate}>+ Create new item</button>
 
             {customItems.length === 0 ? (
@@ -1305,11 +1690,17 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                 {customItems.map((item) => {
                   const equippedSlot = gearSlotsForJob(selectedSet.job).find((slot) => String(selectedSet.items[slot]?.itemId) === String(item.id));
                   const compatible = item.jobs.includes(job);
+                  const equippedIn = BUILD_IDS.flatMap((buildId) => {
+                    const build = workspaceState.builds[buildId];
+                    const slot = gearSlotsForJob(build.selectedSet.job).find((candidate) => String(build.selectedSet.items[candidate]?.itemId) === String(item.id));
+                    return slot ? [`${build.name} ${slotLabel[slot]}`] : [];
+                  });
+                  const preferredSlot = customPreferredSlots[String(item.id)] ?? (item.slot === 'ring' ? 'ringLeft' : item.slot);
                   return (
                     <article className="custom-item-row" data-custom-item={item.id} key={item.id}>
                       <div>
                         <strong>{item.name}</strong>
-                        <span>{item.jobs.join('/')} · i{item.itemLevel} · {equippedSlot ? `active in ${slotLabel[equippedSlot]}` : slotLabel[customFallbacks[String(item.id)]?.slot ?? (item.slot === 'ring' ? 'ringLeft' : item.slot)]}</span>
+                        <span>{item.jobs.join('/')} · i{item.itemLevel} · {equippedIn.length > 0 ? `active in ${equippedIn.join(', ')}` : `preferred ${slotLabel[preferredSlot]}`}</span>
                       </div>
                       <div className="custom-item-actions">
                         <button
@@ -1341,7 +1732,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
             <div>
               <p className="eyebrow">Local hypothetical gear</p>
               <h2 id="custom-editor-title">{editingCustomId ? 'Edit custom item' : 'Create custom item'}</h2>
-              <p>{editingCustomId ? 'Changing the slot moves the equipped item and restores what it previously replaced.' : 'The new item is added to your library and applied to the current set.'}</p>
+              <p>{editingCustomId ? 'Changing the slot updates every build currently using this shared item and restores what each one previously replaced.' : `The new item is added to your library and applied only to ${activeBuild.name}.`}</p>
             </div>
             <label>Slot
               <select data-custom-slot value={customDraft.slot} onChange={(event) => updateCustomDraftSlot(event.target.value as GearSlot)}>
@@ -1361,10 +1752,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
               <label>Direct Hit<input name="directHit" type="number" value={customDraft.directHit} onChange={(event) => updateCustomDraftField('directHit', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.directHit.maximum} required /><small>Highest recorded {customItemLimits.directHit.recorded} | maximum {customItemLimits.directHit.maximum}</small></label>
               <label>{customEvaluatorProfile.speedStatLabel}<input name={customEvaluatorProfile.speedStat} data-custom-speed-stat type="number" value={customDraft.speedStat} onChange={(event) => updateCustomDraftField('speedStat', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.speedStat.maximum} required /><small>Highest recorded {customItemLimits.speedStat.recorded} | maximum {customItemLimits.speedStat.maximum}</small></label>
             </div>
-            {customDraft.slot === 'weapon' && <label>Weapon damage<input name="weaponDamage" type="number" value={customDraft.weaponDamage} onChange={(event) => updateCustomDraftField('weaponDamage', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.weaponDamage.maximum} required /><small>Highest recorded {customItemLimits.weaponDamage.recorded} | maximum {customItemLimits.weaponDamage.maximum}</small></label>}
+            {customDraft.slot === 'weapon' && (
+              <div className="field-grid custom-weapon-fields">
+                <label>Weapon damage<input name="weaponDamage" type="number" value={customDraft.weaponDamage} onChange={(event) => updateCustomDraftField('weaponDamage', event.target.value)} min="0" max={allowUnrealisticCustomValues ? undefined : customItemLimits.weaponDamage.maximum} required /><small>Highest recorded {customItemLimits.weaponDamage.recorded} | maximum {customItemLimits.weaponDamage.maximum}</small></label>
+                <label>Weapon delay (seconds)<input name="weaponDelay" data-custom-weapon-delay type="number" step="0.01" value={customDraft.weaponDelay} onChange={(event) => updateCustomDraftField('weaponDelay', event.target.value)} min={allowUnrealisticCustomValues ? 0.01 : customItemLimits.weaponDelay.minimum} max={allowUnrealisticCustomValues ? undefined : customItemLimits.weaponDelay.maximum} required /><small>Fastest recorded {customItemLimits.weaponDelay.recorded.toFixed(2)}s | minimum {customItemLimits.weaponDelay.minimum.toFixed(2)}s</small></label>
+              </div>
+            )}
             <label className={`check-row custom-limit-toggle ${allowUnrealisticCustomValues ? 'enabled' : ''}`}>
               <input type="checkbox" data-custom-unrealistic-toggle checked={allowUnrealisticCustomValues} onChange={(event) => toggleUnrealisticCustomValues(event.target.checked)} />
-              <span><strong>Allow unrealistic values</strong><small>Values above the standard limits can produce absurd calculations and may break the UI.</small></span>
+              <span><strong>Allow unrealistic values</strong><small>Values outside the standard limits—including unusually low weapon delay—can produce absurd calculations and may break the UI.</small></span>
             </label>
             <div className="modal-actions">
               <button type="button" className="ghost" onClick={() => setCustomEditorOpen(false)}>Cancel</button>
