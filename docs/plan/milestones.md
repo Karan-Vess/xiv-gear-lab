@@ -43,6 +43,8 @@ The following requirements existed before this revision and must remain visible:
 9. Crafting and gathering objectives, thresholds and optimisation -> **M14-M15**.
 10. Project import/export, backup/restore, durable migrations, sharing and hardened XivGear compatibility -> **M16**.
 11. Measured performance, accessibility, long-offline reliability, installer/update hardening and rights approval -> **M17**.
+12. Immediate, contextual attribution with direct source links and an explicit distinction between external and XIV Gear Lab calculations -> **M9, M12-M13 and M16-M17**.
+13. Curation-independent preliminary patch recommendations plus adaptive unattended patch watching and safe publication -> **M11-M11B**.
 
 ## Completed and partial foundation milestones
 
@@ -226,6 +228,7 @@ Delivered in v0.6.3 (M8C):
 - The staged release was verified locally and again through the exact hosted URLs before packaging.
 - The v0.6.3 portable EXE downloaded and activated the hosted snapshot, then relaunched with network access disabled against the same isolated profile and optimised successfully from its cached copy with embedded icons.
 - The hosted snapshot contains 21 jobs, 231 items, 6 materia, 4 foods and 60 curated sets under snapshot ID `xivapi-f8764efd76cdb31a-etro-balance-all-combat-jobs-2026-07-15`.
+- The final hosted drill measured a 323 ms cached application bootstrap and a 0 ms catalogue responsiveness probe on the reference machine; it also exposed 4.72 seconds of portable self-extraction overhead, which is recorded honestly as M17 distribution-startup work.
 
 Accept when:
 
@@ -247,8 +250,9 @@ Tests:
 
 Performance:
 
-- Cached interactive launch under 2 seconds on reference hardware.
-- Update work does not block the renderer; catalogue remains usable from the active snapshot during download/validation.
+- Once the Electron application process starts, cached data reaches an interactive UI under 2 seconds on reference hardware; the hosted packaged drill records application bootstrap and outer portable-wrapper time separately.
+- Update work does not block the renderer; the hosted drill probes an enabled catalogue control during download/validation and requires a response within 500 ms while the active snapshot remains visible.
+- End-to-end portable-EXE launch includes self-extraction and does not yet meet a two-second release target; cold-start packaging, installed-versus-portable policy and the final user-perceived launch budget are explicit M17 work rather than an unmeasured M8 claim.
 
 ### M9 - Three build workspaces and comparison clarity
 
@@ -260,12 +264,17 @@ Deliver:
 - Each build owns its job, expansion/level access, constraints, equipped set, custom-item usage, calculation mode and optimiser result.
 - Running or editing one build must not overwrite either of the others.
 - Shared custom-item library with independent equip state per build and clear multi-build edit impact.
+- Versioned build-workspace domain/storage contract plus a migration that seeds Build 1 from the existing single workspace and creates safe independent defaults for Builds 2 and 3 without altering saved sets or custom items.
 - Comparison table using Build 1 as the default baseline, with optional baseline selection.
 - Compare evaluation score and percentage delta, main/resource/secondary stats, base/effective GCD, item level, food, materia, waste, changed equipment, constraints, source availability, acquisition and costs when known.
 - Healer comparison shows Piety and MP regeneration rather than misleading fixed maximum-MP differences.
 - Cross-job or cross-evaluator comparisons remain viewable but clearly state which values are not directly comparable.
 - Role-coloured job choices: tank blue, healer green, DPS red, always accompanied by text/group labels so colour is not the only signal.
 - Named GCD presentation: base GCD plus relevant passive, maintained or temporary states such as Greased Lightning, Fuka, Swiftscaled or Ley Lines; the optimiser target identifies the state it uses.
+- Compact, immediately visible source attribution for item data, curated sets, formula references and XIV Gear Lab-owned calculations without turning the workspace into a credits screen.
+- A per-result data-and-methodology panel that distinguishes independently generated, curated and community-validated results and links directly to the applicable provider, original set/author and formula reference rather than only to generic home pages.
+- Audit the existing generic-hit formula implementation and constants before labelling them: every current credit must resolve to an exact reference, or the component must be marked internal/unknown rather than assigned a convenient but unverified source.
+- External source links open through a narrowly allowlisted system-browser path; missing or unknown provenance is stated instead of hidden.
 
 Accept when:
 
@@ -274,6 +283,9 @@ Accept when:
 - Item, meld, food and constraint causes of every displayed difference are inspectable.
 - Different rulesets/snapshots/evaluator modes trigger a compatibility warning instead of a misleading winner.
 - The Windows executable renders and operates the role-coded job picker reliably with keyboard and mouse input.
+- Every result can answer which data and formulas came from external projects, which parts were implemented by XIV Gear Lab and whether a curated set influenced the recommendation.
+- Attribution remains readable without colour, and every displayed external reference can be opened safely from the packaged application.
+- No formula or set is credited to a platform merely because that platform hosts it, and no unverified formula attribution is presented as fact.
 
 Tests:
 
@@ -281,6 +293,7 @@ Tests:
 - Same-job and cross-job comparisons; same/different snapshot; same/different evaluator mode; empty build; identical builds.
 - Base/effective GCD boundaries for passive, maintained and temporary effects.
 - Packaged Electron focus, dropdown, modal and keyboard regression tests.
+- Generated/curated/validated provenance states; partial or missing author metadata; exact and fallback source links; rejected non-allowlisted URLs.
 
 Performance:
 
@@ -329,6 +342,9 @@ Deliver:
 - Weekly/one-time/recurring classifications and user-entered cost preferences where values are legitimately subjective.
 - No live market-board prices and no invented gil value for non-market rewards.
 - Curated and generated recommendations respect the selected expansion and effective level; later content may be shown only as clearly unavailable reference material.
+- Curation-independent preliminary-patch mode that can optimise a newly detected compatible equipment tier from official data while marking incomplete acquisition information and absent community validation honestly.
+- Patch-readiness checks for complete slot/job coverage, item/stat/cap sanity, HQ-only crafted variants, upgrade identities, icons, pagination and formula/ruleset compatibility.
+- Explicit confidence states for complete preliminary data, incomplete catalogue/acquisition data, evaluator-outdated data and later community validation; a missing curated overlay never blocks a safe official-data candidate.
 
 Accept when:
 
@@ -337,11 +353,47 @@ Accept when:
 - An item with one accessible and one inaccessible route remains usable through the legal route.
 - Recommendations explain how every official item is obtained and distinguish unknown, fixed, weekly and variable requirements.
 - Disabled source categories become functional only when their route coverage is validated.
+- With the curated overlay absent, a compatible new-patch official catalogue still produces clearly labelled preliminary recommendations rather than failing or pretending to be community validated.
+- Incomplete slot coverage, suspicious stat jumps or an incompatible evaluator prevents a normal-confidence recommendation and identifies the precise readiness failure.
 
 Tests:
 
 - Every expansion cap/job boundary; route alternatives; quest/duty gates; current and obsolete currencies; weekly limits; unavailable content; no-route and unknown-route failures.
 - HQ-only crafted-equipment fixtures, crafted ingredient expansion and circular recipes; upgrade chains; later-expansion leakage property tests.
+- Synthetic patch roll-forward with no curated sets; partial pagination; missing weapon/slot; corrected provider data; unknown acquisition route; formula-compatible and formula-incompatible candidates.
+
+### M11B - Automated patch watch and provisional publishing
+
+Status: **Planned**.
+
+Deliver:
+
+- Persistent release-watch state machine with idle, announced, release-watch, candidate, stabilising, complete and quarantined states.
+- Cheap idle sentinel that checks official patch/version and announcement signals without repeatedly downloading every provider catalogue.
+- Announcement and maintenance dates arm more frequent checks but remain hints; actual patch identity, provider content fingerprints and signed release state remain authoritative.
+- Adaptive polling around an expected patch, with bounded retry/backoff when essential data is absent and automatic return to idle after the stabilisation window.
+- Candidate-readiness gates reuse M11 completeness checks and require a complete candidate to remain stable across two appropriately separated observations before unattended publication.
+- Automatic build, contract validation, compatibility checks, tests, signing, hosted verification and publication for safe data-only changes.
+- Essential official data gates publication; acquisition corrections and optional curated overlays can publish later without delaying the first preliminary recommendation.
+- Suspicious count/stat changes, unknown schemas, incompatible formulas/evaluators, new unsupported mechanics, provider contract drift and incomplete essential data are quarantined and reported rather than signed.
+- Dedicated automation signing key held in protected release secrets, with least privilege, auditable rotation/revocation and no access to the offline recovery key.
+- Post-publication correction watch, immutable release evidence, failure notification and a no-change fast exit.
+
+Accept when:
+
+- With no patch expected, scheduled runs perform only the bounded sentinel check and do not create or republish a snapshot.
+- An announcement can increase polling frequency but cannot by itself publish data or override validation.
+- A simulated compatible patch progresses from detection through stable candidate, signed publication, hosted verification and preliminary availability without human or agent interaction.
+- Providers updating gradually cannot publish a half-populated catalogue; a later complete stable candidate proceeds automatically.
+- Unsafe or incompatible changes enter quarantine, preserve the active channel and produce an actionable report.
+- The automation key can be revoked independently while the offline recovery key remains inaccessible to the scheduled environment.
+- After the correction window closes, the watcher returns to idle until another patch or meaningful source correction is detected.
+
+Tests:
+
+- Simulated announcement delay/cancellation, maintenance change and unannounced patch; clock/time-zone boundaries; duplicate scheduled runs and lost state.
+- Unchanged patch/content fingerprints; gradual pagination; unstable consecutive candidates; essential/optional provider outages; later acquisition and curation overlays.
+- Signing-secret absence/revocation, concurrent publication, interrupted upload, hosted verification failure, quarantine recovery and immutable audit evidence.
 
 ### M12 - Bounded combat evaluator framework
 
@@ -356,6 +408,7 @@ Deliver:
 - Shared deterministic timing engine for GCDs, casts, animation locks, weaving, cooldowns/charges, buffs, DoTs, gauges, expected-value procs, pets/summons and relevant auto-attacks.
 - Fixed dummy assumptions: one stationary target, 100% uptime, no movement/downtime/phases, expected-value RNG, no external party buffs by default and a versioned latency/weave assumption.
 - Job evaluator supplies action catalogue, opener, ongoing priority rules, state/resource model and version metadata.
+- Every externally derived formula, timing assumption and job mechanic carries a named reference, direct source URL, applicable patch/version and accessed/published date where available; internally developed calculations are explicitly attributed to XIV Gear Lab instead.
 - Personal-damage output is not presented as raid contribution; support-job contribution requires a separately defined future metric.
 - Fast proxy searches the full candidate space, then opener/dummy modes rerank a bounded finalist shortlist instead of simulating every frontier state.
 - At least four pilot evaluators representing deterministic melee, proc-heavy physical ranged, caster state/timing and pet/summon behaviour.
@@ -367,6 +420,7 @@ Accept when:
 - Generic-hit, opener and dummy modes never share labels that imply equivalent meaning.
 - Unsupported jobs/modes remain visibly unavailable rather than falling back to a generic rotation.
 - Encounter mechanics, movement and fight scripting are absent by design and stated clearly.
+- Every evaluator result exposes its formula/methodology references without requiring the application to reproduce or teach the source material.
 
 Tests:
 
@@ -388,6 +442,7 @@ Deliver:
 - Add the next expansion's two jobs through the M8 onboarding contract.
 - Version existing jobs by ruleset and evolved/standard mode without overwriting Dawntrail profiles or saved results.
 - Explicit capability display for catalogue, generic hit, opener and dummy support.
+- Per-job provenance audit that identifies the origin of formulas and assumptions component by component, preserves original authorship where known and distinguishes a hosting platform from the author/community that produced a set or method.
 - Define whether and how limited jobs are supported; they remain outside normal recommendations until an evidence-backed objective and ruleset exist.
 
 Accept when:
@@ -396,6 +451,7 @@ Accept when:
 - New jobs using an existing supported formula/evaluator schema require only registry/profile/action data; genuinely new mechanics are isolated to a job evaluator module.
 - Old and new expansion modes can coexist and reproduce their own saved results.
 - No missing evaluator silently borrows another job's logic.
+- No selectable evaluator lacks either a precise external reference link or an explicit declaration that the relevant method was developed by XIV Gear Lab.
 
 Tests:
 
@@ -452,11 +508,13 @@ Deliver:
 - Durable schema migrations with preview, refusal and rollback for unsupported data.
 - Hardened XivGear adapter with verified current examples, supported relic allocations and explicit compatibility versions.
 - Continue to reject custom/missing identities from official XivGear export without silently dropping them.
+- Preserve data providers, original curated-set author/community and hosting links, formula references, patch/version, snapshot, ruleset, evaluator identity and internal/external calculation attribution in saved workspaces, backups and native exports.
 
 Accept when:
 
 - Historical results remain reproducible or migrate only through an explicit copied result.
 - A full local backup restores without changing identities or provenance.
+- Round-tripping a project preserves its contextual attribution and source links exactly, including the explicit absence of community validation for independently generated preliminary results.
 - Hostile, corrupt or future-schema imports fail safely.
 - XivGear exports pass periodic manual import validation against the live application.
 
@@ -475,13 +533,16 @@ Deliver:
 - Accessibility audit: keyboard, screen reader, contrast, high zoom, reduced motion and non-colour status communication.
 - Fresh-install/update/rollback, long-offline, provider-outage, malformed-cache and disk/quota recovery.
 - Windows installer/portable release policy, code signing and executable auto-update plan; browser deployment remains supported by the shared core.
+- End-to-end installed and portable cold-start budgets, including the current portable self-extraction overhead that sits outside M8's cached application-bootstrap measurement.
 - Licences/notices, privacy statement, provider permissions and FFXIV materials-usage review for the intended distribution model.
+- Final attribution audit covering direct-link accuracy, original authorship versus hosting, formula-component provenance, provider terms, link failure behaviour and non-endorsement wording.
 
 Accept when:
 
 - No supported job, level, content tier or evaluator mode lacks evidence-backed formulas and fixtures.
 - Normal recommendation, comparison and update paths meet declared p95 budgets on minimum reference hardware.
 - Release rights are documented; unsigned or unapproved public builds remain blocked as appropriate.
+- Every externally sourced datum, curated set and formula used in a supported result has an appropriate visible credit and usable reference link, while internally developed work is labelled honestly.
 - Critical journeys are usable with keyboard and assistive technology.
 
 Tests:
@@ -508,8 +569,11 @@ Tests:
 | Role colours and clear base/buffed GCDs | M9 |
 | Full optimiser restrictions and hypothetical items | M10 |
 | Expansion/level content legality, sources and costs | M11 |
+| Preliminary patch recommendations without curated sets | M11-M13 |
+| Adaptive unattended patch watch and safe publication | M11B |
 | Generic hit, opener and five-minute dummy | M12-M13 |
 | Crafting | M14 |
 | Gathering | M15 |
 | Save/share/backup/XivGear hardening | M16 |
+| Contextual source/formula attribution and direct links | M9, M12-M13, M16-M17 |
 | Accessibility, performance, reliability and release | M17 |

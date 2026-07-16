@@ -5,6 +5,7 @@ import { mkdtempSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
+const updateDrillModuleStartedAt = Date.now();
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const developmentUrl = process.env.XIV_GEAR_LAB_DEV_SERVER_URL;
 const smokeScreenshot = process.env.XIV_GEAR_LAB_SMOKE_SCREENSHOT;
@@ -12,6 +13,7 @@ const smokeResultPath = smokeScreenshot ? `${smokeScreenshot}.result.json` : und
 const updateDrillResultPath = process.env.XIV_GEAR_LAB_UPDATE_DRILL_RESULT;
 const updateDrillMode = process.env.XIV_GEAR_LAB_UPDATE_DRILL_MODE;
 const updateDrillUserData = process.env.XIV_GEAR_LAB_UPDATE_DRILL_USER_DATA;
+const updateDrillStartedAt = Number(process.env.XIV_GEAR_LAB_UPDATE_DRILL_STARTED_AT);
 const automationResultPath = smokeResultPath ?? updateDrillResultPath;
 
 if (smokeScreenshot) app.setPath('userData', mkdtempSync(resolve(tmpdir(), 'xiv-gear-lab-packaged-smoke-')));
@@ -75,8 +77,17 @@ const createWindow = async () => {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     }
     if (!rendered) throw new Error('Installed update drill could not reach the application UI.');
+    const uiReadyMs = Number.isFinite(updateDrillStartedAt) && updateDrillStartedAt > 0
+      ? Date.now() - updateDrillStartedAt
+      : undefined;
+    const portableBootstrapMs = Number.isFinite(updateDrillStartedAt) && updateDrillStartedAt > 0
+      ? updateDrillModuleStartedAt - updateDrillStartedAt
+      : undefined;
+    const appUiReadyMs = Date.now() - updateDrillModuleStartedAt;
 
     const initialSource = await window.webContents.executeJavaScript(`document.querySelector('[data-runtime-source]')?.getAttribute('data-runtime-source')`) as string | null;
+    let rendererResponsiveDuringUpdate: boolean | undefined;
+    let rendererProbeMs: number | undefined;
     if (updateDrillMode === 'online') {
       if (initialSource !== 'bundled') throw new Error(`Online update drill expected a fresh bundled start, received ${initialSource ?? 'no source'}.`);
       await window.webContents.executeJavaScript(`
@@ -86,6 +97,16 @@ const createWindow = async () => {
           button.click();
         })()
       `);
+      const rendererProbeStartedAt = Date.now();
+      rendererResponsiveDuringUpdate = await window.webContents.executeJavaScript(`
+        (() => {
+          const job = document.querySelector('#job-select');
+          const status = document.querySelector('[data-runtime-source]');
+          return job instanceof HTMLSelectElement && !job.disabled && Boolean(status);
+        })()
+      `) as boolean;
+      rendererProbeMs = Date.now() - rendererProbeStartedAt;
+      if (!rendererResponsiveDuringUpdate) throw new Error('The catalogue controls became unavailable while checking for an update.');
       let downloaded = false;
       for (let attempt = 0; attempt < 200; attempt += 1) {
         try {
@@ -155,7 +176,12 @@ const createWindow = async () => {
       status: 'passed',
       mode: updateDrillMode,
       initialSource,
+      uiReadyMs,
+      portableBootstrapMs,
+      appUiReadyMs,
       blockedNetworkRequests,
+      rendererResponsiveDuringUpdate,
+      rendererProbeMs,
       optimized,
       audit
     }, null, 2));

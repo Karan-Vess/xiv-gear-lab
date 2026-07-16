@@ -98,4 +98,6 @@ The output contains the complete snapshot and `manifest.json`. Publishing/upload
 
 `npm run verify:data-production` verifies the staged channel through the same runtime verifier used by the application. `npm run verify:data-hosted` repeats that verification against the public HTTPS URLs. `npm run drill:hosted-update` launches the production portable EXE against the hosted channel, then relaunches it with network access disabled against the same isolated user-data directory. Evidence is written under `artifacts/hosted-update-drill-*`.
 
+The final v0.6.3 hosted drill records outer portable-wrapper startup separately from application bootstrap. On the reference Windows machine the cached offline application reached its interactive UI 323 ms after the Electron process began, the catalogue responsiveness probe completed in 0 ms while the online update was active, and the full compressed portable launch took 5.04 seconds because 4.72 seconds were spent in the self-extracting wrapper. M8 gates the cached application path and renderer responsiveness; installer/portable user-perceived cold-start performance remains explicitly assigned to M17.
+
 After any diagnostic package, run `npm run package:windows:production` again so the distributable returns to the reviewed production-channel configuration.
