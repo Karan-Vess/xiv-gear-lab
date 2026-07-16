@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.6.2 M8B implementation
+Status: revised through the v0.6.3 M8C implementation
 Date: 2026-07-16
-Current runnable baseline: Windows/browser-capable v0.6.2, level 100, current Dawntrail combat tier
+Current runnable baseline: Windows/browser-capable v0.6.3, level 100, current Dawntrail combat tier
 
 This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
 
@@ -19,7 +19,7 @@ This roadmap describes the complete intended product, not merely the current pro
 | --- | --- | --- | --- |
 | M0 Discovery and governance | Complete for private prototype | Product discovery, architecture, source policy, prototype boundary, provider attribution and private/non-commercial rights gate | Public distribution permissions and final licence review remain release work |
 | M1 Secure application shell | Partial | Shared React renderer, browser build, sandboxed Electron host, CSP, restricted navigation, packaged smoke path | Error boundary, formal linting, broader accessibility/zoom checks and security assertions |
-| M2 Versioned data and offline cache | Complete for private prototype | Versioned bundled/downloaded snapshots, signed candidate validation, atomic activation, last-known-good rollback, quota recovery, schema migrations, protected retention and installed offline-after-online evidence | Production hosting and key custody remain M8C release infrastructure |
+| M2 Versioned data and offline cache | Complete | Versioned bundled/downloaded snapshots, signed candidate validation, atomic activation, last-known-good rollback, quota recovery, schema migrations, protected retention, project-controlled hosting and packaged offline-after-online evidence | Broader long-offline and installer hardening remain M17 work |
 | M3 Expansion, job and acquisition eligibility | Partial | Expansion caps, effective-level calculation and job unlock filtering | Real lower-level catalogues, route-level expansion/quest checks, curated-set filtering, strict-verified mode and experimental-access overrides |
 | M4 Curated catalogue | Complete for current-tier scope | Sixty deduplicated Etro/The Balance references for all 21 standard combat jobs with source links, dates, assumptions, disagreement preservation and isolated runtime provider contracts | Historical/lower-level curated coverage |
 | M5 Shared set model and calculations | Partial | Unified set representation, current level-100 stats, food, guaranteed melds, caps, party bonus, Paladin off-hand, calculation provenance and formula compatibility gates | Legal overmelding, selectable race/clan, broader level rules and full meldable custom items |
@@ -78,7 +78,7 @@ Remaining:
 
 ### M2 - Versioned static data baseline
 
-Status: **Partial**.
+Status: **Complete**.
 
 Delivered:
 
@@ -91,7 +91,7 @@ Delivered:
 
 Production boundary:
 
-- The ordinary private build deliberately has no live update URL or production public key until the project-controlled M8C host and key-custody process exist.
+- The v0.6.3 production build trusts project-controlled stable and recovery public keys and reads the signed HTTPS channel hosted from the public project repository. Private signing keys remain outside the workspace and application.
 
 ### M3 - Expansion, job and acquisition eligibility
 
@@ -183,7 +183,7 @@ Scope decision:
 
 ### M8 - Runtime data, formula compatibility, and new-job onboarding
 
-Status: **In progress - foundation delivered in v0.6.0, M8A in v0.6.1 and M8B in v0.6.2**.
+Status: **Complete - foundation delivered in v0.6.0, M8A in v0.6.1, M8B in v0.6.2 and M8C in v0.6.3**.
 
 Delivered in v0.6.0:
 
@@ -219,10 +219,13 @@ Delivered in v0.6.2 (M8B):
 - A real packaged EXE updated from an ephemeral signed channel, reloaded from the downloaded cache, then launched again with that channel shut down; both phases optimised successfully with complete embedded icons.
 - Unit coverage also restores an active downloaded cache after a simulated six-month offline gap.
 
-Remaining before M8 is complete:
+Delivered in v0.6.3 (M8C):
 
-- Choose and configure the project-controlled HTTPS update host and production Ed25519 signing key; no private key is stored in the application.
-- Run the publisher and updater against a real hosted release channel before declaring normal patch refresh complete.
+- A public-read, project-controlled GitHub Pages channel serves the immutable snapshot and signed manifest over HTTPS while the landing page clearly labels the project as an unfinished, unsupported, non-commercial preview.
+- Production and recovery Ed25519 public keys are trusted by the packaged application; both private keys are held outside the repository and application, with documented staging, verification and rotation commands.
+- The staged release was verified locally and again through the exact hosted URLs before packaging.
+- The v0.6.3 portable EXE downloaded and activated the hosted snapshot, then relaunched with network access disabled against the same isolated profile and optimised successfully from its cached copy with embedded icons.
+- The hosted snapshot contains 21 jobs, 231 items, 6 materia, 4 foods and 60 curated sets under snapshot ID `xivapi-f8764efd76cdb31a-etro-balance-all-combat-jobs-2026-07-15`.
 
 Accept when:
 

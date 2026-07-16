@@ -3,7 +3,7 @@
 Status: implementation baseline
 Date: 2026-07-16
 
-This document describes the target architecture as well as the implemented shell. In v0.6.2, local persistence covers settings, custom items, saved sets and versioned data snapshots. Signed runtime download, compatibility validation, provider-isolated synchronisation, partial-freshness overlays, atomic activation, schema migration, quota recovery, protected retention, bundled/previous fallback and manual rollback are implemented; configuring and validating the production update channel remains M8C work.
+This document describes the target architecture as well as the implemented shell. In v0.6.3, local persistence covers settings, custom items, saved sets and versioned data snapshots. Signed runtime download, compatibility validation, provider-isolated synchronisation, partial-freshness overlays, atomic activation, schema migration, quota recovery, protected retention, bundled/previous fallback and manual rollback are implemented. The production build trusts project-controlled stable and recovery public keys, and its GitHub Pages HTTPS channel has passed local, hosted and packaged online-to-offline verification.
 
 ## Shape
 

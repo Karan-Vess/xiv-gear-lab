@@ -1,6 +1,6 @@
 # Runtime data releases
 
-Status: v0.6.2 M8B cache lifecycle implemented; production channel remains unconfigured
+Status: v0.6.3 M8C production channel configured and verified
 Date: 2026-07-16
 
 ## Trust boundary
@@ -77,6 +77,8 @@ VITE_DATA_TRUSTED_KEYS={"stable-2026":"BASE64_RAW_ED25519_PUBLIC_KEY"}
 
 Without all required values the application remains fully usable from bundled/cached data and states that the live channel is not configured.
 
+The v0.6.3 production configuration lives in `config/data-channel.production.json`. It permits only `https://karan-vess.github.io`, uses `https://karan-vess.github.io/xiv-gear-lab/channel/manifest.json`, and contains only the stable and recovery public keys. `npm run package:windows:production` validates that configuration before building the portable EXE; no private key is read during application packaging.
+
 Plain HTTP is rejected. The only exception is an explicit localhost-only diagnostic build using `VITE_DATA_ALLOW_INSECURE_LOCALHOST=true`; the publisher has a matching `XIV_GEAR_LAB_DATA_ALLOW_INSECURE_LOCALHOST=true` switch. Both still require an allowlisted origin, signature, checksum, count and compatibility checks, and neither flag belongs in a normal release.
 
 The signed release publisher requires protected environment variables:
@@ -90,8 +92,10 @@ npm run build:data-release -- path/to/empty-output-directory
 
 The output contains the complete snapshot and `manifest.json`. Publishing/uploading is intentionally separate so a build cannot silently mutate the live channel.
 
-## Installed update/offline drill
+## Installed and hosted update/offline drills
 
 `npm run drill:installed-update` creates an ephemeral Ed25519 key and signed localhost channel, packages a test-configured EXE, performs a real update, closes the channel, and launches the same EXE with the same isolated user-data directory while offline. Both launches must optimise successfully from downloaded data with embedded item and materia icons and no missing equipment. The command writes its evidence under `artifacts/installed-update-drill-*`.
 
-After this diagnostic command, rebuild `npm run package:windows` without the diagnostic environment so the normal executable returns to the intentionally unconfigured production-channel state.
+`npm run verify:data-production` verifies the staged channel through the same runtime verifier used by the application. `npm run verify:data-hosted` repeats that verification against the public HTTPS URLs. `npm run drill:hosted-update` launches the production portable EXE against the hosted channel, then relaunches it with network access disabled against the same isolated user-data directory. Evidence is written under `artifacts/hosted-update-drill-*`.
+
+After any diagnostic package, run `npm run package:windows:production` again so the distributable returns to the reviewed production-channel configuration.
