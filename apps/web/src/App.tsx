@@ -45,6 +45,7 @@ import {
   saveSet
 } from './storage';
 import { APP_RUNTIME_COMPATIBILITY, type DataRuntimeBootstrap } from './data-runtime';
+import { describeDataUpdateError } from './data-update-messages';
 import { ComparisonView } from './ComparisonView';
 import { OptimizerRules } from './OptimizerRules';
 import { derivedCombatStats, percentage } from './derived-stats';
@@ -407,6 +408,7 @@ function RuntimeDataStatus({
   active,
   updateState,
   message,
+  technicalMessage,
   canCheck,
   onCheck,
   onRollback
@@ -414,6 +416,7 @@ function RuntimeDataStatus({
   active: ActiveSnapshot;
   updateState: 'idle' | 'checking' | 'error';
   message?: string;
+  technicalMessage?: string;
   canCheck: boolean;
   onCheck: () => void;
   onRollback: () => void;
@@ -430,6 +433,7 @@ function RuntimeDataStatus({
       </div>
       {providerIssues.length > 0 && <small>{providerIssues.length} provider source{providerIssues.length === 1 ? '' : 's'} stale, partial, or unavailable.</small>}
       {message && <small className={updateState === 'error' ? 'data-error' : ''}>{message}</small>}
+      {technicalMessage && <details className="data-update-details"><summary>Technical details</summary><code>{technicalMessage}</code></details>}
       <div className="data-actions">
         <button data-data-update-check onClick={onCheck} disabled={!canCheck || updateState === 'checking'}>{updateState === 'checking' ? 'Checking…' : 'Check data'}</button>
         {active.previousSnapshotId && <button onClick={onRollback} disabled={updateState === 'checking'}>Rollback</button>}
@@ -897,6 +901,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion>();
   const [dataUpdateState, setDataUpdateState] = useState<'idle' | 'checking' | 'error'>('idle');
   const [dataUpdateMessage, setDataUpdateMessage] = useState(dataRuntime.configurationMessage ?? dataRuntime.active.fallbackReason);
+  const [dataUpdateTechnicalMessage, setDataUpdateTechnicalMessage] = useState<string>();
   const workerRef = useRef<{ worker: Worker; buildId: BuildId } | null>(null);
 
   useEffect(() => {
@@ -999,7 +1004,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         runState: catalogueAvailable ? 'idle' : 'error',
         message: catalogueAvailable
           ? `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).`
-          : `${expansionName} calculation support is installed, but its level-${nextLevel} item catalogue is incomplete. Run the local catalogue updater, then use Check data.`
+          : `${expansionName} calculation support is installed, but its level-${nextLevel} gear catalogue has not been published yet. Use Check data after that catalogue is released.`
       };
     });
   };
@@ -1873,10 +1878,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     if (!dataRuntime.updatePolicy) {
       setDataUpdateState('error');
       setDataUpdateMessage(dataRuntime.configurationMessage ?? 'Live data updates are unavailable in this build.');
+      setDataUpdateTechnicalMessage(undefined);
       return;
     }
     setDataUpdateState('checking');
     setDataUpdateMessage('Downloading and verifying the signed data manifest…');
+    setDataUpdateTechnicalMessage(undefined);
     try {
       const candidate = await downloadSnapshotCandidate(
         dataRuntime.updatePolicy,
@@ -1889,26 +1896,31 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       ) {
         setDataUpdateState('idle');
         setDataUpdateMessage(`Data is current. Last checked ${new Date().toLocaleString()}.`);
+        setDataUpdateTechnicalMessage(undefined);
         return;
       }
       setDataUpdateMessage('Manifest verified. Activating the compatible snapshot atomically…');
       await dataRuntime.repository.stageAndActivate(candidate);
       window.location.reload();
     } catch (error) {
+      const display = describeDataUpdateError(error);
       setDataUpdateState('error');
-      setDataUpdateMessage(error instanceof Error ? error.message : 'Data update failed unexpectedly.');
+      setDataUpdateMessage(display.message);
+      setDataUpdateTechnicalMessage(display.technicalMessage);
     }
   };
 
   const rollbackData = async () => {
     setDataUpdateState('checking');
     setDataUpdateMessage('Checking and restoring the previous compatible snapshot…');
+    setDataUpdateTechnicalMessage(undefined);
     try {
       await dataRuntime.repository.rollback();
       window.location.reload();
     } catch (error) {
       setDataUpdateState('error');
       setDataUpdateMessage(error instanceof Error ? error.message : 'Data rollback failed unexpectedly.');
+      setDataUpdateTechnicalMessage(undefined);
     }
   };
 
@@ -1991,6 +2003,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
             active={dataRuntime.active}
             updateState={dataUpdateState}
             message={dataUpdateMessage}
+            technicalMessage={dataUpdateTechnicalMessage}
             canCheck={Boolean(dataRuntime.updatePolicy)}
             onCheck={checkForDataUpdate}
             onRollback={rollbackData}

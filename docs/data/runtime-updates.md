@@ -1,6 +1,6 @@
 # Runtime data releases
 
-Status: v0.9.0-alpha.18 production channel and owner-run historical backfill configured
+Status: v0.9.0-alpha.19 production channel and owner-run historical backfill configured
 Date: 2026-07-22
 
 ## Trust boundary

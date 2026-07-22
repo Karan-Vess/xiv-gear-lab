@@ -36,7 +36,8 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
-- Heavensward can now be selected in the deliberately incomplete test client and reports that its level-60 catalogue must be supplied through the local updater and Check data flow.
+- Older signed channels that do not yet contain a newly supported expansion now show a clear "compatible data has not been published yet" message while preserving the strict rollback guard. Raw count diagnostics are available under optional technical details.
+- Expansion choices with calculation support but no published gear catalogue now tell users to check again after release instead of instructing them to run the repository owner's local updater.
 - The Heavensward backfill profile now accepts only level-60 items in the i235-i275 cap range, keeps HQ-only crafted gear, adds Grade III/IV materia, and classifies preliminary historical source families.
 - Expansion choices whose calculation data is not installed now remain on the current build and direct the user to Check data instead of crashing the interface. Persisted prototype builds with unavailable evaluator data reset safely during startup.
 - Updated the packaged hosted-update drill to target the current build optimiser control after the M9 workspace redesign.

@@ -52,6 +52,18 @@ export interface SnapshotCounts {
   curatedSets: number;
 }
 
+export class SnapshotBelowMinimumError extends Error {
+  readonly name = 'SnapshotBelowMinimumError';
+
+  constructor(
+    readonly countName: keyof SnapshotCounts,
+    readonly actual: number,
+    readonly minimum: number
+  ) {
+    super(`Snapshot ${countName} count ${actual} is below the required minimum ${minimum}.`);
+  }
+}
+
 export interface DownloadedSnapshotCandidate {
   snapshot: GearSnapshot;
   sha256: string;
@@ -385,7 +397,7 @@ export const downloadSnapshotCandidate = async (
     }
     const minimum = policy.minimumSnapshotCounts?.[key];
     if (minimum !== undefined && actualCounts[key] < minimum) {
-      throw new Error(`Snapshot ${key} count ${actualCounts[key]} is below the required minimum ${minimum}.`);
+      throw new SnapshotBelowMinimumError(key, actualCounts[key], minimum);
     }
   }
   let compatibility: SnapshotCompatibilityReport;

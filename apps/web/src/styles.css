@@ -44,6 +44,9 @@ a { color: var(--blue); }
 .data-status { display: flex; align-items: center; gap: 7px; color: #a9bacb; font-size: 11px; }
 .data-status-wrap { display: grid; gap: 7px; }
 .data-status-wrap .data-error { color: var(--red); }
+.data-update-details { color: #748ba0; font-size: 9px; }
+.data-update-details summary { cursor: pointer; }
+.data-update-details code { display: block; margin-top: 5px; color: #9dafbe; white-space: normal; word-break: break-word; }
 .data-actions { display: flex; gap: 6px; }
 .data-actions button { border: 1px solid var(--line); border-radius: 6px; background: rgba(129, 187, 224, .05); color: #a9bacb; padding: 5px 7px; font-size: 9px; cursor: pointer; }
 .data-actions button:hover:not(:disabled) { border-color: var(--line-strong); color: #fff; }
