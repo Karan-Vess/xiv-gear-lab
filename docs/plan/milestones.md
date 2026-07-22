@@ -1,8 +1,10 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.7.3 M9 closure
-Date: 2026-07-16
-Current runnable baseline: Windows/browser-capable v0.7.3, level 100, current Dawntrail combat tier
+Status: revised through the v0.9.0-alpha.17 M11/M11B checkpoint
+Date: 2026-07-21
+Current runnable baseline: Windows/browser-capable v0.9.0-alpha.17, Dawntrail level 100 plus Endwalker level 90 and preliminary Shadowbringers level 80, with dormant level 70/60/50 formula compatibility for signed catalogue updates
+
+Current unsigned data-channel candidate: preliminary Stormblood level 70 adds 1,731 cap items across all 15 available jobs, Grade V/VI materia, eleven source families, a level-70 ruleset and 15 preliminary evaluator profiles. The frozen alpha.17 update-baseline executable intentionally does not bundle this candidate.
 
 This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
 
@@ -40,7 +42,7 @@ The following requirements existed before this revision and must remain visible:
 6. Lower-expansion and lower-level equipment, curated sets and route eligibility -> **M11**.
 7. Duties, vendors, currencies, recipes, upgrade chains, fixed costs and the full source taxonomy -> **M11**.
 8. Job-correct opener and sustained dummy evaluation without encounter simulation -> **M12-M13**.
-9. Crafting and gathering objectives, thresholds and optimisation -> **M14-M15**.
+9. Reusable crafter gear/meld planning and gathering objectives, thresholds and optimisation -> **M14-M15**.
 10. Project import/export, backup/restore, durable migrations, sharing and hardened XivGear compatibility -> **M16**.
 11. Measured performance, accessibility, long-offline reliability, installer/update hardening and rights approval -> **M17**.
 12. Immediate, contextual attribution with direct source links and an explicit distinction between external and XIV Gear Lab calculations -> **M9, M12-M13 and M16-M17**.
@@ -342,7 +344,19 @@ Tests:
 
 ### M11 - Expansion/content eligibility, acquisition routes, and fixed costs
 
-Status: **Planned**.
+Status: **In progress**.
+
+Current checkpoint:
+
+- The versioned content/access contract, complete source taxonomy, alternate-route access checks, HQ-only XIVAPI normalisation, fixed current-tier tomestone and upgrade costs, explicit recommendation confidence, and preliminary-patch readiness gates are implemented.
+- The live current-tier catalogue now contains 618 official items. Crafted and augmented-crafted, normal-raid, Savage, tomestone, augmented-tomestone, dungeon, alliance-raid, Extreme-trial, relic and Ultimate categories have usable acquisition coverage, including fixed raid-token, upgrade-material, certificate, rain, relic-material and totem costs where applicable.
+- The first historical cap is usable end to end: 540 Endwalker level-90 items across 19 then-available jobs, ten source families, Grade IX/X materia, eight foods, a level-90 calculation ruleset and 635 validated historical acquisition routes. Optimiser candidates, locks, food and materia are bounded to the selected expansion and cap.
+- The M11B backfill path has generated the second historical cap: 609 Shadowbringers level-80 items across all 17 then-available jobs and ten source families, Grade VII/VIII materia, a level-80 ruleset and explicit internal-preliminary evaluator profiles. Slot/job coverage is complete and optimisation works; exact acquisition details, food and historical curation remain pending.
+- The unsigned Stormblood channel candidate adds 1,731 level-70 items across all 15 then-available jobs, eleven source families, Grade V/VI materia, a level-70 ruleset and 15 internal-preliminary evaluator profiles. It is reserved for the frozen-client M11B update drill and is not bundled into the alpha.17 baseline executable.
+- All final Mandervillous arms use a versioned configurable-stat model. The optimiser chooses their legal two-large/one-small allocation, handles Paladin's split sword and shield values, displays allocation-only changes and exports compatible relic stats to XivGear.
+- Endwalker results are honestly marked as lacking compatible historical curation even while current Dawntrail curation is loaded.
+- Current-tier acquisition coverage is intentionally partial where a provider does not yet verify the exact exchange requirement. ARR and Heavensward cap catalogues/rules/consumables, Stormblood and Shadowbringers consumables and exact routes, historical curation, and broader route/cost coverage remain before M11 can be marked complete.
+- The Lodestone item-link feasibility check found no trustworthy direct mapping from official game item IDs to Lodestone's separate opaque Eorzea Database IDs. Exact item links are therefore deferred under `Do later / explicitly deferred`.
 
 Deliver:
 
@@ -380,7 +394,15 @@ Tests:
 
 ### M11B - Local patch-update assistant
 
-Status: **Planned**.
+Status: **In progress**.
+
+Current checkpoint:
+
+- `npm run catalogue:update` provides a read-only local inspection and JSON report; historical candidates require explicit `--mode backfill --expansion <id> --apply` permission and never sign or publish.
+- Cap profiles, deterministic content fingerprints, job/slot/ruleset/evaluator coverage checks, icon-duplication analysis and separate catalogue/icon/rollback size budgets are implemented.
+- The workflow has produced and validated real Shadowbringers and Stormblood backfill candidates rather than relying only on synthetic fixtures. Stormblood is the first candidate reserved for delivery to a frozen client through the signed channel.
+- Item, food and materia icons are content-addressed for bundled builds: 3,566 catalogue references currently resolve to 1,900 unique physical assets. Provider source-ID copies remain local for repeatable refreshes and are excluded from release builds.
+- Current-patch detection, provider-fingerprint no-op decisions, exact acquisition/food enrichment, separate runtime-channel icon delivery, explicit owner confirmation, signing and hosted publication verification remain.
 
 Deliver:
 
@@ -470,45 +492,74 @@ Tests:
 
 - Per-job opener and five-minute traces; role-specific mechanic fixtures; evolved-mode boundaries; new-job gear/profile onboarding; old-save migration and cross-ruleset comparison warnings.
 
-### M14 - Crafting optimiser
+### M14 - Crafter gear and materia optimiser
 
 Status: **Planned**.
 
 Deliver:
 
-- Crafter job/access data, gear, materia, food and medicine.
-- Recipe target, craftsmanship/control/CP model, progress/quality/durability calculations, rotation assumptions and specialist/condition handling.
-- Threshold-aware optimisation prioritising recipe feasibility and reliability before cost/waste; overmelding and practical breakpoint alternatives.
+- Crafter job/access data, the newest eligible crafted and scrip gear progression, crafting materia, food and medicine. Do not search every historical crafter item when a newer tier straightforwardly replaces it.
+- Narrow equipment optimisation across the eligible crafted and scrip pieces. Mixed crafted/scrip sets remain legal when they improve the finished plan or are needed for user restrictions, locked items or unusual stat breakpoints.
+- Materia-first optimisation that generates and compares complete gear-plus-meld plans rather than treating equipment and melding as unrelated steps.
+- Locked items and minimum Craftsmanship, Control and CP thresholds, plus explicit food and medicine assumptions.
+- Materia-family and grade limits, guaranteed slots, advanced melding legality, overmeld difficulty, stat caps and wasted-stat accounting.
+- Practical plan objectives and alternatives, including maximum achievable stats, budget-conscious, minimum-overmeld and balanced plans. Costs or overmeld difficulty that cannot be known exactly remain explicit assumptions rather than invented precision.
+- Optional, versioned recipe and rotation validation targets that check whether a finished plan meets known Craftsmanship, Control, CP and other documented thresholds. Recipes and rotations do not create, save or recommend a separate equipment set per recipe.
+- Clear provenance for crafter formulas, thresholds, gear progression, materia rules and any externally supplied recipe/rotation assumptions.
 
 Accept when:
 
-- A result proves target-recipe feasibility and explains its required thresholds and rotation assumptions.
-- Optimisation prefers sufficient practical sets over meaningless maximum raw stats.
-- Inaccessible recipes/material routes cannot leak through expansion/access filtering.
+- The optimiser returns reusable complete crafter gear-and-meld plans from the newest eligible crafted and scrip pool, including a mixed set when it is superior or required by the active restrictions.
+- Minimum Craftsmanship, Control and CP constraints are hard requirements; impossible combinations fail with the precise item, meld, food, medicine or threshold restriction that prevents completion.
+- Locked items, materia-grade restrictions, advanced-meld legality, caps and waste remain valid throughout optimisation and cannot be bypassed by a generated alternative.
+- Maximum-stat, budget, minimum-overmeld and balanced objectives produce meaningfully distinct, explainable alternatives when the underlying candidate pool permits them.
+- Overmeld difficulty and cost are visible in ranking and explanation without pretending uncertain market prices or success costs are exact.
+- A finished plan can be checked against zero, one or several optional recipe/rotation validation targets without changing its identity or creating duplicate saved/recommended sets.
+- Validation explains which known thresholds pass or fail and identifies the versioned recipe/rotation assumptions used; recipe-specific simulation is not required to generate the plan.
+- Older, replaced or inaccessible crafter gear and recipes cannot leak into the normal eligible pool through expansion, level or content filtering.
 
 Tests:
 
-- Independent Teamcraft/MIT-compatible fixtures where legally usable; HQ/no-HQ, specialist, conditions, durability/star recipes, impossible recipe, rotation changes, materia waste and cost frontiers.
+- All-crafted, all-scrip and mixed crafted/scrip winners; locked crafted and scrip pieces; exclusions; no legal equipment combination; newest-tier replacement boundaries and later-expansion leakage.
+- Exact, exceeded and impossible Craftsmanship, Control and CP thresholds; food off/automatic/locked; medicine off/assumed/locked; combined consumable breakpoints.
+- Materia-family and grade restrictions; guaranteed slots; legal and illegal advanced melds; capped and wasted stats; overmeld-difficulty ranking; known-cost, unknown-cost and budget frontiers.
+- Maximum-stat, budget, minimum-overmeld and balanced plan fixtures, including ties and cases where a nominally weaker equipment piece enables a better finished meld plan.
+- One finished plan validated against multiple recipes and rotations without set duplication; validation added or removed without rerunning equipment optimisation; outdated or incomplete validation assumptions remain labelled.
+- Independent Teamcraft/MIT-compatible formula and threshold fixtures where legally usable, including specialist, condition, durability and star-recipe boundaries; these fixtures validate the finished plan and do not define a separate per-recipe gear recommendation.
 
-### M15 - Gathering optimiser
+### M15 - Gatherer gear and materia optimiser
 
 Status: **Planned**.
 
 Deliver:
 
-- Gatherer job/access data, gear, materia and food.
-- Target node/item, Gathering/Perception/GP, collectability, bonus thresholds, timed/legendary/folklore access and rotation assumptions.
-- Threshold-aware optimisation with practical cost/waste alternatives.
+- Gatherer job/access data, the newest eligible crafted and scrip gear progression, gathering materia and food. Do not search every historical gatherer item when a newer tier straightforwardly replaces it.
+- Narrow equipment optimisation across the eligible crafted and scrip pieces. Mixed crafted/scrip sets remain legal when they improve the finished plan or are needed for user restrictions, locked items or unusual Gathering, Perception or GP breakpoints.
+- Materia-first optimisation that generates and compares complete gear-plus-meld plans rather than treating equipment and melding as unrelated steps.
+- Locked items and minimum Gathering, Perception and GP thresholds, plus explicit food assumptions.
+- Materia-family and grade limits, guaranteed slots, advanced melding legality, overmeld difficulty, stat caps and wasted-stat accounting.
+- Practical plan objectives and alternatives, including maximum achievable stats, budget-conscious, minimum-overmeld and balanced plans. Costs or overmeld difficulty that cannot be known exactly remain explicit assumptions rather than invented precision.
+- Optional, versioned node, item and rotation validation targets covering collectability, bonus thresholds, GP requirements and timed, legendary or folklore access. Validation targets do not create, save or recommend a separate equipment set per node or item.
+- Clear provenance for gathering formulas, thresholds, gear progression, materia rules and any externally supplied node or rotation assumptions. Unknown hidden or community-derived data remains labelled rather than inferred.
 
 Accept when:
 
-- Results prove node access and relevant threshold feasibility.
-- Unknown hidden/community data remains labelled instead of inferred.
-- Inaccessible nodes and folklore cannot leak through expansion/access filtering.
+- The optimiser returns reusable complete gatherer gear-and-meld plans from the newest eligible crafted and scrip pool, including a mixed set when it is superior or required by the active restrictions.
+- Minimum Gathering, Perception and GP constraints are hard requirements; impossible combinations fail with the precise item, meld, food or threshold restriction that prevents completion.
+- Locked items, materia-grade restrictions, advanced-meld legality, caps and waste remain valid throughout optimisation and cannot be bypassed by a generated alternative.
+- Maximum-stat, budget, minimum-overmeld and balanced objectives produce meaningfully distinct, explainable alternatives when the underlying candidate pool permits them.
+- Overmeld difficulty and cost are visible in ranking and explanation without pretending uncertain market prices or success costs are exact.
+- A finished plan can be checked against zero, one or several optional node, item or rotation validation targets without changing its identity or creating duplicate saved/recommended sets.
+- Validation explains node access and which known collectability, bonus-stat and GP rotation thresholds pass or fail, identifies the versioned assumptions used and keeps unknown data explicitly labelled.
+- Older, replaced or inaccessible gatherer gear, nodes and folklore cannot leak into the normal eligible pool through expansion, level or content filtering.
 
 Tests:
 
-- Normal, timed, legendary and collectable nodes; folklore; GP rotation thresholds; bonus boundaries; unavailable node; incomplete overlay and cost frontiers.
+- All-crafted, all-scrip and mixed crafted/scrip winners; locked crafted and scrip pieces; exclusions; no legal equipment combination; newest-tier replacement boundaries and later-expansion leakage.
+- Exact, exceeded and impossible Gathering, Perception and GP thresholds; food off/automatic/locked; food-enabled breakpoints.
+- Materia-family and grade restrictions; guaranteed slots; legal and illegal advanced melds; capped and wasted stats; overmeld-difficulty ranking; known-cost, unknown-cost and budget frontiers.
+- Maximum-stat, budget, minimum-overmeld and balanced plan fixtures, including ties and cases where a nominally weaker equipment piece enables a better finished meld plan.
+- One finished plan validated against multiple normal, timed, legendary and collectable nodes without set duplication; validation added or removed without rerunning equipment optimisation; folklore, bonus and GP rotation boundaries; unavailable targets and incomplete assumptions remain labelled.
 
 ### M16 - Persistence, sharing, and interoperability
 
@@ -568,7 +619,7 @@ These ideas remain useful, but they are outside the committed milestones until t
 
 - Select or lock an official item directly from its main build-slot row instead of opening the separate Equipment constraints menu. The M10 modal remains the supported path for now.
 - Hosted unattended patch watching, announcement-aware scheduling, adaptive polling and automatic publication. M11B deliberately provides a manual local launcher first; hosted automation can be reconsidered only after the patch workflow is proven and there is a real need for unattended operation.
-- Any Lodestone item-link implementation that fails M11's short feasibility check for a trustworthy, maintainable identifier mapping.
+- Exact Lodestone item links. M11's time-boxed research found that Lodestone uses separate opaque Eorzea Database IDs, while the official game item ID and XIVAPI v2 do not expose a trustworthy direct mapping. Search-result scraping or guessed links would not be maintainable enough for the app.
 
 ## Test layers used throughout
 

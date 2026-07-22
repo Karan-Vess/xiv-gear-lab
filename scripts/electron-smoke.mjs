@@ -7,8 +7,12 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pagePath = resolve(repositoryRoot, 'apps/web/dist/index.html');
+const preloadPath = resolve(repositoryRoot, 'apps/desktop/dist/preload.cjs');
 const screenshotPath = resolve(repositoryRoot, 'artifacts/xiv-gear-lab-smoke.png');
+const relicScreenshotPath = resolve(repositoryRoot, 'artifacts/xiv-gear-lab-endwalker-relic-smoke.png');
+const shadowbringersScreenshotPath = resolve(repositoryRoot, 'artifacts/xiv-gear-lab-shadowbringers-smoke.png');
 const errors = [];
+const optimizerWaitAttempts = 450;
 app.setPath('userData', mkdtempSync(resolve(tmpdir(), 'xiv-gear-lab-smoke-')));
 
 app.whenReady().then(async () => {
@@ -18,6 +22,7 @@ app.whenReady().then(async () => {
     show: false,
     backgroundColor: '#080c14',
     webPreferences: {
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -35,32 +40,68 @@ app.whenReady().then(async () => {
   });
 
   await window.loadFile(pagePath);
+  const bootstrapStartedAt = Date.now();
   let rendered = false;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     rendered = await window.webContents.executeJavaScript(
-      `Boolean([...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief')))`
+      `Boolean(document.querySelector('[data-optimize-build]'))`
     );
     if (rendered) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
   if (!rendered) throw new Error('Application UI did not finish runtime-data bootstrap within 10 seconds.');
+  console.log(`Runtime-data bootstrap: ${Date.now() - bootstrapStartedAt}ms`);
   await window.webContents.executeJavaScript(`
     (() => {
-      const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+      const settings = [...document.querySelectorAll('nav button')].find((button) => button.textContent?.includes('Settings'));
+      if (!(settings instanceof HTMLButtonElement)) throw new Error('Settings navigation was not rendered.');
+      settings.click();
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const scale = document.querySelector('[data-ui-scale]');
+      if (!(scale instanceof HTMLSelectElement)) throw new Error('UI scale control was not rendered.');
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(scale, '125');
+      scale.dispatchEvent(new Event('change', { bubbles: true }));
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 180));
+  const uiScaleAudit = await window.webContents.executeJavaScript(`
+    (() => ({
+      stored: localStorage.getItem('xiv-gear-lab:ui-scale'),
+      selected: document.querySelector('[data-ui-scale]')?.value ?? '',
+      desktopFactor: window.xivGearLab?.getUiScale?.(),
+      settingsVisible: Boolean(document.querySelector('[data-settings-view]'))
+    }))()
+  `);
+  if (uiScaleAudit.stored !== '125' || uiScaleAudit.selected !== '125' || uiScaleAudit.desktopFactor !== 1.25 || !uiScaleAudit.settingsVisible) {
+    errors.push(`UI scale audit failed: ${JSON.stringify(uiScaleAudit)}`);
+  }
+  console.log(`UI scale audit: ${JSON.stringify(uiScaleAudit)}`);
+  await window.webContents.executeJavaScript(`
+    [...document.querySelectorAll('nav button')].find((button) => button.textContent?.includes('Optimise'))?.click()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('[data-optimize-build]');
       if (!button) throw new Error('Optimise button was not rendered.');
       button.click();
     })()
   `);
 
   let completed = false;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
     completed = await window.webContents.executeJavaScript(
-      `Boolean(document.querySelector('.alternative-tabs') && document.body.textContent?.includes('Searched'))`
+      `Boolean(document.querySelector('.run-message.done') && document.body.textContent?.includes('Searched'))`
     );
     if (completed) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  if (!completed) errors.push('Production optimiser worker did not complete within 10 seconds.');
+  if (!completed) errors.push('Production optimiser worker did not complete within 45 seconds.');
   await window.webContents.executeJavaScript(`document.querySelectorAll('img').forEach((image) => { image.loading = 'eager'; })`);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
 
@@ -68,7 +109,7 @@ app.whenReady().then(async () => {
     (() => {
       const itemIcons = [...document.querySelectorAll('.item-icon-wrap img')];
       const materiaIcons = [...document.querySelectorAll('.meld-icon img')];
-      const materiaKeys = [...document.querySelectorAll('.materia-chip > small')].map((entry) => entry.textContent ?? '');
+      const materiaKeys = [...document.querySelectorAll('.materia-chip > .materia-key')].map((entry) => entry.textContent ?? '');
       const text = document.body.textContent ?? '';
       return {
         itemIconCount: itemIcons.length,
@@ -78,8 +119,11 @@ app.whenReady().then(async () => {
         materiaKeys,
         hasGcdInput: document.querySelector('#gcd-target') instanceof HTMLInputElement,
         recommendedGcdTargets: [...document.querySelectorAll('.gcd-suggestions button')].map((entry) => entry.textContent ?? ''),
-        hasMissingCategories: ['Alliance raids (24-player)', 'Dungeons', 'Crafted gear', 'Trials'].every((label) => text.includes(label)),
-        unavailableCount: document.querySelectorAll('.check-row.unavailable input:disabled').length
+        hasAugmentedCraftedToggle: document.querySelector('[data-use-augmented-crafted]') instanceof HTMLInputElement,
+        changedRowsFromCuratedSet: document.querySelectorAll('.equipment-row.changed').length,
+        previousItemLabels: document.querySelectorAll('.previous-item, .previous-melds').length,
+        hasCurrentSourceCategories: ['Alliance raids (24-player)', 'Normal raids', 'Dungeons', 'Crafted gear', 'Trials', 'Relic equipment'].every((label) => text.includes(label)),
+        unavailableCount: document.querySelectorAll('[data-source-group].unavailable input:disabled').length
       };
     })()
   `);
@@ -91,7 +135,11 @@ app.whenReady().then(async () => {
   if (!initialAudit.hasGcdInput || !['2.29s', '2.41s', '2.43s'].every((target) => initialAudit.recommendedGcdTargets.includes(target))) {
     errors.push(`Editable GCD target audit failed: ${JSON.stringify(initialAudit)}`);
   }
-  if (!initialAudit.hasMissingCategories || initialAudit.unavailableCount < 5) errors.push(`Acquisition scope audit failed: ${JSON.stringify(initialAudit)}`);
+  if (!initialAudit.hasAugmentedCraftedToggle) errors.push(`Augmented crafted toggle audit failed: ${JSON.stringify(initialAudit)}`);
+  if (initialAudit.changedRowsFromCuratedSet === 0 || initialAudit.previousItemLabels === 0) {
+    errors.push(`Curated-to-optimised change highlight audit failed: ${JSON.stringify(initialAudit)}`);
+  }
+  if (!initialAudit.hasCurrentSourceCategories || initialAudit.unavailableCount !== 2) errors.push(`Acquisition scope audit failed: ${JSON.stringify(initialAudit)}`);
 
   await window.webContents.executeJavaScript(`
     (() => {
@@ -104,20 +152,20 @@ app.whenReady().then(async () => {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   await window.webContents.executeJavaScript(`
     (() => {
-      const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+      const button = document.querySelector('[data-optimize-build]');
       if (!button) throw new Error('Optimise button was not rendered for the second run.');
       button.click();
     })()
   `);
   let compared = false;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
     compared = await window.webContents.executeJavaScript(
       `Boolean(document.querySelector('.equipment-row.changed') && document.querySelector('.previous-item') && document.querySelector('.run-message.done'))`
     );
     if (compared) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  if (!compared) errors.push('Tomestone-only rerun or inline comparison did not complete within 10 seconds.');
+  if (!compared) errors.push('Tomestone-only rerun or inline comparison did not complete within 45 seconds.');
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
 
   const finalAudit = await window.webContents.executeJavaScript(`
@@ -152,20 +200,20 @@ app.whenReady().then(async () => {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   await window.webContents.executeJavaScript(`
     (() => {
-      const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+      const button = document.querySelector('[data-optimize-build]');
       if (!button) throw new Error('Optimise button was not rendered for the speed fallback run.');
       button.click();
     })()
   `);
   let fallbackCompleted = false;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
     fallbackCompleted = await window.webContents.executeJavaScript(
       `Boolean(document.querySelector('.run-message.done p')?.textContent?.includes('Exact speed unavailable') && document.querySelector('#set-heading')?.textContent?.includes('Closest attainable'))`
     );
     if (fallbackCompleted) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  if (!fallbackCompleted) errors.push('Fast Tomestone speed fallback did not complete or label itself within 10 seconds.');
+  if (!fallbackCompleted) errors.push('Fast Tomestone speed fallback did not complete or label itself within 45 seconds.');
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
 
   await window.webContents.executeJavaScript(`
@@ -204,20 +252,20 @@ app.whenReady().then(async () => {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 150));
   await window.webContents.executeJavaScript(`
     (() => {
-      const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+      const button = document.querySelector('[data-optimize-build]');
       if (!button) throw new Error('Optimise button was not rendered for Sage.');
       button.click();
     })()
   `);
   let sageCompleted = false;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
     sageCompleted = await window.webContents.executeJavaScript(
       `Boolean(document.querySelector('.run-message.done') && document.querySelector('.set-heading-row .eyebrow')?.textContent?.includes('generated set') && /Pendulums|Syrinxi/.test(document.querySelector('.equipment-row .item-copy strong')?.textContent ?? ''))`
     );
     if (sageCompleted) break;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  if (!sageCompleted) errors.push('Sage optimisation did not complete with a Sage weapon within 10 seconds.');
+  if (!sageCompleted) errors.push('Sage optimisation did not complete with a Sage weapon within 45 seconds.');
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
 
   for (const jobAudit of [
@@ -298,8 +346,8 @@ app.whenReady().then(async () => {
 
   await window.webContents.executeJavaScript(`
     (() => {
-      const saveButton = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.trim() === 'Save set');
-      if (!saveButton) throw new Error('Save set button was not rendered.');
+      const saveButton = document.querySelector('[data-save-active-build]');
+      if (!saveButton) throw new Error('Active-build save button was not rendered.');
       saveButton.click();
       const savedNav = [...document.querySelectorAll('nav button')].find((entry) => entry.textContent?.includes('Saved locally'));
       if (!savedNav) throw new Error('Saved sets navigation was not rendered.');
@@ -605,7 +653,7 @@ app.whenReady().then(async () => {
 
   await window.webContents.executeJavaScript(`
     (() => {
-      const optimize = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+      const optimize = document.querySelector('[data-optimize-build]');
       if (!optimize) throw new Error('Optimise button was not rendered after custom item creation.');
       optimize.click();
     })()
@@ -618,7 +666,7 @@ app.whenReady().then(async () => {
   }
   if (!customSearchStarted) errors.push('Custom-item recalculation did not enter the running state.');
   let customItemsPreserved = false;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
     customItemsPreserved = await window.webContents.executeJavaScript(`
       Boolean(
         document.querySelector('.run-message.done') &&
@@ -692,8 +740,8 @@ app.whenReady().then(async () => {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   await window.webContents.executeJavaScript(`
     (() => {
-      const save = [...document.querySelectorAll('.top-actions button')].find((entry) => entry.textContent?.trim() === 'Save set');
-      if (!(save instanceof HTMLButtonElement)) throw new Error('Save set button disappeared before persistence test.');
+      const save = document.querySelector('[data-save-active-build]');
+      if (!(save instanceof HTMLButtonElement)) throw new Error('Active-build save button disappeared before persistence test.');
       save.click();
     })()
   `);
@@ -702,6 +750,15 @@ app.whenReady().then(async () => {
   await window.webContents.reload();
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 450));
   console.log('Checkpoint: app reload complete.');
+  const restoredUiScaleAudit = await window.webContents.executeJavaScript(`
+    (() => ({
+      stored: localStorage.getItem('xiv-gear-lab:ui-scale'),
+      desktopFactor: window.xivGearLab?.getUiScale?.()
+    }))()
+  `);
+  if (restoredUiScaleAudit.stored !== '125' || restoredUiScaleAudit.desktopFactor !== 1.25) {
+    errors.push(`Persisted UI scale audit failed: ${JSON.stringify(restoredUiScaleAudit)}`);
+  }
   let restoredNavigationReady = false;
   for (let attempt = 0; attempt < 50; attempt += 1) {
     restoredNavigationReady = await window.webContents.executeJavaScript(`
@@ -776,18 +833,18 @@ app.whenReady().then(async () => {
     })()
   `);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
-  await window.webContents.executeJavaScript(`document.querySelector('[data-confirm-accept]')?.click()`);
-  await new Promise((resolveDelay) => setTimeout(resolveDelay, 180));
-  const inactiveDeleteAudit = await window.webContents.executeJavaScript(`
+  const referencedDeleteGuardAudit = await window.webContents.executeJavaScript(`
     (() => ({
       remainingItems: document.querySelectorAll('[data-custom-item]').length,
-      libraryButton: document.querySelector('[data-custom-library-open]')?.textContent ?? ''
+      libraryButton: document.querySelector('[data-custom-library-open]')?.textContent ?? '',
+      hasDialog: Boolean(document.querySelector('[data-confirm-dialog]')),
+      hasReferenceWarning: (document.body.textContent ?? '').includes('retained because a saved set references it')
     }))()
   `);
-  if (inactiveDeleteAudit.remainingItems !== 0 || inactiveDeleteAudit.libraryButton.includes('1')) {
-    errors.push(`Inactive custom item deletion audit failed: ${JSON.stringify(inactiveDeleteAudit)}`);
+  if (referencedDeleteGuardAudit.remainingItems !== 1 || !referencedDeleteGuardAudit.libraryButton.includes('1') || referencedDeleteGuardAudit.hasDialog || !referencedDeleteGuardAudit.hasReferenceWarning) {
+    errors.push(`Saved-set custom-item reference guard audit failed: ${JSON.stringify(referencedDeleteGuardAudit)}`);
   }
-  console.log(`Inactive deletion audit: ${JSON.stringify(inactiveDeleteAudit)}`);
+  console.log(`Saved-set reference guard audit: ${JSON.stringify(referencedDeleteGuardAudit)}`);
   await window.webContents.executeJavaScript(`
     (() => {
       const close = document.querySelector('[data-custom-library] .modal-actions button');
@@ -801,6 +858,223 @@ app.whenReady().then(async () => {
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   await window.webContents.executeJavaScript(`document.querySelector('[data-confirm-accept]')?.click()`);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 180));
+
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const communityNav = [...document.querySelectorAll('nav button')].find((entry) => entry.textContent?.includes('Community sets'));
+      if (!(communityNav instanceof HTMLButtonElement)) throw new Error('Community navigation disappeared after saved-set deletion.');
+      communityNav.click();
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  await window.webContents.executeJavaScript(`document.querySelector('.set-card')?.click()`);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  await window.webContents.executeJavaScript(`document.querySelector('[data-custom-library-open]')?.click()`);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const item = [...document.querySelectorAll('[data-custom-item]')].find((entry) => entry.textContent?.includes('Library Edited Sage Body'));
+      const remove = item?.querySelector('[data-library-custom-delete]');
+      if (!(remove instanceof HTMLButtonElement)) throw new Error('Unreferenced persisted custom item delete button was not rendered.');
+      remove.click();
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  const finalDeleteConfirmationAudit = await window.webContents.executeJavaScript(`Boolean(document.querySelector('[data-confirm-dialog]'))`);
+  if (!finalDeleteConfirmationAudit) errors.push('Unreferenced custom item did not open its permanent-deletion confirmation.');
+  await window.webContents.executeJavaScript(`document.querySelector('[data-confirm-accept]')?.click()`);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 180));
+  const inactiveDeleteAudit = await window.webContents.executeJavaScript(`
+    (() => ({
+      remainingItems: document.querySelectorAll('[data-custom-item]').length,
+      libraryButton: document.querySelector('[data-custom-library-open]')?.textContent ?? ''
+    }))()
+  `);
+  if (inactiveDeleteAudit.remainingItems !== 0 || inactiveDeleteAudit.libraryButton.includes('1')) {
+    errors.push(`Inactive custom item deletion audit failed: ${JSON.stringify(inactiveDeleteAudit)}`);
+  }
+  console.log(`Inactive deletion audit: ${JSON.stringify(inactiveDeleteAudit)}`);
+
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const close = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Close');
+      close?.click();
+      const expansion = [...document.querySelectorAll('label')]
+        .find((label) => label.textContent?.includes('Expansion access'))
+        ?.querySelector('select');
+      if (!(expansion instanceof HTMLSelectElement)) throw new Error('Expansion selector was not rendered.');
+      expansion.value = 'ew';
+      expansion.dispatchEvent(new Event('change', { bubbles: true }));
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 180));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const relic = document.querySelector('[data-source-group="relic"] input');
+      if (!(relic instanceof HTMLInputElement) || relic.disabled) throw new Error('Endwalker relic source was not available.');
+      if (!relic.checked) relic.click();
+      const button = document.querySelector('[data-optimize-build]');
+      if (!(button instanceof HTMLButtonElement)) throw new Error('Endwalker optimise button was not rendered.');
+      button.click();
+    })()
+  `);
+  let relicCompleted = false;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    relicCompleted = await window.webContents.executeJavaScript(
+      `Boolean(document.querySelector('.run-message.done') && document.body.textContent?.includes('Searched'))`
+    );
+    if (relicCompleted) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  const relicAudit = await window.webContents.executeJavaScript(`
+    (() => ({
+      bodyChildren: document.body.children.length,
+      renderedRows: document.querySelectorAll('.equipment-row').length,
+      relicRows: [...document.querySelectorAll('.equipment-row')].filter((row) => row.textContent?.includes('Mandervillous')).length,
+      relicStatChips: document.querySelectorAll('[data-relic-stat]').length,
+      relicStatLabels: [...document.querySelectorAll('[data-relic-stat]')].map((chip) => chip.textContent?.trim()),
+      message: document.querySelector('.run-message')?.textContent ?? ''
+    }))()
+  `);
+  if (!relicCompleted || relicAudit.bodyChildren === 0 || relicAudit.renderedRows === 0 || relicAudit.relicStatChips !== 3) {
+    errors.push(`Endwalker relic optimisation audit failed: ${JSON.stringify(relicAudit)}`);
+  }
+  console.log(`Endwalker relic audit: ${JSON.stringify(relicAudit)}`);
+
+  await window.webContents.executeJavaScript(`
+    [...document.querySelectorAll('.equipment-row')]
+      .find((row) => row.textContent?.includes('Mandervillous'))
+      ?.scrollIntoView({ block: 'center' })
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 120));
+  const relicImage = await window.webContents.capturePage();
+  await mkdir(dirname(relicScreenshotPath), { recursive: true });
+  await writeFile(relicScreenshotPath, relicImage.toPNG());
+  console.log(`Captured ${relicScreenshotPath}`);
+
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const job = document.querySelector('#job-select');
+      if (!(job instanceof HTMLSelectElement)) throw new Error('Job selector disappeared before historical-switch audit.');
+      const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      selectSetter?.call(job, 'WHM');
+      job.dispatchEvent(new Event('change', { bubbles: true }));
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      for (const label of document.querySelectorAll('[aria-label="Allowed materia grades"] label')) {
+        const input = label.querySelector('input');
+        if (!(input instanceof HTMLInputElement)) continue;
+        const shouldBeChecked = label.textContent?.includes('Grade 10') ?? false;
+        if (input.checked !== shouldBeChecked) input.click();
+      }
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const expansion = [...document.querySelectorAll('label')]
+        .find((label) => label.textContent?.includes('Expansion access'))
+        ?.querySelector('select');
+      if (!(expansion instanceof HTMLSelectElement)) throw new Error('Expansion selector disappeared before Shadowbringers audit.');
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      setter?.call(expansion, 'shb');
+      expansion.dispatchEvent(new Event('change', { bubbles: true }));
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const allowed = new Set(['savage', 'tomestone']);
+      for (const group of document.querySelectorAll('[data-source-group]')) {
+        const input = group.querySelector('input');
+        if (!(input instanceof HTMLInputElement) || input.disabled) continue;
+        const shouldBeChecked = allowed.has(group.getAttribute('data-source-group') ?? '');
+        if (input.checked !== shouldBeChecked) input.click();
+      }
+      const upgradedTomestone = document.querySelector('[data-use-upgraded-tomestone]');
+      if (upgradedTomestone instanceof HTMLInputElement && !upgradedTomestone.checked) upgradedTomestone.click();
+      const itemLevelMode = document.querySelector('[data-item-level-mode]');
+      if (itemLevelMode instanceof HTMLSelectElement) {
+        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        selectSetter?.call(itemLevelMode, 'any');
+        itemLevelMode.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      const speed = document.querySelector('#gcd-target');
+      if (speed instanceof HTMLInputElement) {
+        const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        inputSetter?.call(speed, '2.50');
+        speed.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    })()
+  `);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const optimize = document.querySelector('[data-optimize-build]');
+      if (!(optimize instanceof HTMLButtonElement)) throw new Error('Optimise button disappeared before Shadowbringers audit.');
+      optimize.click();
+    })()
+  `);
+  let shadowbringersCompleted = false;
+  for (let attempt = 0; attempt < optimizerWaitAttempts; attempt += 1) {
+    shadowbringersCompleted = await window.webContents.executeJavaScript(`
+      Boolean(
+        document.querySelector('.run-message.done') &&
+        document.body.textContent?.includes('whm-healer-damage-proxy-shb80@1')
+      )
+    `);
+    if (shadowbringersCompleted) break;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  await window.webContents.executeJavaScript(`document.querySelectorAll('img').forEach((image) => { image.loading = 'eager'; })`);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 600));
+  const shadowbringersAudit = await window.webContents.executeJavaScript(`
+    (() => {
+      const itemRows = [...document.querySelectorAll('.equipment-row')];
+      const text = document.body.textContent ?? '';
+      const images = [...document.querySelectorAll('.equipment-row img')];
+      return {
+        selectedExpansion: [...document.querySelectorAll('label')]
+          .find((label) => label.textContent?.includes('Expansion access'))
+          ?.querySelector('select')?.value ?? '',
+        selectedJob: document.querySelector('#job-select')?.value ?? '',
+        minimumPiety: [...document.querySelectorAll('label')]
+          .find((label) => label.textContent?.includes('Minimum Piety'))
+          ?.querySelector('input')?.value ?? '',
+        selectedMateriaGrades: [...document.querySelectorAll('[aria-label="Allowed materia grades"] label')]
+          .filter((label) => label.querySelector('input')?.checked)
+          .map((label) => label.textContent?.trim() ?? ''),
+        renderedRows: itemRows.length,
+        level80Rows: itemRows.filter((row) => row.textContent?.includes('level 80')).length,
+        evaluatorVisible: text.includes('whm-healer-damage-proxy-shb80@1'),
+        preliminaryVisible: text.toLowerCase().includes('preliminary'),
+        brokenImages: images.filter((image) => image.naturalWidth === 0).length,
+        message: document.querySelector('.run-message')?.textContent ?? ''
+      };
+    })()
+  `);
+  if (
+    !shadowbringersCompleted ||
+    shadowbringersAudit.selectedExpansion !== 'shb' ||
+    shadowbringersAudit.selectedJob !== 'WHM' ||
+    shadowbringersAudit.minimumPiety !== '340' ||
+    !['Grade 8', 'Grade 7'].every((grade) => shadowbringersAudit.selectedMateriaGrades.includes(grade)) ||
+    shadowbringersAudit.renderedRows < 11 ||
+    shadowbringersAudit.level80Rows < 11 ||
+    !shadowbringersAudit.evaluatorVisible ||
+    !shadowbringersAudit.preliminaryVisible ||
+    shadowbringersAudit.brokenImages > 0
+  ) {
+    errors.push(`Shadowbringers desktop optimisation audit failed: ${JSON.stringify(shadowbringersAudit)}`);
+  }
+  console.log(`Shadowbringers audit: ${JSON.stringify(shadowbringersAudit)}`);
+
+  const shadowbringersImage = await window.webContents.capturePage();
+  await writeFile(shadowbringersScreenshotPath, shadowbringersImage.toPNG());
+  console.log(`Captured ${shadowbringersScreenshotPath}`);
 
   const image = await window.webContents.capturePage();
   await mkdir(dirname(screenshotPath), { recursive: true });

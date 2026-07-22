@@ -1,16 +1,24 @@
 import {
   SnapshotRepository,
+  enrichLegacyCatalogueMetadata,
   type ActiveSnapshot,
   type SnapshotUpdatePolicy
 } from '@xiv-gear-lab/data';
 import type { GearSnapshot, RuntimeCompatibility } from '@xiv-gear-lab/domain';
 
 export const APP_RUNTIME_COMPATIBILITY: RuntimeCompatibility = {
-  appVersion: '0.8.0',
+  appVersion: '0.9.0-alpha.17',
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],
-  calculationSchemas: ['ffxiv-combat-level-100@1'],
+  calculationSchemas: [
+    'ffxiv-combat-level-100@1',
+    'ffxiv-combat-level-90@1',
+    'ffxiv-combat-level-80@1',
+    'ffxiv-combat-level-70@1',
+    'ffxiv-combat-level-60@1',
+    'ffxiv-combat-level-50@1'
+  ],
   evaluatorProfileSchemas: ['generic-hit-profile@1']
 };
 
@@ -55,11 +63,11 @@ const configuredUpdatePolicy = (bundled: GearSnapshot): { policy?: SnapshotUpdat
       minimumSnapshotCounts: {
         expansions: bundled.registry.expansions.length,
         jobs: bundled.registry.jobs.length,
-        rulesets: 1,
+        rulesets: bundled.rulesets.length,
         evaluatorProfiles: bundled.evaluatorProfiles.length,
         items: Math.max(1, Math.floor(bundled.items.length / 2)),
-        materia: 1,
-        foods: 1,
+        materia: Math.max(1, Math.floor(bundled.materia.length / 2)),
+        foods: Math.max(1, Math.floor(bundled.foods.length / 2)),
         curatedSets: Math.max(1, Math.floor(bundled.curatedSets.length / 2))
       }
     }
@@ -68,7 +76,8 @@ const configuredUpdatePolicy = (bundled: GearSnapshot): { policy?: SnapshotUpdat
 
 export const bootstrapDataRuntime = async (bundled: GearSnapshot): Promise<DataRuntimeBootstrap> => {
   const repository = new SnapshotRepository(APP_RUNTIME_COMPATIBILITY);
-  const active = await repository.load(bundled);
+  const loaded = await repository.load(bundled);
+  const active = { ...loaded, snapshot: enrichLegacyCatalogueMetadata(loaded.snapshot) };
   const configured = configuredUpdatePolicy(bundled);
   return {
     active,

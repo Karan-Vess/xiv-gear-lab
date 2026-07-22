@@ -18,7 +18,14 @@ const runtime: RuntimeCompatibility = {
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],
-  calculationSchemas: ['ffxiv-combat-level-100@1'],
+  calculationSchemas: [
+    'ffxiv-combat-level-100@1',
+    'ffxiv-combat-level-90@1',
+    'ffxiv-combat-level-80@1',
+    'ffxiv-combat-level-70@1',
+    'ffxiv-combat-level-60@1',
+    'ffxiv-combat-level-50@1'
+  ],
   evaluatorProfileSchemas: ['generic-hit-profile@1']
 };
 
@@ -94,9 +101,10 @@ const signedFixture = async (
   return { manifest, policy, fetcher };
 };
 
-const candidateFor = (id: string): DownloadedSnapshotCandidate => {
+const candidateFor = (id: string, generatedAt = gearSnapshot.manifest.generatedAt): DownloadedSnapshotCandidate => {
   const snapshot = structuredClone(gearSnapshot);
   snapshot.manifest.id = id;
+  snapshot.manifest.generatedAt = generatedAt;
   snapshot.curatedSets = snapshot.curatedSets.map((set) => ({
     ...set,
     calculationContext: set.calculationContext ? { ...set.calculationContext, snapshotId: id } : undefined
@@ -166,6 +174,23 @@ describe('signed runtime update download', () => {
       .rejects.toThrow('unsupported calculation schema future-formula@9');
   });
 
+  it('accepts a signed catalogue that activates a dormant level-70 formula schema', async () => {
+    const snapshot = structuredClone(gearSnapshot);
+    snapshot.rulesets.push({
+      ...snapshot.rulesets[0]!,
+      id: 'sb-data-channel-test@1',
+      expansionId: 'sb',
+      patch: '4.58',
+      minimumLevel: 70,
+      maximumLevel: 70,
+      calculationSchema: 'ffxiv-combat-level-70@1'
+    });
+    const fixture = await signedFixture(snapshot);
+    const candidate = await downloadSnapshotCandidate(fixture.policy, runtime, fixture.fetcher);
+    expect(candidate.compatibility.compatible).toBe(true);
+    expect(candidate.snapshot.rulesets.at(-1)!.calculationSchema).toBe('ffxiv-combat-level-70@1');
+  });
+
   it('rejects a signed manifest whose record counts do not match the snapshot', async () => {
     const fixture = await signedFixture(gearSnapshot, undefined, { items: gearSnapshot.items.length + 1 });
     await expect(downloadSnapshotCandidate(fixture.policy, runtime, fixture.fetcher)).rejects.toThrow('items count mismatch');
@@ -180,6 +205,36 @@ describe('signed runtime update download', () => {
 });
 
 describe('atomic snapshot repository', () => {
+  it('prefers newer bundled data without discarding a deliberately rolled-back cache', async () => {
+    const databaseName = `xiv-gear-lab-test-${crypto.randomUUID()}`;
+    databaseNames.push(databaseName);
+    const repository = new SnapshotRepository(runtime, databaseName);
+    const older = candidateFor('older-download', '2026-07-15T00:00:00.000Z');
+    const newerDownload = candidateFor('newer-download', '2026-07-19T00:00:00.000Z');
+    const newerBundle = structuredClone(gearSnapshot);
+    newerBundle.manifest.id = 'newer-bundle';
+    newerBundle.manifest.generatedAt = '2026-07-18T00:00:00.000Z';
+    newerBundle.curatedSets = newerBundle.curatedSets.map((set) => ({
+      ...set,
+      calculationContext: set.calculationContext
+        ? { ...set.calculationContext, snapshotId: newerBundle.manifest.id }
+        : undefined
+    }));
+
+    await repository.stageAndActivate(older);
+    const upgraded = await repository.load(newerBundle);
+    expect(upgraded.source).toBe('bundled');
+    expect(upgraded.snapshot.manifest.id).toBe('newer-bundle');
+    expect(await repository.resolvePinnedSnapshot('older-download', newerBundle)).toBeDefined();
+
+    await repository.stageAndActivate(newerDownload);
+    expect((await repository.load(newerBundle)).snapshot.manifest.id).toBe('newer-download');
+    const rolledBack = await repository.rollback();
+    expect(rolledBack.snapshot.manifest.id).toBe('older-download');
+    expect((await repository.load(newerBundle)).snapshot.manifest.id).toBe('older-download');
+    await repository.close();
+  });
+
   it('keeps staging inert, activates atomically, and rolls back to the previous snapshot', async () => {
     const databaseName = `xiv-gear-lab-test-${crypto.randomUUID()}`;
     databaseNames.push(databaseName);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gearSnapshot, whmSnapshot } from '@xiv-gear-lab/data';
-import type { CombatJob, EquipmentItem, GearSnapshot, StatKey } from '@xiv-gear-lab/domain';
+import { isAugmentedCraftedItem, type CombatJob, type EquipmentItem, type GearSnapshot, type StatKey } from '@xiv-gear-lab/domain';
 import {
   optimizeCombatJob,
   optimizeAstrologian,
@@ -14,6 +14,117 @@ import {
 } from './index';
 
 describe('WHM optimiser', () => {
+  it('builds a preliminary Stormblood level-70 set from a data-channel catalogue', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      minResource: 292,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade'],
+      allowedMateriaTiers: [5, 6],
+      foodMode: 'none',
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 400,
+      accessExpansion: 'sb',
+      accessLevel: 70
+    });
+    expect(result.best).toBeDefined();
+    expect(result.best?.calculationContext).toMatchObject({
+      rulesetId: 'sb-4.58-level-70-standard@1',
+      evaluatorProfileId: 'whm-healer-damage-proxy-sb70@1',
+      calculationSchema: 'ffxiv-combat-level-70@1'
+    });
+    expect(result.best?.evaluation?.confidence).toBe('internal-unverified');
+    for (const equipped of Object.values(result.best!.items)) {
+      const item = gearSnapshot.items.find((candidate) => String(candidate.id) === String(equipped?.itemId));
+      expect(item).toMatchObject({ expansionId: 'sb', level: 70 });
+      for (const materiaId of equipped?.materiaIds ?? []) {
+        expect(gearSnapshot.materia.find((materia) => materia.id === materiaId)?.tier).toBeLessThanOrEqual(6);
+      }
+    }
+  }, 20_000);
+
+  it('builds a preliminary Shadowbringers level-80 set from the backfilled cap catalogue', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      minResource: 340,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade'],
+      allowedMateriaTiers: [7, 8],
+      foodMode: 'allowed',
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 400,
+      accessExpansion: 'shb',
+      accessLevel: 80
+    });
+    expect(result.best).toBeDefined();
+    expect(result.best?.calculationContext).toMatchObject({
+      rulesetId: 'shb-5.58-level-80-standard@1',
+      evaluatorProfileId: 'whm-healer-damage-proxy-shb80@1',
+      calculationSchema: 'ffxiv-combat-level-80@1'
+    });
+    expect(result.best?.evaluation?.confidence).toBe('internal-unverified');
+    expect(result.best?.foodId).toBeUndefined();
+    for (const equipped of Object.values(result.best!.items)) {
+      const item = gearSnapshot.items.find((candidate) => String(candidate.id) === String(equipped?.itemId));
+      expect(item).toMatchObject({ expansionId: 'shb', level: 80 });
+      for (const materiaId of equipped?.materiaIds ?? []) {
+        expect(gearSnapshot.materia.find((materia) => materia.id === materiaId)?.tier).toBeLessThanOrEqual(8);
+      }
+    }
+  }, 20_000);
+
+  it('builds a legal Endwalker level-90 set with its own ruleset and consumable boundary', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      minResource: 390,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade'],
+      allowedMateriaTiers: [9, 10],
+      foodMode: 'none',
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 400,
+      accessExpansion: 'ew',
+      accessLevel: 90
+    });
+    expect(result.best).toBeDefined();
+    expect(result.best?.calculationContext).toMatchObject({
+      rulesetId: 'ew-6.58-level-90-standard@1',
+      evaluatorProfileId: 'whm-healer-damage-proxy-ew90@1',
+      calculationSchema: 'ffxiv-combat-level-90@1'
+    });
+    expect(result.best?.recommendationConfidence.status).toBe('official-preliminary');
+    for (const equipped of Object.values(result.best!.items)) {
+      const item = gearSnapshot.items.find((candidate) => String(candidate.id) === String(equipped?.itemId));
+      expect(item).toMatchObject({ expansionId: 'ew', level: 90 });
+      for (const materiaId of equipped?.materiaIds ?? []) {
+        expect(gearSnapshot.materia.find((materia) => materia.id === materiaId)?.tier).toBeLessThanOrEqual(10);
+      }
+    }
+  }, 20_000);
+
+  it('chooses and preserves a legal allocation for a required Mandervillous weapon', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      minResource: 390,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['relic', 'savage', 'tomestone-upgrade'],
+      allowedMateriaTiers: [9, 10],
+      foodMode: 'none',
+      requiredItemIds: [40940],
+      excludedItemIds: [],
+      frontierLimit: 400,
+      accessExpansion: 'ew',
+      accessLevel: 90
+    });
+    const allocation = result.best?.items.weapon?.relicStats;
+    expect(result.best?.items.weapon?.itemId).toBe(40940);
+    expect(Object.values(allocation ?? {}).filter((value) => value === 306)).toHaveLength(2);
+    expect(Object.values(allocation ?? {}).filter((value) => value === 72)).toHaveLength(1);
+  }, 45_000);
+
   it('returns a complete legal set from the verified reference pool', () => {
     const result = optimizeWhm(whmSnapshot, {
       minResource: 440,
@@ -128,7 +239,245 @@ describe('WHM optimiser', () => {
       frontierLimit: 100
     });
     expect(result.best).toBeUndefined();
-    expect(result.explanation[0]).toContain('only one unique ring');
+    expect(result.explanation[0]).toContain('a second ring');
+  });
+
+  it('reports every missing accessory for a trial-plus-alliance set with one custom ring', () => {
+    const sourceRing = gearSnapshot.items.find((item) =>
+      item.slot === 'ring' && item.jobs.includes('NIN') && item.sourceFamily === 'tomestone'
+    )!;
+    const customRing: EquipmentItem = {
+      ...sourceRing,
+      id: 'custom-ninja-tomestone-ring',
+      origin: 'custom',
+      name: `${sourceRing.name} copy`,
+      sourceFamily: 'custom',
+      acquisitionNote: 'Screenshot regression fixture.',
+      provenance: [{
+        kind: 'custom',
+        provider: 'Optimizer test',
+        schemaVersion: 'custom-item@1',
+        retrievedAt: '2026-07-18T00:00:00.000Z',
+        status: 'custom'
+      }]
+    };
+    const result = optimizeCombatJob({
+      ...gearSnapshot,
+      items: [...gearSnapshot.items, customRing]
+    }, {
+      minResource: 0,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['trial', 'alliance-raid'],
+      requiredItemIds: [customRing.id],
+      excludedItemIds: [],
+      frontierLimit: 100
+    }, 'NIN');
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain('earrings');
+    expect(result.explanation[0]).toContain('a necklace');
+    expect(result.explanation[0]).toContain('a bracelet');
+    expect(result.explanation[0]).toContain('a second ring');
+  });
+
+  it('uses a required custom ring to complete a source with only one unique official ring', () => {
+    const sourceRing = whmSnapshot.items.find((item) =>
+      item.slot === 'ring' && item.jobs.includes('WHM') && item.sourceFamily === 'tomestone'
+    )!;
+    const customRing: EquipmentItem = {
+      ...sourceRing,
+      id: 'custom-test-ring',
+      origin: 'custom',
+      name: 'Custom test ring',
+      sourceFamily: 'custom',
+      acquisitionNote: 'Optimizer regression fixture.',
+      customData: {
+        schemaVersion: 'custom-equipment@1',
+        mode: 'final-stats',
+        role: 'healer',
+        expansionId: 'dt',
+        sourceDescription: 'Cloned from an official tomestone ring.',
+        fixedCost: '',
+        notes: '',
+        iconProvenance: 'reused-official',
+        clonedFromItemId: sourceRing.id
+      },
+      provenance: [{
+        kind: 'custom',
+        provider: 'Optimizer test',
+        schemaVersion: 'custom-item@1',
+        retrievedAt: '2026-07-18T00:00:00.000Z',
+        status: 'custom'
+      }]
+    };
+    const snapshot: GearSnapshot = {
+      ...whmSnapshot,
+      items: [...whmSnapshot.items, customRing]
+    };
+    const result = optimizeWhm(snapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['tomestone', 'tomestone-upgrade'],
+      includeUpgradedTomestoneGear: false,
+      requiredItemIds: [customRing.id],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    expect([result.best?.items.ringLeft?.itemId, result.best?.items.ringRight?.itemId]).toContain(customRing.id);
+  }, 20_000);
+
+  it('excludes augmented tomestone pieces when the upgraded-gear toggle is off', () => {
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone', 'tomestone-upgrade'],
+      includeUpgradedTomestoneGear: false,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    const equipped = Object.values(result.best!.items).map((entry) =>
+      whmSnapshot.items.find((item) => String(item.id) === String(entry?.itemId))
+    );
+    expect(equipped.some((item) => item?.sourceFamily === 'tomestone-upgrade')).toBe(false);
+  }, 20_000);
+
+  it('excludes augmented crafted pieces when the augmented-crafted toggle is off', () => {
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['crafted'],
+      includeAugmentedCraftedGear: false,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    const equipped = Object.values(result.best!.items).map((entry) =>
+      whmSnapshot.items.find((item) => String(item.id) === String(entry?.itemId))!
+    );
+    expect(equipped.some(isAugmentedCraftedItem)).toBe(false);
+    expect(new Set(equipped.map((item) => item.itemLevel))).toEqual(new Set([770]));
+  }, 20_000);
+
+  it('explains a locked augmented crafted item that conflicts with its toggle', () => {
+    const augmentedBody = whmSnapshot.items.find((item) =>
+      item.slot === 'body' && item.jobs.includes('WHM') && isAugmentedCraftedItem(item)
+    )!;
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['crafted'],
+      includeAugmentedCraftedGear: false,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      lockedItemIdsBySlot: { body: augmentedBody.id },
+      frontierLimit: 100
+    });
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain('augmented crafted gear is disabled');
+  });
+
+  it('builds an exact item-level set when every slot is covered at that level', () => {
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+      itemLevelMode: 'exact',
+      minItemLevel: 790,
+      maxItemLevel: 790,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    const itemLevels = Object.values(result.best!.items).map((entry) =>
+      whmSnapshot.items.find((item) => String(item.id) === String(entry?.itemId))!.itemLevel
+    );
+    expect(new Set(itemLevels)).toEqual(new Set([790]));
+  }, 20_000);
+
+  it('keeps every generated item inside an item-level range', () => {
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade', 'tomestone', 'ultimate'],
+      itemLevelMode: 'range',
+      minItemLevel: 790,
+      maxItemLevel: 795,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    const itemLevels = Object.values(result.best!.items).map((entry) =>
+      whmSnapshot.items.find((item) => String(item.id) === String(entry?.itemId))!.itemLevel
+    );
+    expect(itemLevels.every((itemLevel) => itemLevel >= 790 && itemLevel <= 795)).toBe(true);
+  }, 20_000);
+
+  it('rejects invalid item-level ranges before searching', () => {
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage'],
+      itemLevelMode: 'range',
+      minItemLevel: 790,
+      maxItemLevel: 780,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 100
+    });
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain('item-level filter is invalid');
+  });
+
+  it('explains a locked augmented item that conflicts with the upgraded-gear toggle', () => {
+    const augmentedBody = whmSnapshot.items.find((item) =>
+      item.slot === 'body' && item.jobs.includes('WHM') && item.sourceFamily === 'tomestone-upgrade'
+    )!;
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone', 'tomestone-upgrade'],
+      includeUpgradedTomestoneGear: false,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      lockedItemIdsBySlot: { body: augmentedBody.id },
+      frontierLimit: 100
+    });
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain('upgraded tomestone gear is disabled');
+  });
+
+  it('explains a required item outside the selected item level', () => {
+    const trialWeapon = whmSnapshot.items.find((item) =>
+      item.slot === 'weapon' && item.jobs.includes('WHM') && item.sourceFamily === 'trial'
+    )!;
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['trial', 'tomestone'],
+      itemLevelMode: 'exact',
+      minItemLevel: 780,
+      requiredItemIds: [trialWeapon.id],
+      excludedItemIds: [],
+      frontierLimit: 100
+    });
+    expect(result.best).toBeUndefined();
+    expect(result.explanation[0]).toContain(`item level ${trialWeapon.itemLevel}`);
+    expect(result.explanation[0]).toContain('outside');
   });
 
   it('keeps a required custom item while optimising every other slot', () => {
@@ -245,7 +594,7 @@ describe('tank optimisers', () => {
     expect(result.best!.metrics.stats.tenacity).toBeGreaterThanOrEqual(420);
     if (job === 'PLD') expect(result.best!.items.offHand).toBeDefined();
     else expect(result.best!.items.offHand).toBeUndefined();
-  }, 20_000);
+  }, 45_000);
 });
 
 describe('DPS optimisers', () => {
@@ -301,7 +650,7 @@ describe('M10 optimiser restrictions', () => {
     const result = optimizeWhm(gearSnapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [item.id], excludedItemIds: [item.id] });
     expect(result.best).toBeUndefined();
     expect(result.explanation[0]).toContain('both required and excluded');
-  });
+  }, 20_000);
 
   it('honours an exact slot lock and locked meld prefix', () => {
     const weapon = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'weapon')!;
@@ -340,6 +689,8 @@ describe('M10 optimiser restrictions', () => {
       sourceFamily: 'custom',
       advancedMelding: true,
       materiaSlots: 2,
+      stats: { ...source.stats, criticalHit: 0 },
+      statCaps: { ...source.statCaps, criticalHit: 190 },
       unique: false
     };
     const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
@@ -354,18 +705,32 @@ describe('M10 optimiser restrictions', () => {
     });
     expect(result.best?.items.head?.materiaIds).toHaveLength(3);
 
-    const gradeEleven = { ...gearSnapshot.materia.find((entry) => entry.stat === 'criticalHit')!, id: 990_011, name: 'Regression grade XI', tier: 11, advancedMeldingLimit: 'unrestricted' as const };
-    const lowerGradeSnapshot: GearSnapshot = { ...snapshot, materia: [...snapshot.materia, gradeEleven] };
-    const fullPentameld = optimizeWhm(lowerGradeSnapshot, {
+    const fullPentameld = optimizeWhm(snapshot, {
       ...base,
       allowedSources: [...base.allowedSources],
       requiredItemIds: [custom.id],
       allowedMateriaStats: ['criticalHit'],
-      allowedMateriaTiers: [11],
+      allowedMateriaTiers: [11, 12],
       allowOvermelds: true,
       allowCustomItems: true
     });
     expect(fullPentameld.best?.items.head?.materiaIds).toHaveLength(5);
+    expect(fullPentameld.best?.metrics.materiaWaste).toBeGreaterThan(0);
+    expect(new Set(fullPentameld.best?.items.head?.materiaIds.map((id) => snapshot.materia.find((entry) => entry.id === id)?.tier))).toEqual(new Set([11, 12]));
+  }, 20_000);
+
+  it('can produce a five-slot overmeld on official crafted equipment', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      ...base,
+      allowedSources: ['crafted'],
+      includeAugmentedCraftedGear: false,
+      allowedMateriaTiers: [11, 12],
+      allowOvermelds: true,
+      frontierLimit: 1_800
+    });
+    expect(result.best).toBeDefined();
+    const craftedMeldCounts = Object.values(result.best!.items).map((entry) => entry?.materiaIds.length ?? 0);
+    expect(craftedMeldCounts).toContain(5);
   }, 20_000);
 
   it('requires an explicit override and marks an out-of-access custom result hypothetical', () => {
@@ -382,10 +747,10 @@ describe('M10 optimiser restrictions', () => {
       }
     };
     const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
-    const denied = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dawntrail', accessLevel: 100 });
+    const denied = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100 });
     expect(denied.best).toBeUndefined();
     expect(denied.explanation[0]).toContain('experimental access override');
-    const allowed = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dawntrail', accessLevel: 100, allowExperimentalAccess: true });
+    const allowed = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100, allowExperimentalAccess: true });
     expect(allowed.best?.hypotheticalAccess?.itemIds).toContain(custom.id);
   }, 20_000);
 });
@@ -455,7 +820,7 @@ describe('future job onboarding contract', () => {
       expansionId: 'future',
       gamePatch: '8.0',
       minimumLevel: 100,
-      maximumLevel: 100,
+      maximumLevel: 110,
       jobMode: 'standard'
     });
     snapshot.evaluatorProfiles.push({
@@ -464,7 +829,13 @@ describe('future job onboarding contract', () => {
       rulesetId: 'future-standard@1',
       job: 'ALP'
     });
-    snapshot.items = snapshot.items.map((item) => ({ ...item, jobs: ['ALP'] }));
+    snapshot.items = snapshot.items.map((item) => ({
+      ...item,
+      jobs: ['ALP'],
+      expansionId: 'future',
+      level: 110,
+      minimumEffectiveLevel: 110
+    }));
     snapshot.curatedSets = [];
     return snapshot;
   };

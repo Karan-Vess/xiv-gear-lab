@@ -149,6 +149,39 @@ describe('saved-set storage migration', () => {
     expect(customRecord).toBeTruthy();
     upgraded.close();
   });
+
+  it('adds newly supported materia tiers to a legacy workspace exactly once', async () => {
+    const base = gearSnapshot.curatedSets[0]!;
+    const constraints: OptimizerConstraints = {
+      minResource: 440,
+      minGcd: 2.41,
+      maxGcd: 2.41,
+      allowedSources: ['crafted'],
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800,
+      allowedMateriaTiers: [9, 10, 11, 12],
+      materiaCatalogueVersion: 'combat-materia-ew-dt-9-12@2'
+    };
+    const fallback = createInitialBuildWorkspaceState({
+      expansion: 'dt', level: 100, job: 'WHM', constraints, gcdTarget: '2.41', selectedSet: base, message: 'Ready.'
+    });
+    const legacy = structuredClone(fallback);
+    for (const build of Object.values(legacy.builds)) {
+      build.constraints.allowedMateriaTiers = [11, 12];
+      build.constraints.materiaCatalogueVersion = 'combat-materia-dt-11-12@1';
+    }
+    await saveBuildWorkspaceState(legacy);
+
+    const migrated = await loadBuildWorkspaceState(fallback);
+    expect(migrated.builds['build-1'].constraints.allowedMateriaTiers).toEqual([11, 12, 9, 10]);
+    expect(migrated.builds['build-1'].constraints.materiaCatalogueVersion).toBe('combat-materia-ew-dt-9-12@2');
+
+    migrated.builds['build-1'].constraints.allowedMateriaTiers = [12];
+    await saveBuildWorkspaceState(migrated);
+    const deliberateSelection = await loadBuildWorkspaceState(fallback);
+    expect(deliberateSelection.builds['build-1'].constraints.allowedMateriaTiers).toEqual([12]);
+  });
 });
 
 describe('M10 custom-item persistence', () => {

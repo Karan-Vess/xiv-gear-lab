@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { buildAcquisitionRecords } from './providers/acquisition.mjs';
 import { createBalanceAdapter } from './providers/balance.mjs';
 import {
@@ -14,10 +15,79 @@ import { createProviderResponseCache } from './providers/provider-cache.mjs';
 import { captureOverlay, createProviderOverlay, publishOverlaySnapshot } from './providers/snapshot-builder.mjs';
 import { createXivApiAdapter, normalizeXivApiEquipmentRows } from './providers/xivapi.mjs';
 import { createXivGearAdapter, normalizeXivGearEquippedItems } from './providers/xivgear.mjs';
+import { CAP_CATALOGUE_PROFILES, catalogueProfile, itemMatchesCatalogueProfile } from './catalogue-update/profiles.mjs';
+import { catalogueContentFingerprint } from './catalogue-update/catalogue-identity.mjs';
+import { contentAddressIconRecords } from './catalogue-update/icon-assets.mjs';
 
 const outputPath = resolve('packages/data/src/generated/whm-snapshot.json');
 const iconOutputDirectory = resolve('apps/web/public/icons/items');
+const acquisitionIconOutputDirectory = resolve('apps/web/public/icons/acquisition');
 const generatedAt = new Date().toISOString();
+
+const writeFileWithRetry = async (path, contents, attempts = 5) => {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await writeFile(path, contents, 'utf8');
+      return;
+    } catch (error) {
+      const retryable = error && typeof error === 'object' &&
+        ['EACCES', 'EBUSY', 'EPERM', 'UNKNOWN'].includes(error.code);
+      if (!retryable || attempt === attempts) throw error;
+      await delay(250 * attempt);
+    }
+  }
+};
+
+const ACQUISITION_ICON_ASSETS = [
+  { file: 'dungeon.png', path: 'ui/icon/061000/061801_hr1.tex' },
+  { file: 'raid.png', path: 'ui/icon/061000/061802_hr1.tex' },
+  { file: 'trial.png', path: 'ui/icon/061000/061804_hr1.tex' },
+  { file: 'quest.png', path: 'ui/icon/061000/061805_hr1.tex' },
+  { file: 'crafted.png', path: 'ui/icon/061000/061816_hr1.tex' },
+  { file: 'ultimate.png', path: 'ui/icon/061000/061832_hr1.tex' },
+  { file: 'mnemonics.png', path: 'ui/icon/065000/065137_hr1.tex' },
+  { file: 'comedy.png', path: 'ui/icon/065000/065103_hr1.tex' },
+  { file: 'poetics.png', path: 'ui/icon/065000/065023_hr1.tex' },
+  { file: 'anabaseios-mythos-1.png', path: 'ui/icon/026000/026450_hr1.tex' },
+  { file: 'anabaseios-mythos-2.png', path: 'ui/icon/026000/026451_hr1.tex' },
+  { file: 'anabaseios-mythos-3.png', path: 'ui/icon/026000/026452_hr1.tex' },
+  { file: 'anabaseios-mythos-4.png', path: 'ui/icon/026000/026453_hr1.tex' },
+  { file: 'unsung-helm-anabaseios.png', path: 'ui/icon/040000/040043_hr1.tex' },
+  { file: 'unsung-armor-anabaseios.png', path: 'ui/icon/048000/048087_hr1.tex' },
+  { file: 'unsung-gauntlets-anabaseios.png', path: 'ui/icon/048000/048662_hr1.tex' },
+  { file: 'unsung-chausses-anabaseios.png', path: 'ui/icon/047000/047610_hr1.tex' },
+  { file: 'unsung-greaves-anabaseios.png', path: 'ui/icon/047000/047025_hr1.tex' },
+  { file: 'unsung-ring-anabaseios.png', path: 'ui/icon/054000/054405_hr1.tex' },
+  { file: 'hermetic-tomestone.png', path: 'ui/icon/026000/026645_hr1.tex' },
+  { file: 'divine-solvent.png', path: 'ui/icon/027000/027635_hr1.tex' },
+  { file: 'divine-twine.png', path: 'ui/icon/021000/021685_hr1.tex' },
+  { file: 'divine-shine.png', path: 'ui/icon/027000/027634_hr1.tex' },
+  { file: 'voidvessel-totem.png', path: 'ui/icon/026000/026646_hr1.tex' },
+  { file: 'cosmic-crystallite.png', path: 'ui/icon/021000/021228_hr1.tex' },
+  { file: 'hannish-certificate-grade-3.png', path: 'ui/icon/026000/026171_hr1.tex' },
+  { file: 'divine-rain.png', path: 'ui/icon/020000/020682_hr1.tex' },
+  { file: 'omega-totem.png', path: 'ui/icon/026000/026639_hr1.tex' },
+  { file: 'aac-book-1.png', path: 'ui/icon/026000/026457_hr1.tex' },
+  { file: 'aac-book-2.png', path: 'ui/icon/026000/026458_hr1.tex' },
+  { file: 'aac-book-3.png', path: 'ui/icon/026000/026459_hr1.tex' },
+  { file: 'aac-book-4.png', path: 'ui/icon/026000/026460_hr1.tex' },
+  { file: 'heavy-holohelm.png', path: 'ui/icon/026000/026686_hr1.tex' },
+  { file: 'heavy-holoarmor.png', path: 'ui/icon/026000/026687_hr1.tex' },
+  { file: 'heavy-hologauntlets.png', path: 'ui/icon/026000/026688_hr1.tex' },
+  { file: 'heavy-holotrousers.png', path: 'ui/icon/026000/026689_hr1.tex' },
+  { file: 'heavy-hologreaves.png', path: 'ui/icon/026000/026690_hr1.tex' },
+  { file: 'heavy-holoring.png', path: 'ui/icon/026000/026691_hr1.tex' },
+  { file: 'thundersteeped-solvent.png', path: 'ui/icon/027000/027640_hr1.tex' },
+  { file: 'thundersteeped-twine.png', path: 'ui/icon/021000/021693_hr1.tex' },
+  { file: 'thundersteeping-glaze.png', path: 'ui/icon/027000/027641_hr1.tex' },
+  { file: 'universal-tomestone-3.png', path: 'ui/icon/026000/026685_hr1.tex' },
+  { file: 'totem-of-naught.png', path: 'ui/icon/026000/026696_hr1.tex' },
+  { file: 'mad-harlequin-totem.png', path: 'ui/icon/026000/026697_hr1.tex' },
+  { file: 'runaway-totem.png', path: 'ui/icon/026000/026684_hr1.tex' },
+  { file: 'waning-arcanite.png', path: 'ui/icon/021000/021208_hr1.tex' },
+  { file: 'everkeep-certificate-grade-3.png', path: 'ui/icon/026000/026171_hr1.tex' },
+  { file: 'treno-rain.png', path: 'ui/icon/027000/027625_hr1.tex' }
+];
 const providerClients = new Map([
   ['https://v2.xivapi.com', createProviderClient({ provider: 'XIVAPI v2', allowedOrigins: ['https://v2.xivapi.com'] })],
   ['https://etro.gg', createProviderClient({ provider: 'Etro', allowedOrigins: ['https://etro.gg'] })],
@@ -52,6 +122,21 @@ const RANGED_DPS_JOBS = ['BRD', 'MCH', 'DNC'];
 const CASTER_DPS_JOBS = ['BLM', 'SMN', 'RDM', 'PCT'];
 const DPS_JOBS = [...MELEE_DPS_JOBS, ...RANGED_DPS_JOBS, ...CASTER_DPS_JOBS];
 const JOBS = [...HEALER_JOBS, ...TANK_JOBS, ...DPS_JOBS];
+const requestedBackfills = (process.env.XIV_GEAR_LAB_BACKFILL_EXPANSIONS ?? '')
+  .split(',')
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean);
+const existingBackfills = Object.keys(CAP_CATALOGUE_PROFILES).filter((expansionId) =>
+  !['dt', 'ew'].includes(expansionId) &&
+  previousSnapshot?.items?.some((item) => item.expansionId === expansionId)
+);
+const activeCatalogueProfiles = [...new Set(['dt', 'ew', ...existingBackfills, ...requestedBackfills])].map((expansionId) => {
+  const profile = catalogueProfile(expansionId);
+  if (!profile.itemNamePattern || profile.minimumItemsPerJob < 1) {
+    throw new Error(`${profile.name} backfill discovery has not been configured yet.`);
+  }
+  return profile;
+});
 const EVALUATOR_PROFILE_ID = {
   WHM: 'whm-healer-damage-proxy@1',
   SCH: 'sch-healer-damage-proxy@1',
@@ -172,6 +257,15 @@ const SLOT_COEFFICIENT = {
   ring: 67
 };
 
+const expansionForLevel = (level) => {
+  if (level <= 50) return 'arr';
+  if (level <= 60) return 'hw';
+  if (level <= 70) return 'sb';
+  if (level <= 80) return 'shb';
+  if (level <= 90) return 'ew';
+  return 'dt';
+};
+
 const ETRO_SLOT_TO_GEAR_SLOT = {
   weapon: 'weapon',
   offHand: 'offHand',
@@ -232,6 +326,21 @@ const downloadIcon = async (id, path, version) => {
   return `./icons/items/${id}.png`;
 };
 
+const downloadAcquisitionIcon = async ({ file, path }, version) => {
+  const localPath = resolve(acquisitionIconOutputDirectory, file);
+  try {
+    const buffer = await xivApi.asset(path, version);
+    await writeFile(localPath, new Uint8Array(buffer));
+  } catch (error) {
+    try {
+      await readFile(localPath);
+      providerCache.report('xivapi', 'stale', `Acquisition icon ${file} could not be refreshed; retained the validated local asset. ${error instanceof Error ? error.message : String(error)}`);
+    } catch {
+      throw error;
+    }
+  }
+};
+
 const compactFields = [
   'Name',
   'Icon',
@@ -286,13 +395,28 @@ for (const reference of BALANCE_FINAL_REFERENCES) {
 }
 balance.assertSelectionCount(balanceReferenceSets);
 
-const equipmentCatalogues = await Promise.all(
-  JOBS.map(async (job) => [job, await etro.equipment(job, 780, 795)])
-);
-const { jobsByItemId, equipmentById } = normalizeEtroEquipmentDiscovery(equipmentCatalogues, {
-  include: (item) => /^(Grand Champion's|Augmented Bygone Brass|Bygone Brass)/.test(item.name),
-  minimumPerJob: 20
-});
+const equipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async (profile) => {
+  const jobs = JOBS.filter((job) => !profile.excludedJobs.includes(job));
+  const catalogues = await Promise.all(jobs.map(async (job) => [
+    job,
+    await etro.equipment(job, profile.minimumItemLevel, profile.maximumItemLevel)
+  ]));
+  const namePattern = new RegExp(profile.itemNamePattern);
+  const inConfiguredRange = (id) => profile.itemIdRanges.some(([minimum, maximum]) => id >= minimum && id <= maximum);
+  return normalizeEtroEquipmentDiscovery(catalogues, {
+    include: (item) => namePattern.test(item.name) || inConfiguredRange(item.id),
+    minimumPerJob: profile.minimumItemsPerJob
+  });
+}));
+
+const jobsByItemId = new Map();
+const equipmentById = new Map();
+for (const discovery of equipmentDiscoveries) {
+  for (const [id, item] of discovery.equipmentById) equipmentById.set(id, item);
+  for (const [id, jobs] of discovery.jobsByItemId) {
+    jobsByItemId.set(id, [...new Set([...(jobsByItemId.get(id) ?? []), ...jobs])]);
+  }
+}
 
 const itemIds = [...equipmentById.keys()].sort((a, b) => a - b);
 const itemResponse = await xivApi.sheetRows('Item', itemIds, compactFields, { language: 'en' });
@@ -305,7 +429,7 @@ const itemLevelResponse = await xivApi.sheetRows(
 );
 const levelCaps = new Map(itemLevelResponse.rows.map((row) => [row.row_id, row.fields]));
 
-const items = normalizeXivApiEquipmentRows({
+const normalizedItems = normalizeXivApiEquipmentRows({
   response: itemResponse,
   itemLevelCaps: levelCaps,
   jobsByItemId,
@@ -315,9 +439,33 @@ const items = normalizeXivApiEquipmentRows({
   emptyStats,
   casterJobs: CASTER_DPS_JOBS,
   healerJobs: HEALER_JOBS,
+  expansionForLevel,
   generatedAt,
   gamePatch: '7.51'
 });
+const items = normalizedItems.filter((item) =>
+  activeCatalogueProfiles.some((profile) => itemMatchesCatalogueProfile(item, profile))
+);
+
+for (const item of items) {
+  if (!item.name.startsWith('Mandervillous')) continue;
+  const paladinSplit = item.jobs.includes('PLD');
+  item.relicStatModel = {
+    schemaVersion: 'relic-stat-allocation@1',
+    type: 'endwalker-discrete',
+    largeValue: paladinSplit ? (item.slot === 'offHand' ? 87 : 219) : 306,
+    largeStatCount: 2,
+    smallValue: paladinSplit ? (item.slot === 'offHand' ? 21 : 51) : 72,
+    smallStatCount: 1,
+    allowedStats: item.jobs.some((job) => HEALER_JOBS.includes(job))
+      ? ['criticalHit', 'determination', 'directHit', 'spellSpeed', 'piety']
+      : item.jobs.some((job) => ['PLD', 'WAR', 'DRK', 'GNB'].includes(job))
+        ? ['criticalHit', 'determination', 'directHit', 'skillSpeed', 'tenacity']
+        : item.jobs.some((job) => CASTER_DPS_JOBS.includes(job))
+          ? ['criticalHit', 'determination', 'directHit', 'spellSpeed']
+          : ['criticalHit', 'determination', 'directHit', 'skillSpeed']
+  };
+}
 
 const discoveredItemIds = new Set(items.map((item) => item.id));
 for (const reference of balanceReferenceSets) {
@@ -341,9 +489,19 @@ for (const [job, minimum] of [
   if (count < minimum) throw new Error(`Etro returned only ${count}/${minimum} expected ${job} reference sets.`);
 }
 
-const foodProviderIds = [...new Set(referenceSets.map((set) => set.food).filter(Boolean))];
+const ENDWALKER_FOOD_PROVIDER_IDS = [595, 596, 597, 598, 599, 600, 601, 602];
+const foodProviderIds = [...new Set([
+  ...referenceSets.map((set) => set.food).filter(Boolean),
+  ...ENDWALKER_FOOD_PROVIDER_IDS
+])];
 const foodRows = await Promise.all(foodProviderIds.map((id) => etro.food(id)));
-const foods = normalizeEtroFoods(foodRows, { paramToStat: PARAM_TO_STAT, generatedAt });
+const foods = normalizeEtroFoods(foodRows, {
+  paramToStat: PARAM_TO_STAT,
+  generatedAt,
+  expansionForItemLevel: (itemLevel) => itemLevel <= 510 ? 'shb' : itemLevel <= 640 ? 'ew' : 'dt',
+  requiredLevelForItemLevel: (itemLevel) => itemLevel <= 510 ? 80 : itemLevel <= 640 ? 90 : 100,
+  sourcePatchForItemLevel: (itemLevel) => itemLevel <= 510 ? '5.4' : itemLevel <= 640 ? '6.4' : '7.4'
+});
 const availableFoodIds = new Set(foods.map((food) => food.id));
 for (const reference of balanceReferenceSets) {
   if (reference.foodId && !availableFoodIds.has(reference.foodId)) {
@@ -363,7 +521,11 @@ const referencedMateriaIds = new Set(
     )
   ]
 );
-const materia = normalizeEtroMateria(materiaCatalogue, { referencedIds: referencedMateriaIds, paramToStat: PARAM_TO_STAT });
+const materia = normalizeEtroMateria(materiaCatalogue, {
+  referencedIds: referencedMateriaIds,
+  paramToStat: PARAM_TO_STAT,
+  includedTiers: [...new Set(activeCatalogueProfiles.flatMap((profile) => profile.materiaTiers))]
+});
 
 const supportingItemIds = [...new Set([
   ...foods.map((food) => food.id),
@@ -386,6 +548,8 @@ for (const record of iconRecords) {
 }
 
 await mkdir(iconOutputDirectory, { recursive: true });
+await mkdir(acquisitionIconOutputDirectory, { recursive: true });
+await Promise.all(ACQUISITION_ICON_ASSETS.map((asset) => downloadAcquisitionIcon(asset, itemResponse.version)));
 for (let offset = 0; offset < iconRecords.length; offset += 6) {
   const batch = iconRecords.slice(offset, offset + 6);
   const localUrls = await Promise.all(
@@ -395,6 +559,9 @@ for (let offset = 0; offset < iconRecords.length; offset += 6) {
     record.iconUrl = localUrls[index];
   });
 }
+const iconAssetReport = await contentAddressIconRecords(iconRecords, {
+  publicDirectory: resolve('apps/web/public')
+});
 
 const getPublishedMetric = (set, name) => set.totalParams.find((entry) => entry.name === name)?.value;
 const getPublishedStat = (set, id) => set.totalParams.find((entry) => String(entry.id) === String(id))?.value ?? 0;
@@ -474,7 +641,7 @@ const evaluationForJob = (job) => {
   const actionType = profile.speedStat === 'spellSpeed' ? 'magical hit' : 'physical hit';
   return {
     profileId: EVALUATOR_PROFILE_ID[job],
-    version: 'combat-evaluator-profiles-0.5.0',
+    version: 'combat-evaluator-profiles-0.6.0',
     objective: `Expected damage of a single 100-potency ${actionType} from independently recalculated gear stats.`,
     confidence: 'reference-validated-proxy',
     limitation: profile.role === 'tank'
@@ -678,23 +845,113 @@ if (balanceAttributedSets.length !== 55 || JOBS.some((job) => !curatedSets.some(
   throw new Error(`Expected 55 The Balance attributions and coverage for every combat job; found ${balanceAttributedSets.length} attributions across ${new Set(curatedSets.map((set) => set.job)).size}/${JOBS.length} jobs.`);
 }
 
-const snapshotManifest = {
-  id: `xivapi-${itemResponse.version}-etro-balance-all-combat-jobs-${generatedAt.slice(0, 10)}`,
-  generatedAt,
-  gamePatch: '7.51',
-  gearTierPatch: '7.4',
-  xivapiVersion: itemResponse.version,
-  xivapiSchema: itemResponse.schema,
-  calculationVersion: 'combat-evaluator-profiles-0.5.0',
-  status: 'online-current'
-};
 const sortedItems = items.sort((a, b) => a.slot.localeCompare(b.slot) || b.itemLevel - a.itemLevel || a.id - b.id);
 const sortedMateria = materia.sort((a, b) => a.id - b.id);
 const sortedFoods = foods.sort((a, b) => a.id - b.id);
 const sortedCuratedSets = curatedSets.sort((a, b) => a.metrics.gcd - b.metrics.gcd || a.name.localeCompare(b.name));
 const acquisitionRecords = buildAcquisitionRecords(sortedItems, generatedAt);
+const catalogueFingerprint = catalogueContentFingerprint({
+  xivapiVersion: itemResponse.version,
+  profiles: activeCatalogueProfiles,
+  items: [...sortedItems].sort((left, right) => left.id - right.id),
+  materia: sortedMateria,
+  foods: sortedFoods,
+  acquisitions: [...acquisitionRecords].sort((left, right) => left.itemId - right.itemId),
+  curatedSets: [...sortedCuratedSets].sort((left, right) => left.id.localeCompare(right.id))
+});
+const snapshotManifest = {
+  id: `xivapi-${itemResponse.version}-${activeCatalogueProfiles.map((profile) => profile.expansionId).join('-')}-${catalogueFingerprint}`,
+  generatedAt,
+  gamePatch: '7.51',
+  gearTierPatch: '7.4',
+  xivapiVersion: itemResponse.version,
+  xivapiSchema: itemResponse.schema,
+  calculationVersion: 'combat-evaluator-profiles-0.6.0',
+  status: 'online-current'
+};
+const contentProvenance = (sourceUrl, sourcePatch) => [{
+  kind: 'official-published',
+  provider: 'Square Enix Lodestone',
+  sourceUrl,
+  sourcePatch,
+  sourceVersion: 'm11-content-access@2',
+  schemaVersion: 'content-access@1',
+  retrievedAt: generatedAt,
+  verifiedAt: generatedAt,
+  status: 'current'
+}];
+const contentProvenance74 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/597d1b99656a1a0d3ba6501a48d43ec46c667068',
+  '7.4'
+);
+const contentProvenance64 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/7533e7a9b6b72d8e5aad3c1e7c4247967b3ee196',
+  '6.4'
+);
+const contentProvenance65 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/1dcbf39c97285ba9a42012eecf2c031f0ffbceb1',
+  '6.5'
+);
+const contentProvenance655 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/012d8e96b662a92eb4405c25b9958184db248348',
+  '6.55'
+);
+const contentProvenance75 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/07320affa7e0fcd9685afcbe54fbf55405b6d822/',
+  '7.5'
+);
+const contentProvenance741 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/0de7befbbcefe67d1af77dcbe1bae937b916b67e/',
+  '7.41'
+);
+const contentProvenance751 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/c46881a31a2c90d0965493c921b434eca09113f8/',
+  '7.51'
+);
+const contentGraph = {
+  schemaVersion: 'content-access@1',
+  nodes: [
+    { id: 'expansion:arr', kind: 'expansion', name: 'A Realm Reborn', expansionId: 'arr', level: 50, prerequisites: [], provenance: contentProvenance74 },
+    { id: 'expansion:hw', kind: 'expansion', name: 'Heavensward', expansionId: 'hw', level: 60, prerequisites: ['expansion:arr'], provenance: contentProvenance74 },
+    { id: 'expansion:sb', kind: 'expansion', name: 'Stormblood', expansionId: 'sb', level: 70, prerequisites: ['expansion:hw'], provenance: contentProvenance74 },
+    { id: 'expansion:shb', kind: 'expansion', name: 'Shadowbringers', expansionId: 'shb', level: 80, prerequisites: ['expansion:sb'], provenance: contentProvenance74 },
+    { id: 'expansion:ew', kind: 'expansion', name: 'Endwalker', expansionId: 'ew', level: 90, prerequisites: ['expansion:shb'], provenance: contentProvenance74 },
+    { id: 'expansion:dt', kind: 'expansion', name: 'Dawntrail', expansionId: 'dt', level: 100, prerequisites: ['expansion:ew'], provenance: contentProvenance74 },
+    { id: 'quest:endwalker-complete', kind: 'quest', name: 'Endwalker main scenario completion', expansionId: 'ew', level: 90, prerequisites: ['expansion:ew'], provenance: contentProvenance64 },
+    { id: 'currency:poetics', kind: 'currency', name: 'Allagan Tomestone of Poetics', expansionId: 'arr', level: 50, prerequisites: ['expansion:arr'], provenance: contentProvenance655 },
+    { id: 'currency:comedy', kind: 'currency', name: 'Allagan Tomestone of Comedy', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance64 },
+    { id: 'vendor:cihanti', kind: 'vendor', name: 'Cihanti', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete', 'currency:comedy'], provenance: contentProvenance64 },
+    { id: 'vendor:khaldeen', kind: 'vendor', name: 'Khaldeen', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance64 },
+    { id: 'vendor:rashti-grade-3', kind: 'vendor', name: 'Rashti grade 3 exchange', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance65 },
+    { id: 'vendor:nesvaaz', kind: 'vendor', name: 'Nesvaaz', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance65 },
+    { id: 'recipe:diadochos', kind: 'recipe', name: 'Diadochos Master Recipes X', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance64 },
+    { id: 'duty:anabaseios-normal', kind: 'duty', name: 'Pandæmonium: Anabaseios', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance64 },
+    { id: 'duty:anabaseios-savage', kind: 'duty', name: 'Pandæmonium: Anabaseios (Savage)', expansionId: 'ew', level: 90, prerequisites: ['duty:anabaseios-normal'], provenance: contentProvenance64 },
+    { id: 'duty:lunar-subterrane', kind: 'duty', name: 'The Lunar Subterrane', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance65 },
+    { id: 'duty:thaleia', kind: 'duty', name: 'Thaleia', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance65 },
+    { id: 'duty:abyssal-fracture-extreme', kind: 'duty', name: 'The Abyssal Fracture (Extreme)', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance65 },
+    { id: 'duty:omega-protocol-ultimate', kind: 'duty', name: 'The Omega Protocol (Ultimate)', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance64 },
+    { id: 'quest:mandervillous-weapons', kind: 'quest', name: 'Gentlemen at Heart', expansionId: 'ew', level: 90, prerequisites: ['quest:endwalker-complete'], provenance: contentProvenance655 },
+    { id: 'quest:dawntrail-complete', kind: 'quest', name: 'Dawntrail main scenario completion', expansionId: 'dt', level: 100, prerequisites: ['expansion:dt'], provenance: contentProvenance74 },
+    { id: 'currency:mnemonics', kind: 'currency', name: 'Allagan Tomestone of Mnemonics', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'vendor:zircon', kind: 'vendor', name: 'Zircon', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete', 'currency:mnemonics'], provenance: contentProvenance74 },
+    { id: 'vendor:theone', kind: 'vendor', name: 'Theone', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'vendor:hhihwi', kind: 'vendor', name: 'Hhihwi', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'duty:aac-heavyweight-normal', kind: 'duty', name: 'AAC Heavyweight Tier', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'duty:aac-heavyweight-savage', kind: 'duty', name: 'AAC Heavyweight Tier (Savage)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'recipe:courtly-lover', kind: 'recipe', name: 'Courtly Lover Master Recipes XII', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'vendor:eirene-grade-3', kind: 'vendor', name: 'Eirene grade 3 exchange', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
+    { id: 'duty:the-clyteum', kind: 'duty', name: 'The Clyteum', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
+    { id: 'duty:hell-on-rails-extreme', kind: 'duty', name: 'Hell on Rails (Extreme)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'quest:phantom-obscurum', kind: 'quest', name: 'A Phantom Reborn', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance741 },
+    { id: 'duty:windurst-third-walk', kind: 'duty', name: 'Windurst: The Third Walk', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
+    { id: 'duty:unmaking-extreme', kind: 'duty', name: 'The Unmaking (Extreme)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
+    { id: 'vendor:uahshepya', kind: 'vendor', name: "Uah'shepya", expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
+    { id: 'duty:dancing-mad-ultimate', kind: 'duty', name: 'Dancing Mad (Ultimate)', expansionId: 'dt', level: 100, prerequisites: ['duty:aac-heavyweight-savage'], provenance: contentProvenance751 }
+  ]
+};
 const acquisitionIsPartial = acquisitionRecords.some((entry) =>
-  entry.provenance.some((provenance) => provenance.status !== 'current')
+  entry.acquisitionRoutes.some((route) => route.status !== 'validated')
 );
 const xivApiFreshness = providerCache.freshness('xivapi', generatedAt);
 const etroFreshness = providerCache.freshness('etro', generatedAt);
@@ -733,7 +990,7 @@ const attempts = {
     generatedAt,
     status: overlayStatus(officialProviderFreshness),
     providers: officialProviderFreshness,
-    payload: { items: sortedItems, materia: sortedMateria, foods: sortedFoods }
+    payload: { items: sortedItems, materia: sortedMateria, foods: sortedFoods, contentGraph }
   })),
   acquisition: await captureOverlay(async () => createProviderOverlay({
     kind: 'acquisition',
@@ -762,8 +1019,9 @@ const { snapshot, providers: publishedProviders } = publishOverlaySnapshot({
 });
 
 await mkdir(dirname(outputPath), { recursive: true });
-await writeFile(outputPath, `${JSON.stringify(snapshot, null, 2)}\n`, 'utf8');
+await writeFileWithRetry(outputPath, `${JSON.stringify(snapshot, null, 2)}\n`);
 console.log(
   `Wrote ${items.length} official items for ${JOBS.join('/')}, ${materia.length} materia, ${foods.length} foods, and ${curatedSets.length} deduplicated Etro/The Balance curated sets to ${outputPath}`
 );
 console.log(`Provider freshness: ${publishedProviders.map((provider) => `${provider.id}=${provider.status}`).join(', ')}`);
+console.log(`Content-addressed icons: ${iconAssetReport.uniqueAssets}/${iconAssetReport.records} unique · ${(iconAssetReport.uniqueBytes / 1024 / 1024).toFixed(2)} MiB`);

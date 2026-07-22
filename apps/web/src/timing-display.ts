@@ -1,5 +1,5 @@
-import { gcdFromSpeed, getCombatEvaluatorProfile } from '@xiv-gear-lab/calculations';
-import type { GearSet, GearSnapshot, JobTimingEffect } from '@xiv-gear-lab/domain';
+import { gcdFromSpeed, getCombatEvaluatorProfile, getCombatEvaluatorProfileForSet, levelFormulaConstantsFor } from '@xiv-gear-lab/calculations';
+import type { CombatEvaluatorProfile, GearSet, GearSnapshot, JobTimingEffect } from '@xiv-gear-lab/domain';
 
 export interface DisplayedGcdState extends JobTimingEffect {
   gcd: number;
@@ -13,9 +13,17 @@ export interface GearSetTimingDisplay {
 }
 
 export const gearSetTimingDisplay = (set: GearSet, snapshot: GearSnapshot): GearSetTimingDisplay => {
-  const profile = getCombatEvaluatorProfile(set.job, snapshot.evaluatorProfiles);
+  let profile: CombatEvaluatorProfile;
+  try {
+    profile = getCombatEvaluatorProfileForSet(set, snapshot);
+  } catch {
+    // Legacy and deliberately incompatible comparison fixtures still need a
+    // readable timing row while their calculation context is flagged.
+    profile = getCombatEvaluatorProfile(set.job, snapshot.evaluatorProfiles);
+  }
+  const constants = levelFormulaConstantsFor(profile);
   const definition = snapshot.registry.jobs.find((entry) => entry.id === set.job);
-  const base = gcdFromSpeed(set.metrics.stats[profile.speedStat], profile.baseGcdMs, 0);
+  const base = gcdFromSpeed(set.metrics.stats[profile.speedStat], profile.baseGcdMs, 0, constants);
   const timingEffects = definition?.timingEffects ?? [{
     id: 'base-gcd',
     name: 'Base GCD',
@@ -24,7 +32,7 @@ export const gearSetTimingDisplay = (set: GearSet, snapshot: GearSnapshot): Gear
   }];
   const states = timingEffects.map((effect) => ({
     ...effect,
-    gcd: gcdFromSpeed(set.metrics.stats[profile.speedStat], profile.baseGcdMs, effect.hastePercent),
+    gcd: gcdFromSpeed(set.metrics.stats[profile.speedStat], profile.baseGcdMs, effect.hastePercent, constants),
     isTarget: effect.id === profile.timingEffectId
   }));
   const target = states.find((state) => state.isTarget) ?? {

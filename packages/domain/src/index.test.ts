@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assessItemAccess,
   assessSnapshotCompatibility,
   effectiveLevel,
   emptyStats,
   getEvaluatorCapability,
   jobAvailableAtAccess,
   type CombatEvaluatorProfile,
+  type ContentAccessGraph,
+  type EquipmentItem,
   type GameRegistry,
   type GearSnapshot,
   type RuntimeCompatibility
@@ -170,12 +173,141 @@ describe('data-driven expansion and job access', () => {
   });
 });
 
+describe('versioned acquisition access', () => {
+  const provenance = [{
+    kind: 'official-client' as const,
+    provider: 'Fixture',
+    schemaVersion: 'fixture@1',
+    retrievedAt: '2026-07-18T00:00:00.000Z',
+    status: 'current' as const
+  }];
+  const graph: ContentAccessGraph = {
+    schemaVersion: 'content-access@1',
+    nodes: [{
+      id: 'duty:fixture-raid',
+      kind: 'duty',
+      name: 'Fixture Raid',
+      expansionId: 'dt',
+      level: 100,
+      prerequisites: [],
+      provenance
+    }]
+  };
+  const item: EquipmentItem = {
+    id: 10,
+    origin: 'official',
+    name: 'Fixture Helm',
+    jobs: ['ALP'],
+    slot: 'head',
+    level: 100,
+    itemLevel: 700,
+    stats: emptyStats(),
+    statCaps: emptyStats(),
+    weaponDamage: 0,
+    weaponDelayMs: 0,
+    materiaSlots: 2,
+    advancedMelding: false,
+    unique: false,
+    sourceFamily: 'normal-raid',
+    acquisitionNote: 'Fixture routes.',
+    expansionId: 'dt',
+    quality: 'not-applicable',
+    acquisitionRoutes: [
+      {
+        id: 'route:blocked-future',
+        name: 'Future vendor',
+        sourceFamily: 'vendor',
+        expansionId: 'future',
+        minimumLevel: 110,
+        requirements: [],
+        costs: [],
+        frequency: 'repeatable',
+        status: 'validated',
+        note: 'Not accessible in Dawntrail.',
+        provenance
+      },
+      {
+        id: 'route:fixture-raid',
+        name: 'Fixture Raid exchange',
+        sourceFamily: 'normal-raid',
+        expansionId: 'dt',
+        minimumLevel: 100,
+        contentId: 'duty:fixture-raid',
+        requirements: [{ kind: 'content', contentId: 'duty:fixture-raid', description: 'Complete Fixture Raid.' }],
+        costs: [{ kind: 'currency', name: 'Fixture token', amount: 4, currencyId: 'fixture-token', frequency: 'weekly', valuation: 'fixed' }],
+        frequency: 'weekly',
+        status: 'validated',
+        note: 'Exchange four weekly tokens.',
+        provenance
+      }
+    ],
+    provenance
+  };
+
+  it('keeps an item usable when one of several acquisition routes is accessible', () => {
+    const report = assessItemAccess(item, futureRegistry, {
+      expansionId: 'dt', level: 100, job: 'ALP', completedContentIds: ['duty:fixture-raid']
+    }, graph);
+    expect(report.status).toBe('available');
+    expect(report.routes.map((route) => route.status)).toEqual(['blocked', 'available']);
+  });
+
+  it('distinguishes unknown completion from an explicitly unmet duty requirement', () => {
+    expect(assessItemAccess(item, futureRegistry, { expansionId: 'dt', level: 100, job: 'ALP' }, graph).status).toBe('unknown');
+    expect(assessItemAccess(item, futureRegistry, {
+      expansionId: 'dt', level: 100, job: 'ALP', completedContentIds: []
+    }, graph).status).toBe('blocked');
+  });
+
+  it('blocks later-expansion equipment before considering its routes', () => {
+    expect(assessItemAccess({ ...item, expansionId: 'future', level: 110 }, futureRegistry, {
+      expansionId: 'dt', level: 100, job: 'ALP', completedContentIds: ['duty:fixture-raid']
+    }, graph).status).toBe('blocked');
+  });
+});
+
 describe('snapshot compatibility gate', () => {
   it('accepts compatible profile data while preserving evaluator-pending jobs and modes', () => {
     const report = assessSnapshotCompatibility(futureSnapshot, runtime);
     expect(report.compatible).toBe(true);
     expect(report.warnings.some((warning) => warning.includes('BET') && warning.includes('generic-hit'))).toBe(true);
     expect(report.warnings.some((warning) => warning.includes('ALP mode evolved'))).toBe(true);
+  });
+
+  it('rejects cyclic content prerequisites and non-HQ crafted equipment', () => {
+    const snapshot = structuredClone(futureSnapshot);
+    snapshot.contentGraph = {
+      schemaVersion: 'content-access@1',
+      nodes: [
+        { id: 'quest:a', kind: 'quest', name: 'A', expansionId: 'dt', prerequisites: ['quest:b'], provenance: [] },
+        { id: 'quest:b', kind: 'quest', name: 'B', expansionId: 'dt', prerequisites: ['quest:a'], provenance: [] }
+      ]
+    };
+    snapshot.items = [{
+      id: 99,
+      origin: 'official',
+      name: 'NQ Fixture',
+      jobs: ['ALP'],
+      slot: 'head',
+      level: 100,
+      itemLevel: 700,
+      stats: emptyStats(),
+      statCaps: emptyStats(),
+      weaponDamage: 0,
+      weaponDelayMs: 0,
+      materiaSlots: 2,
+      advancedMelding: true,
+      unique: false,
+      sourceFamily: 'crafted',
+      acquisitionNote: 'Fixture',
+      expansionId: 'dt',
+      quality: 'not-applicable',
+      provenance: []
+    }];
+    const report = assessSnapshotCompatibility(snapshot, runtime);
+    expect(report.compatible).toBe(false);
+    expect(report.errors.some((error) => error.includes('prerequisite cycle'))).toBe(true);
+    expect(report.errors.some((error) => error.includes('not explicitly HQ'))).toBe(true);
   });
 
   it('fails closed on an unknown formula schema', () => {

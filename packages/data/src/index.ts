@@ -8,12 +8,14 @@ import {
   RULESET_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION
 } from './current-registry';
+import { enrichLegacyCatalogueMetadata } from './catalogue-metadata';
 
 export * from './runtime-updates';
+export * from './catalogue-metadata';
 
 const legacySnapshot = snapshotJson as unknown as Omit<GearSnapshot, 'registry' | 'rulesets' | 'evaluatorProfiles'>;
 
-export const gearSnapshot: GearSnapshot = {
+const registrySnapshot: GearSnapshot = {
   ...legacySnapshot,
   manifest: {
     ...legacySnapshot.manifest,
@@ -42,6 +44,7 @@ export const gearSnapshot: GearSnapshot = {
       : set;
   })
 };
+export const gearSnapshot: GearSnapshot = enrichLegacyCatalogueMetadata(registrySnapshot);
 export const whmSnapshot: GearSnapshot = {
   ...gearSnapshot,
   items: gearSnapshot.items.filter((item) => item.jobs.includes('WHM')),

@@ -183,15 +183,26 @@ export const loadBuildWorkspaceState = async (
   }
   const migrated: BuildWorkspaceState = {
     ...stored,
-    builds: Object.fromEntries(Object.entries(stored.builds).map(([id, build]) => [id, {
-      ...build,
-      constraints: {
-        ...fallback.builds[id as keyof typeof fallback.builds].constraints,
-        ...build.constraints,
-        lockedItemIdsBySlot: build.constraints.lockedItemIdsBySlot ?? {},
-        lockedMateriaBySlot: build.constraints.lockedMateriaBySlot ?? {}
-      }
-    }])) as BuildWorkspaceState['builds']
+    builds: Object.fromEntries(Object.entries(stored.builds).map(([id, build]) => {
+      const fallbackConstraints = fallback.builds[id as keyof typeof fallback.builds].constraints;
+      const materiaSelectionNeedsMigration = Boolean(
+        fallbackConstraints.materiaCatalogueVersion &&
+        build.constraints.materiaCatalogueVersion !== fallbackConstraints.materiaCatalogueVersion
+      );
+      return [id, {
+        ...build,
+        constraints: {
+          ...fallbackConstraints,
+          ...build.constraints,
+          allowedMateriaTiers: materiaSelectionNeedsMigration
+            ? [...new Set([...(build.constraints.allowedMateriaTiers ?? []), ...(fallbackConstraints.allowedMateriaTiers ?? [])])]
+            : build.constraints.allowedMateriaTiers ?? fallbackConstraints.allowedMateriaTiers,
+          materiaCatalogueVersion: fallbackConstraints.materiaCatalogueVersion ?? build.constraints.materiaCatalogueVersion,
+          lockedItemIdsBySlot: build.constraints.lockedItemIdsBySlot ?? {},
+          lockedMateriaBySlot: build.constraints.lockedMateriaBySlot ?? {}
+        }
+      }];
+    })) as BuildWorkspaceState['builds']
   };
   return prepareBuildWorkspaceStateForStorage(migrated);
 };

@@ -59,7 +59,40 @@ export interface InitialBuildWorkspaceOptions {
   message: string;
 }
 
+export interface ExpansionConstraintContext {
+  minimumResource: number;
+  materiaTiers: number[];
+  lockedFoodIsAvailable: boolean;
+  hasAvailableFood: boolean;
+  materiaCatalogueVersion: string;
+}
+
 const clone = <T,>(value: T): T => structuredClone(value);
+
+export const constraintsForExpansion = (
+  constraints: OptimizerConstraints,
+  context: ExpansionConstraintContext
+): OptimizerConstraints => {
+  const selectedTiers = constraints.allowedMateriaTiers;
+  const compatibleSelection = selectedTiers?.filter((tier) => context.materiaTiers.includes(tier)) ?? [];
+  const allowedMateriaTiers = selectedTiers?.length === 0
+    ? []
+    : compatibleSelection.length > 0
+      ? compatibleSelection
+      : [...context.materiaTiers];
+  const lockedFoodBecameUnavailable = constraints.foodMode === 'locked' && !context.lockedFoodIsAvailable;
+
+  return {
+    ...constraints,
+    minResource: context.minimumResource,
+    allowedMateriaTiers,
+    materiaCatalogueVersion: context.materiaCatalogueVersion,
+    foodMode: lockedFoodBecameUnavailable
+      ? context.hasAvailableFood ? 'allowed' : 'none'
+      : constraints.foodMode,
+    lockedFoodId: lockedFoodBecameUnavailable ? undefined : constraints.lockedFoodId
+  };
+};
 
 const createBuild = (
   id: BuildId,

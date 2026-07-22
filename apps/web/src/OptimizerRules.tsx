@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
+import { getCombatEvaluatorProfileForAccess } from '@xiv-gear-lab/calculations';
 import {
+  assessItemAccess,
   gearSlotsForJob,
   resolveOptimizerConstraints,
   type CombatJob,
   type EquipmentItem,
+  type ExpansionId,
   type GearSet,
   type GearSlot,
   type GearSnapshot,
@@ -37,7 +40,9 @@ export function OptimizerRules({
   job,
   snapshot,
   customItems,
-  selectedSet
+  selectedSet,
+  expansionId,
+  accessLevel
 }: {
   constraints: OptimizerConstraints;
   onChange: (next: OptimizerConstraints) => void;
@@ -45,14 +50,29 @@ export function OptimizerRules({
   snapshot: GearSnapshot;
   customItems: EquipmentItem[];
   selectedSet: GearSet;
+  expansionId: ExpansionId;
+  accessLevel: number;
 }) {
   const [equipmentOpen, setEquipmentOpen] = useState(false);
   const resolved = resolveOptimizerConstraints(constraints, snapshot.materia);
-  const profile = snapshot.evaluatorProfiles.find((entry) => entry.job === job)!;
+  const profile = getCombatEvaluatorProfileForAccess(job, snapshot, expansionId, accessLevel);
   const slots = gearSlotsForJob(job);
   const allItems = useMemo(() => [...snapshot.items, ...customItems], [snapshot, customItems]);
-  const officialItems = snapshot.items.filter((item) => item.origin === 'official' && item.jobs.includes(job));
-  const applicableMateria = snapshot.materia.filter((entry) => profile.meldStats.includes(entry.stat));
+  const expansionOrder = new Map(snapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
+  const selectedExpansionOrder = expansionOrder.get(expansionId) ?? -1;
+  const supportingRecordIsAvailable = (record: { expansionId?: ExpansionId; requiredLevel?: number }) =>
+    (record.requiredLevel === undefined || record.requiredLevel <= accessLevel) &&
+    (record.expansionId === undefined || (expansionOrder.get(record.expansionId) ?? Number.MAX_SAFE_INTEGER) <= selectedExpansionOrder);
+  const officialItems = snapshot.items.filter((item) =>
+    item.origin === 'official' &&
+    item.jobs.includes(job) &&
+    item.level === accessLevel &&
+    assessItemAccess(item, snapshot.registry, { expansionId, level: accessLevel, job }, snapshot.contentGraph).status !== 'blocked'
+  );
+  const applicableMateria = snapshot.materia.filter((entry) =>
+    profile.meldStats.includes(entry.stat) && supportingRecordIsAvailable(entry)
+  );
+  const availableFoods = snapshot.foods.filter(supportingRecordIsAvailable);
   const materiaStats = [...new Set(applicableMateria.map((entry) => entry.stat))];
   const materiaTiers = [...new Set(applicableMateria.map((entry) => entry.tier))].sort((a, b) => b - a);
   const patch = (changes: Partial<OptimizerConstraints>) => onChange({ ...constraints, ...changes });
@@ -116,7 +136,7 @@ export function OptimizerRules({
           <label>Locked food
             <select value={resolved.lockedFoodId ?? ''} onChange={(event) => patch({ lockedFoodId: Number(event.target.value) })}>
               <option value="">Choose food…</option>
-              {snapshot.foods.map((food) => <option value={food.id} key={food.id}>{food.name}</option>)}
+              {availableFoods.map((food) => <option value={food.id} key={food.id}>{food.name}</option>)}
             </select>
           </label>
         )}
@@ -159,7 +179,7 @@ export function OptimizerRules({
       <fieldset className="optimizer-rule-group">
         <legend>Custom equipment</legend>
         <label className="check-row">
-          <input type="checkbox" checked={resolved.allowCustomItems} onChange={(event) => patch({ allowCustomItems: event.target.checked })} />
+          <input type="checkbox" data-allow-custom-items checked={resolved.allowCustomItems} onChange={(event) => patch({ allowCustomItems: event.target.checked })} />
           <span><strong>Allow custom items</strong><small>Equipped hypothetical items are kept only when this is enabled.</small></span>
         </label>
         <label className={`check-row experimental-rule ${resolved.allowExperimentalAccess ? 'enabled' : ''}`}>

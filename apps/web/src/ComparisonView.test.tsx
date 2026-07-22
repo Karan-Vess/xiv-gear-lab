@@ -114,6 +114,42 @@ describe('three-build comparison', () => {
     expect(html).toContain('Constraints: tomestone');
   });
 
+  it('does not claim upgraded tomestone gear is allowed when its sub-toggle is off', () => {
+    const state = createState();
+    state.builds['build-2'].constraints.allowedSources = ['tomestone', 'tomestone-upgrade'];
+    state.builds['build-2'].constraints.includeUpgradedTomestoneGear = false;
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+    expect(html).toContain('Constraints: tomestone');
+    expect(html).not.toContain('Constraints: tomestone, tomestone-upgrade');
+  });
+
+  it('labels crafted constraints as base only when augmented crafted gear is disabled', () => {
+    const state = createState();
+    state.builds['build-2'].constraints.allowedSources = ['crafted'];
+    state.builds['build-2'].constraints.includeAugmentedCraftedGear = false;
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+    expect(html).toContain('Constraints: crafted (base only)');
+  });
+
+  it('shows each build item-level constraint in the comparison', () => {
+    const state = createState();
+    state.builds['build-2'].constraints.itemLevelMode = 'exact';
+    state.builds['build-2'].constraints.minItemLevel = 780;
+    state.builds['build-3'].constraints.itemLevelMode = 'range';
+    state.builds['build-3'].constraints.minItemLevel = 780;
+    state.builds['build-3'].constraints.maxItemLevel = 790;
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+    expect(html).toContain('Exactly i780');
+    expect(html).toContain('i780-i790');
+    expect(html).toContain('Any item level');
+  });
+
   it('makes equipment, meld, food and constraint differences inspectable', () => {
     const state = createState();
     const alternatives = gearSnapshot.curatedSets.filter((set) => set.job === 'WHM');

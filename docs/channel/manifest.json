@@ -1,21 +1,21 @@
 {
   "schemaVersion": "data-update-manifest@1",
   "channel": "preview",
-  "publishedAt": "2026-07-16T05:12:49.064Z",
+  "publishedAt": "2026-07-22T10:21:28.649Z",
   "keyId": "stable-2026-07",
   "snapshot": {
-    "id": "xivapi-f8764efd76cdb31a-etro-balance-all-combat-jobs-2026-07-15",
-    "url": "https://karan-vess.github.io/xiv-gear-lab/channel/releases/xivapi-f8764efd76cdb31a-etro-balance-all-combat-jobs-2026-07-15/snapshot-xivapi-f8764efd76cdb31a-etro-balance-all-combat-jobs-2026-07-15.json",
-    "sha256": "d971a69ed68bd12de564bc2b3a88827f642e83dc5c95eff0c20921fc6679e3f3",
-    "byteLength": 3792687,
+    "id": "xivapi-f8764efd76cdb31a-dt-ew-shb-sb-a44b957ac5ab34aa",
+    "url": "https://karan-vess.github.io/xiv-gear-lab/channel/releases/xivapi-f8764efd76cdb31a-dt-ew-shb-sb-a44b957ac5ab34aa/snapshot-xivapi-f8764efd76cdb31a-dt-ew-shb-sb-a44b957ac5ab34aa.json",
+    "sha256": "1270018463c10b2bcd661da48ebc336978d33af926896525544f9474ddd05687",
+    "byteLength": 56414821,
     "counts": {
       "expansions": 6,
       "jobs": 21,
-      "rulesets": 1,
-      "evaluatorProfiles": 21,
-      "items": 231,
-      "materia": 6,
-      "foods": 4,
+      "rulesets": 4,
+      "evaluatorProfiles": 72,
+      "items": 3498,
+      "materia": 56,
+      "foods": 12,
       "curatedSets": 60
     }
   },
@@ -23,50 +23,50 @@
     {
       "id": "official-overlay",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:39.634Z"
+      "retrievedAt": "2026-07-22T10:04:40.674Z"
     },
     {
       "id": "xivapi",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:43.755Z"
+      "retrievedAt": "2026-07-22T10:04:55.510Z"
     },
     {
       "id": "etro-supporting-data",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:43.700Z"
+      "retrievedAt": "2026-07-22T10:04:55.456Z"
     },
     {
       "id": "acquisition-overlay",
       "status": "partial",
-      "retrievedAt": "2026-07-15T21:01:39.634Z",
+      "retrievedAt": "2026-07-22T10:04:40.674Z",
       "message": "acquisition overlay is partial."
     },
     {
       "id": "acquisition-data",
       "status": "partial",
-      "retrievedAt": "2026-07-15T21:01:39.634Z",
+      "retrievedAt": "2026-07-22T10:04:40.674Z",
       "message": "Some exact upgrade routes remain partially verified."
     },
     {
       "id": "curated-overlay",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:39.634Z"
+      "retrievedAt": "2026-07-22T10:04:40.674Z"
     },
     {
       "id": "etro",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:43.700Z"
+      "retrievedAt": "2026-07-22T10:04:55.456Z"
     },
     {
       "id": "the-balance",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:39.634Z"
+      "retrievedAt": "2026-07-22T10:04:40.674Z"
     },
     {
       "id": "xivgear",
       "status": "current",
-      "retrievedAt": "2026-07-15T21:01:44.479Z"
+      "retrievedAt": "2026-07-22T10:05:11.643Z"
     }
   ],
-  "signature": "WVZnI4PORaWLs81J/L+1XmpIOBIDTKYySUvkpMcpr4ozf1W/kotjXGKmdc/p7kTRMbeg4xKs900YqayExrGaBg=="
+  "signature": "9lYrN6bnDyhqTrAtMk+C6koo7eGWarDCC46L+kMQNRwe2ykBLDzjC2OcQ8UjE3OlhS0vbNSyrFotKejnAcXtDg=="
 }

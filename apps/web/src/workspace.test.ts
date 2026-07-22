@@ -3,6 +3,7 @@ import { gearSnapshot } from '@xiv-gear-lab/data';
 import type { OptimizerConstraints } from '@xiv-gear-lab/domain';
 import {
   createInitialBuildWorkspaceState,
+  constraintsForExpansion,
   copyBuildLoadout,
   isBuildWorkspaceState,
   prepareBuildWorkspaceStateForStorage,
@@ -31,12 +32,46 @@ const createState = () => createInitialBuildWorkspaceState({
 }, '2026-07-16T00:00:00.000Z');
 
 describe('build workspaces', () => {
+  it('replaces incompatible expansion materia and resource defaults without overriding a deliberate no-materia choice', () => {
+    const shadowbringers = constraintsForExpansion({
+      ...constraints,
+      minResource: 440,
+      allowedMateriaTiers: [12],
+      materiaCatalogueVersion: 'combat-materia-ew-dt-9-12@2',
+      foodMode: 'locked',
+      lockedFoodId: 123
+    }, {
+      minimumResource: 340,
+      materiaTiers: [8, 7],
+      lockedFoodIsAvailable: false,
+      hasAvailableFood: false,
+      materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3'
+    });
+
+    expect(shadowbringers.minResource).toBe(340);
+    expect(shadowbringers.allowedMateriaTiers).toEqual([8, 7]);
+    expect(shadowbringers.foodMode).toBe('none');
+    expect(shadowbringers.lockedFoodId).toBeUndefined();
+    expect(shadowbringers.allowedSources).toEqual(constraints.allowedSources);
+
+    expect(constraintsForExpansion({ ...constraints, allowedMateriaTiers: [] }, {
+      minimumResource: 340,
+      materiaTiers: [8, 7],
+      lockedFoodIsAvailable: true,
+      hasAvailableFood: true,
+      materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3'
+    }).allowedMateriaTiers).toEqual([]);
+  });
+
   it('creates three deep-independent builds from the existing default workspace', () => {
     const state = createState();
     state.builds['build-1'].constraints.allowedSources.pop();
+    state.builds['build-1'].constraints.itemLevelMode = 'exact';
+    state.builds['build-1'].constraints.minItemLevel = 780;
     state.builds['build-1'].selectedSet.name = 'Changed only in build 1';
 
     expect(state.builds['build-2'].constraints.allowedSources).toHaveLength(3);
+    expect(state.builds['build-2'].constraints.itemLevelMode).toBeUndefined();
     expect(state.builds['build-2'].selectedSet.name).not.toBe('Changed only in build 1');
     expect(isBuildWorkspaceState(state)).toBe(true);
   });

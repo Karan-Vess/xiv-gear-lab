@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), 'VITE_DATA_');
@@ -27,6 +29,12 @@ export default defineConfig(({ mode }) => {
         name: 'runtime-data-csp',
         transformIndexHtml(html) {
           return html.replace('__UPDATE_CONNECT_SOURCES__', [...updateOrigins].join(' '));
+        }
+      },
+      {
+        name: 'exclude-provider-icon-sources',
+        async closeBundle() {
+          await rm(resolve('dist/icons/items'), { recursive: true, force: true });
         }
       }
     ],

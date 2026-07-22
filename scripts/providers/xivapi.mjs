@@ -79,6 +79,7 @@ export const normalizeXivApiEquipmentRows = ({
   emptyStats,
   casterJobs,
   healerJobs,
+  expansionForLevel,
   generatedAt,
   gamePatch
 }) => response.rows.map((row, index) => {
@@ -97,6 +98,21 @@ export const normalizeXivApiEquipmentRows = ({
   for (let parameterIndex = 0; parameterIndex < params.length; parameterIndex += 1) {
     const stat = paramToStat[params[parameterIndex]];
     if (stat) stats[stat] += values[parameterIndex] ?? 0;
+  }
+
+  const isHqCapable = fields.CanBeHq === true;
+  const specialParams = isHqCapable
+    ? expectArray(fields['BaseParamSpecial@as(raw)'], 'XIVAPI v2', 'item-normalizer@1', `rows[${index}].fields.BaseParamSpecial@as(raw)`)
+    : [];
+  const specialValues = isHqCapable
+    ? expectArray(fields.BaseParamValueSpecial, 'XIVAPI v2', 'item-normalizer@1', `rows[${index}].fields.BaseParamValueSpecial`)
+    : [];
+  if (specialParams.length !== specialValues.length) {
+    throw new ProviderContractError('XIVAPI v2', 'item-normalizer@1', `item ${row.row_id} HQ parameter and value arrays differ in length.`);
+  }
+  for (let parameterIndex = 0; parameterIndex < specialParams.length; parameterIndex += 1) {
+    const stat = paramToStat[specialParams[parameterIndex]];
+    if (stat) stats[stat] += specialValues[parameterIndex] ?? 0;
   }
 
   const itemLevel = expectSafeInteger(fields['LevelItem@as(raw)'], 'XIVAPI v2', 'item-normalizer@1', `rows[${index}].fields.LevelItem`, { minimum: 1 });
@@ -118,6 +134,10 @@ export const normalizeXivApiEquipmentRows = ({
   }
 
   const itemJobs = jobsByItemId.get(row.row_id) ?? [];
+  const usesMagicDamage = itemJobs.some((job) => casterJobs.includes(job) || healerJobs.includes(job));
+  const weaponDamageParameter = usesMagicDamage ? 13 : 12;
+  const hqWeaponDamageIndex = specialParams.findIndex((parameter) => parameter === weaponDamageParameter);
+  const hqWeaponDamage = hqWeaponDamageIndex >= 0 ? specialValues[hqWeaponDamageIndex] ?? 0 : 0;
   const iconPath = fields.Icon?.path_hr1 ?? fields.Icon?.path;
   expectString(iconPath, 'XIVAPI v2', 'item-normalizer@1', `rows[${index}].fields.Icon.path`);
   return {
@@ -132,15 +152,15 @@ export const normalizeXivApiEquipmentRows = ({
     iconUrl: undefined,
     stats,
     statCaps,
-    weaponDamage: itemJobs.some((job) => casterJobs.includes(job) || healerJobs.includes(job))
-      ? fields.DamageMag ?? 0
-      : fields.DamagePhys ?? 0,
+    weaponDamage: (usesMagicDamage ? fields.DamageMag ?? 0 : fields.DamagePhys ?? 0) + hqWeaponDamage,
     weaponDelayMs: fields.Delayms ?? 0,
     materiaSlots: fields.MateriaSlotCount,
     advancedMelding: fields.IsAdvancedMeldingPermitted,
     unique: fields.IsUnique,
     sourceFamily: 'other',
     acquisitionNote: 'Acquisition route is supplied by a separate overlay.',
+    ...(expansionForLevel ? { expansionId: expansionForLevel(fields.LevelEquip) } : {}),
+    quality: isHqCapable ? 'hq' : 'not-applicable',
     provenance: [{
       kind: 'official-client',
       provider: 'XIVAPI v2',

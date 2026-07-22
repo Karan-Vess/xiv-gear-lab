@@ -10,11 +10,18 @@ const config = JSON.parse(await readFile(resolve(workspace, 'config', 'data-chan
   trustedEd25519Keys: Record<string, string>;
 };
 const runtime: RuntimeCompatibility = {
-  appVersion: '0.8.0',
+  appVersion: '0.9.0-alpha.17',
   snapshotSchemas: ['gear-snapshot@1'],
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],
-  calculationSchemas: ['ffxiv-combat-level-100@1'],
+  calculationSchemas: [
+    'ffxiv-combat-level-100@1',
+    'ffxiv-combat-level-90@1',
+    'ffxiv-combat-level-80@1',
+    'ffxiv-combat-level-70@1',
+    'ffxiv-combat-level-60@1',
+    'ffxiv-combat-level-50@1'
+  ],
   evaluatorProfileSchemas: ['generic-hit-profile@1']
 };
 const minimumSnapshotCounts: Partial<SnapshotCounts> = {

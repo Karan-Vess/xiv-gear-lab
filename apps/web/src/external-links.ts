@@ -1,6 +1,7 @@
 export const TRUSTED_EXTERNAL_HOSTS = new Set([
   'www.akhmorning.com',
   'etro.gg',
+  'ffxiv.consolegameswiki.com',
   'github.com',
   'na.finalfantasyxiv.com',
   'support.na.square-enix.com',

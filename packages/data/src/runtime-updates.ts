@@ -640,6 +640,26 @@ export class SnapshotRepository {
       await transactionDone(transaction);
       const active = await this.storedSnapshot(state?.activeId);
       if (active && this.compatibility(active.snapshot).compatible) {
+        const previous = await this.storedSnapshot(state?.previousId);
+        const bundledGeneratedAt = Date.parse(bundled.manifest.generatedAt);
+        const activeGeneratedAt = Date.parse(active.snapshot.manifest.generatedAt);
+        const previousGeneratedAt = previous && this.compatibility(previous.snapshot).compatible
+          ? Date.parse(previous.snapshot.manifest.generatedAt)
+          : Number.NaN;
+        const intentionalRollback = Number.isFinite(activeGeneratedAt)
+          && Number.isFinite(previousGeneratedAt)
+          && previousGeneratedAt > activeGeneratedAt;
+        const bundledIsNewer = Number.isFinite(bundledGeneratedAt)
+          && Number.isFinite(activeGeneratedAt)
+          && bundledGeneratedAt > activeGeneratedAt;
+        if (bundledIsNewer && !intentionalRollback) {
+          return {
+            snapshot: bundled,
+            source: 'bundled',
+            fallbackReason: `Bundled snapshot ${bundled.manifest.id} is newer than cached snapshot ${active.id}.`,
+            previousSnapshotId: state?.previousId
+          };
+        }
         return {
           snapshot: active.snapshot,
           source: 'downloaded',
@@ -651,6 +671,18 @@ export class SnapshotRepository {
       }
       const previous = await this.storedSnapshot(state?.previousId);
       if (previous && this.compatibility(previous.snapshot).compatible) {
+        const bundledGeneratedAt = Date.parse(bundled.manifest.generatedAt);
+        const previousGeneratedAt = Date.parse(previous.snapshot.manifest.generatedAt);
+        if (Number.isFinite(bundledGeneratedAt)
+          && Number.isFinite(previousGeneratedAt)
+          && bundledGeneratedAt > previousGeneratedAt) {
+          return {
+            snapshot: bundled,
+            source: 'bundled',
+            fallbackReason: `Bundled snapshot ${bundled.manifest.id} is newer than fallback cache ${previous.id}.`,
+            previousSnapshotId: state?.previousId
+          };
+        }
         const repairTransaction = database.transaction('state', 'readwrite');
         repairTransaction.objectStore('state').put({
           key: 'activation',

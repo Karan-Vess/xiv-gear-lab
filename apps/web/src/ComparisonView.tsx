@@ -1,4 +1,4 @@
-import { getCombatEvaluatorProfile } from '@xiv-gear-lab/calculations';
+import { getCombatEvaluatorProfile, getCombatEvaluatorProfileForSet, levelFormulaConstantsFor } from '@xiv-gear-lab/calculations';
 import { derivedCombatStats, percentage } from './derived-stats';
 import { gearSetTimingDisplay } from './timing-display';
 import {
@@ -80,8 +80,19 @@ const materiaCount = (set: GearSet) => Object.values(set.items)
   .reduce((total, equipped) => total + (equipped?.materiaIds.length ?? 0), 0);
 
 const sourceSummary = (build: BuildWorkspace) => build.constraints.allowedSources.length > 0
-  ? build.constraints.allowedSources.join(', ')
+  ? build.constraints.allowedSources
+    .filter((source) => source !== 'tomestone-upgrade' || build.constraints.includeUpgradedTomestoneGear !== false)
+    .map((source) => source === 'crafted' && build.constraints.includeAugmentedCraftedGear === false ? 'crafted (base only)' : source)
+    .join(', ')
   : 'No acquisition sources';
+
+const itemLevelConstraintSummary = (build: BuildWorkspace) => {
+  const mode = build.constraints.itemLevelMode ?? 'any';
+  if (mode === 'any') return 'Any item level';
+  const minimum = build.constraints.minItemLevel ?? 1;
+  if (mode === 'exact') return `Exactly i${minimum}`;
+  return `i${minimum}-i${build.constraints.maxItemLevel ?? minimum}`;
+};
 
 const acquisitionSummary = (
   set: GearSet,
@@ -114,6 +125,19 @@ export function ComparisonView({
   const builds = BUILD_IDS.map((id) => state.builds[id]);
   const baseline = state.builds[state.baselineBuildId];
   const baselineSet = baseline.selectedSet;
+  const profileFor = (build: BuildWorkspace) => {
+    try {
+      return getCombatEvaluatorProfileForSet(build.selectedSet, snapshot);
+    } catch {
+      // Comparison keeps deliberately incompatible or legacy results visible so
+      // their context warning can explain why no winner should be inferred.
+      return getCombatEvaluatorProfile(build.selectedSet.job, snapshot.evaluatorProfiles);
+    }
+  };
+  const derivedFor = (build: BuildWorkspace) => {
+    const profile = profileFor(build);
+    return derivedCombatStats(build.selectedSet.metrics.stats, levelFormulaConstantsFor(profile));
+  };
   const metricRows: MetricRow[] = [
     { label: 'Job', value: (build) => `${build.job} · ${snapshot.registry.jobs.find((job) => job.id === build.job)?.role ?? 'unknown role'}` },
     { label: 'Result', value: (build) => `${build.selectedSet.name} · ${build.selectedSet.origin}` },
@@ -133,14 +157,14 @@ export function ComparisonView({
     {
       label: 'Main stat',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         return `${profile.mainStatAbbreviation} ${formatNumber.format(build.selectedSet.metrics.stats[profile.mainStat])}`;
       }
     },
     {
       label: 'Resource',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         return profile.resourceStat
           ? `${profile.resourceStatAbbreviation} ${formatNumber.format(build.selectedSet.metrics.stats[profile.resourceStat])}`
           : 'No resource stat';
@@ -149,37 +173,37 @@ export function ComparisonView({
     {
       label: 'MP regeneration',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         if (profile.role !== 'healer') return 'Not applicable';
-        const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+        const derived = derivedFor(build);
         return `${derived.pietyMpPerTick} MP / 3s tick · +${derived.pietyBonusMpPerTick} from Piety`;
       }
     },
     {
       label: 'Tenacity outcome',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         if (profile.role !== 'tank') return 'Not applicable';
-        const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+        const derived = derivedFor(build);
         return `+${percentage(derived.tenacityDamageHealingIncrease)} damage/outgoing healing · ${percentage(derived.tenacityDamageReduction)} damage reduction`;
       }
     },
     { label: 'Critical Hit', value: (build) => formatNumber.format(build.selectedSet.metrics.stats.criticalHit) },
     { label: 'Critical Hit outcome', value: (build) => {
-      const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+      const derived = derivedFor(build);
       return `${percentage(derived.criticalChance)} chance · ${percentage(derived.criticalDamage)} damage`;
     } },
     { label: 'Determination', value: (build) => formatNumber.format(build.selectedSet.metrics.stats.determination) },
-    { label: 'Determination damage', value: (build) => `+${percentage(derivedCombatStats(build.selectedSet.metrics.stats).determinationIncrease)}` },
+    { label: 'Determination damage', value: (build) => `+${percentage(derivedFor(build).determinationIncrease)}` },
     { label: 'Direct Hit', value: (build) => formatNumber.format(build.selectedSet.metrics.stats.directHit) },
     { label: 'Direct Hit outcome', value: (build) => {
-      const derived = derivedCombatStats(build.selectedSet.metrics.stats);
+      const derived = derivedFor(build);
       return `${percentage(derived.directChance)} chance · ${percentage(derived.directDamage)} damage`;
     } },
     {
       label: 'Role speed',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         return `${profile.speedStatAbbreviation} ${formatNumber.format(build.selectedSet.metrics.stats[profile.speedStat])}`;
       }
     },
@@ -206,13 +230,14 @@ export function ComparisonView({
     { label: 'Food', value: (build) => foodName(build.selectedSet, snapshot) },
     { label: 'Materia', value: (build) => `${materiaCount(build.selectedSet)} melds · ${formatNumber.format(build.selectedSet.metrics.materiaWaste)} waste` },
     { label: 'Allowed sources', value: sourceSummary },
+    { label: 'Allowed item levels', value: itemLevelConstraintSummary },
     { label: 'Target GCD', value: (build) => build.constraints.gcdMode === 'range'
       ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s range`
       : `${build.gcdTarget}s · ${timingFor(build.selectedSet, snapshot).target.name} state` },
     {
       label: 'Minimum resource',
       value: (build) => {
-        const profile = getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles);
+        const profile = profileFor(build);
         return profile.resourceStat ? `${formatNumber.format(build.constraints.minResource)} ${profile.resourceLabel}` : 'None';
       }
     },
@@ -271,12 +296,14 @@ export function ComparisonView({
             const comparedEquipped = build.selectedSet.items[slot];
             const sameItem = String(baseEquipped?.itemId) === String(comparedEquipped?.itemId);
             const sameMateria = JSON.stringify(baseEquipped?.materiaIds ?? []) === JSON.stringify(comparedEquipped?.materiaIds ?? []);
-            if (sameItem && sameMateria) return [];
+            const sameRelicStats = JSON.stringify(baseEquipped?.relicStats ?? {}) === JSON.stringify(comparedEquipped?.relicStats ?? {});
+            if (sameItem && sameMateria && sameRelicStats) return [];
             return [{
               slot,
               baseline: itemFor(baseEquipped?.itemId, snapshot, customItems)?.name ?? 'Empty or missing',
               candidate: itemFor(comparedEquipped?.itemId, snapshot, customItems)?.name ?? 'Empty or missing',
-              meldChanged: !sameMateria
+              meldChanged: !sameMateria,
+              relicStatsChanged: !sameRelicStats
             }];
           });
           const foodChanged = baselineSet.foodId !== build.selectedSet.foodId;
@@ -289,14 +316,14 @@ export function ComparisonView({
                 : <ul>
                   {differences.map((difference) => (
                     <li key={difference.slot}>
-                      <strong>{slotLabel[difference.slot]}</strong>: {difference.baseline} → {difference.candidate}{difference.meldChanged ? ' · melds changed' : ''}
+                      <strong>{slotLabel[difference.slot]}</strong>: {difference.baseline} → {difference.candidate}{difference.meldChanged ? ' · melds changed' : ''}{difference.relicStatsChanged ? ' · relic stats changed' : ''}
                     </li>
                   ))}
                   {foodChanged && <li><strong>Food</strong>: {foodName(baselineSet, snapshot)} → {foodName(build.selectedSet, snapshot)}</li>}
                 </ul>}
               <p className="constraint-summary">
-                Constraints: {sourceSummary(build)} · {build.gcdTarget}s target
-                {getCombatEvaluatorProfile(build.job, snapshot.evaluatorProfiles).resourceStat ? ` · minimum resource ${build.constraints.minResource}` : ''}
+                Constraints: {sourceSummary(build)} · {itemLevelConstraintSummary(build)} · {build.gcdTarget}s target
+                {profileFor(build).resourceStat ? ` · minimum resource ${build.constraints.minResource}` : ''}
               </p>
             </article>
           );

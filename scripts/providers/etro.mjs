@@ -125,7 +125,7 @@ export const normalizeEtroEquipmentDiscovery = (catalogues, { include, minimumPe
   return { jobsByItemId, equipmentById };
 };
 
-export const normalizeEtroFoods = (foodRows, { paramToStat, generatedAt }) => foodRows.map((food) => {
+export const normalizeEtroFoods = (foodRows, { paramToStat, generatedAt, expansionForItemLevel, requiredLevelForItemLevel, sourcePatchForItemLevel }) => foodRows.map((food) => {
   const bonuses = [0, 1, 2]
     .map((index) => ({ stat: paramToStat[food[`param${index}`]], percent: food[`valueHQ${index}`], cap: food[`maxHQ${index}`] }))
     .filter((bonus) => bonus.stat);
@@ -134,25 +134,28 @@ export const normalizeEtroFoods = (foodRows, { paramToStat, generatedAt }) => fo
     providerRecordId: food.id,
     name: food.name,
     itemLevel: food.itemLevel,
+    ...(expansionForItemLevel ? { expansionId: expansionForItemLevel(food.itemLevel) } : {}),
+    ...(requiredLevelForItemLevel ? { requiredLevel: requiredLevelForItemLevel(food.itemLevel) } : {}),
     iconPath: food.iconPath,
     iconUrl: undefined,
     bonuses,
     provenance: [{
       kind: 'community-curated', provider: 'Etro', providerRecordId: String(food.id),
-      sourceUrl: `${ETRO_BASE_URL}/food/${food.id}/`, sourcePatch: '7.4', sourceVersion: 'retrieved-live',
+      sourceUrl: `${ETRO_BASE_URL}/food/${food.id}/`, sourcePatch: sourcePatchForItemLevel?.(food.itemLevel) ?? (food.itemLevel <= 640 ? '6.4' : '7.4'), sourceVersion: 'retrieved-live',
       schemaVersion: ETRO_FOOD_CONTRACT, retrievedAt: generatedAt, status: 'unverified'
     }]
   };
 });
 
-export const normalizeEtroMateria = (catalogue, { referencedIds, paramToStat }) => {
+export const normalizeEtroMateria = (catalogue, { referencedIds, paramToStat, includedTiers = [] }) => {
+  const requiredTiers = new Set(includedTiers);
   const materia = [];
   for (const family of catalogue) {
     const stat = paramToStat[family.param];
     if (!stat) continue;
     for (let tier = 1; tier <= 12; tier += 1) {
       const row = family[`tier${tier}`];
-      if (!row || !referencedIds.has(row.id)) continue;
+      if (!row || (!referencedIds.has(row.id) && !requiredTiers.has(tier))) continue;
       const advancedMeldingLimit = [8, 10, 12].includes(tier)
         ? 'first-slot-only'
         : [7, 9, 11].includes(tier) ? 'unrestricted' : undefined;
@@ -162,14 +165,18 @@ export const normalizeEtroMateria = (catalogue, { referencedIds, paramToStat }) 
         stat,
         value: family[`tier${tier}Value`],
         tier,
+        expansionId: tier >= 11 ? 'dt' : tier >= 9 ? 'ew' : tier >= 7 ? 'shb' : undefined,
+        requiredLevel: tier >= 11 ? 100 : tier >= 9 ? 90 : tier >= 7 ? 80 : undefined,
         // Explicitly evidenced expansion pairs. Unknown future tiers must be reviewed, not guessed.
         ...(advancedMeldingLimit ? { advancedMeldingLimit } : {}),
         iconPath: row.iconPath
       });
     }
   }
-  if (materia.length !== referencedIds.size) {
-    throw new ProviderContractError('Etro', 'materia-normalizer@1', `mapped ${materia.length}/${referencedIds.size} referenced materia IDs.`);
+  const mappedIds = new Set(materia.map((entry) => entry.id));
+  const missingReferencedIds = [...referencedIds].filter((id) => !mappedIds.has(id));
+  if (missingReferencedIds.length > 0) {
+    throw new ProviderContractError('Etro', 'materia-normalizer@1', `missing ${missingReferencedIds.length}/${referencedIds.size} referenced materia IDs.`);
   }
   return materia;
 };

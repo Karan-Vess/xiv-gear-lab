@@ -33,7 +33,24 @@ export const GEAR_SLOTS = [
 
 export type GearSlot = (typeof GEAR_SLOTS)[number];
 export type ItemSlot = Exclude<GearSlot, 'ringLeft' | 'ringRight'> | 'ring';
-export type SourceFamily = 'savage' | 'tomestone' | 'tomestone-upgrade' | 'custom' | 'unknown';
+export const SOURCE_FAMILIES = [
+  'crafted',
+  'normal-raid',
+  'savage',
+  'tomestone',
+  'tomestone-upgrade',
+  'dungeon',
+  'trial',
+  'alliance-raid',
+  'relic',
+  'ultimate',
+  'quest',
+  'vendor',
+  'custom',
+  'other',
+  'unknown'
+] as const;
+export type SourceFamily = (typeof SOURCE_FAMILIES)[number];
 /**
  * Job identifiers are provider data, not a closed TypeScript union. Known IDs
  * are still validated through the active snapshot registry before use.
@@ -116,6 +133,12 @@ export interface CalculationRuleset {
   jobMode: JobModeId;
 }
 
+export interface LevelFormulaConstants {
+  baseMain: number;
+  baseSub: number;
+  levelDiv: number;
+}
+
 /**
  * A safe declarative profile for formula structures already implemented by the
  * calculation package. New mechanics require a new calculation schema.
@@ -139,6 +162,8 @@ export interface CombatEvaluatorProfile {
   resourceStatAbbreviation?: string;
   meldStats: StatKey[];
   baseStats: StatBlock;
+  /** Level-dependent combat formula constants. Older level-100 profiles omit this and use the legacy defaults. */
+  levelConstants?: LevelFormulaConstants;
   attackPowerModifier: number;
   mainStatModifier: number;
   appliesTenacity: boolean;
@@ -147,7 +172,7 @@ export interface CombatEvaluatorProfile {
   hastePercent: number;
   timingEffectId: string;
   objective: string;
-  confidence: 'reference-validated-proxy';
+  confidence: 'reference-validated-proxy' | 'internal-unverified';
   limitation: string;
 }
 
@@ -172,6 +197,101 @@ export interface Provenance {
   status: 'current' | 'stale' | 'partial' | 'unverified' | 'custom';
 }
 
+export type ContentNodeKind =
+  | 'expansion'
+  | 'quest'
+  | 'duty'
+  | 'vendor'
+  | 'recipe'
+  | 'gathering-node'
+  | 'currency'
+  | 'job-unlock';
+
+export interface ContentNode {
+  id: string;
+  kind: ContentNodeKind;
+  name: string;
+  expansionId: ExpansionId;
+  level?: number;
+  prerequisites: string[];
+  provenance: Provenance[];
+}
+
+export interface ContentAccessGraph {
+  schemaVersion: 'content-access@1';
+  nodes: ContentNode[];
+}
+
+export type AcquisitionFrequency = 'one-time' | 'weekly' | 'repeatable' | 'variable';
+export type AcquisitionRouteStatus = 'validated' | 'partial' | 'unknown';
+
+export interface AcquisitionRequirement {
+  kind: 'expansion' | 'level' | 'job' | 'content' | 'manual';
+  expansionId?: ExpansionId;
+  level?: number;
+  job?: CombatJob;
+  contentId?: string;
+  description: string;
+}
+
+export interface AcquisitionCost {
+  kind: 'gil' | 'currency' | 'item' | 'quest' | 'variable';
+  name: string;
+  amount?: number;
+  currencyId?: string;
+  itemId?: number | string;
+  /** Costs with the same group are paid once when several bundled items are equipped. */
+  sharedGroupId?: string;
+  frequency: AcquisitionFrequency;
+  valuation: 'fixed' | 'user-defined' | 'not-comparable';
+}
+
+export interface AcquisitionLocation {
+  kind: 'duty' | 'vendor' | 'quest' | 'recipe' | 'gathering-node' | 'other';
+  name: string;
+  area?: string;
+  x?: number;
+  y?: number;
+}
+
+export interface AcquisitionRoute {
+  id: string;
+  name: string;
+  sourceFamily: SourceFamily;
+  expansionId: ExpansionId;
+  minimumLevel: number;
+  contentId?: string;
+  requirements: AcquisitionRequirement[];
+  costs: AcquisitionCost[];
+  frequency: AcquisitionFrequency;
+  status: AcquisitionRouteStatus;
+  location?: AcquisitionLocation;
+  note: string;
+  provenance: Provenance[];
+}
+
+export interface AccessProfile {
+  expansionId: ExpansionId;
+  level: number;
+  job?: CombatJob;
+  /** Omit when completion is unknown. An explicit list means missing IDs are not completed. */
+  completedContentIds?: string[];
+}
+
+export interface RouteAccessReport {
+  status: 'available' | 'blocked' | 'unknown';
+  route: AcquisitionRoute;
+  unmetRequirements: AcquisitionRequirement[];
+  unknownRequirements: AcquisitionRequirement[];
+}
+
+export interface ItemAccessReport {
+  status: 'available' | 'blocked' | 'unknown';
+  item: EquipmentItem;
+  routes: RouteAccessReport[];
+  reasons: string[];
+}
+
 export interface EquipmentItem {
   id: number | string;
   origin: 'official' | 'custom';
@@ -191,9 +311,28 @@ export interface EquipmentItem {
   unique: boolean;
   sourceFamily: SourceFamily;
   acquisitionNote: string;
+  expansionId?: ExpansionId;
+  quality?: 'hq' | 'not-applicable';
+  acquisitionRoutes?: AcquisitionRoute[];
   provenance: Provenance[];
   customData?: CustomEquipmentData;
+  relicStatModel?: RelicStatModel;
 }
+
+export interface RelicStatModel {
+  schemaVersion: 'relic-stat-allocation@1';
+  type: 'endwalker-discrete';
+  largeValue: number;
+  largeStatCount: number;
+  smallValue: number;
+  smallStatCount: number;
+  allowedStats: StatKey[];
+}
+
+export const isAugmentedCraftedItem = (item: EquipmentItem): boolean =>
+  item.sourceFamily === 'crafted' && Boolean(item.acquisitionRoutes?.some((route) =>
+    route.id.startsWith('crafted-') && route.id.includes('-augmentation:')
+  ));
 
 export interface CustomEquipmentData {
   schemaVersion: 'custom-equipment@1';
@@ -213,6 +352,8 @@ export interface Materia {
   stat: StatKey;
   value: number;
   tier: number;
+  expansionId?: ExpansionId;
+  requiredLevel?: number;
   advancedMeldingLimit?: 'forbidden' | 'first-slot-only' | 'unrestricted';
   iconPath?: string;
   iconUrl?: string;
@@ -229,6 +370,8 @@ export interface Food {
   providerRecordId?: number;
   name: string;
   itemLevel: number;
+  expansionId?: ExpansionId;
+  requiredLevel?: number;
   iconPath?: string;
   iconUrl?: string;
   bonuses: FoodBonus[];
@@ -238,6 +381,7 @@ export interface Food {
 export interface EquippedItem {
   itemId: number | string;
   materiaIds: number[];
+  relicStats?: Partial<Record<StatKey, number>>;
 }
 
 export interface SetMetrics {
@@ -253,7 +397,7 @@ export interface EvaluationMetadata {
   profileId: string;
   version: string;
   objective: string;
-  confidence: 'reference-validated-proxy';
+  confidence: 'reference-validated-proxy' | 'internal-unverified';
   limitation: string;
 }
 
@@ -271,6 +415,42 @@ export interface LegacyCalculationContext {
   message: string;
 }
 
+export type RecommendationConfidence =
+  | 'community-validated'
+  | 'official-validated'
+  | 'official-preliminary'
+  | 'incomplete-acquisition'
+  | 'evaluator-outdated';
+
+export interface RecommendationConfidenceReport {
+  status: RecommendationConfidence;
+  reasons: string[];
+}
+
+export interface CatalogueReadinessIssue {
+  code:
+    | 'incompatible-evaluator'
+    | 'missing-slot'
+    | 'invalid-item'
+    | 'nq-crafted-item'
+    | 'incomplete-acquisition'
+    | 'missing-icon'
+    | 'suspicious-item-count'
+    | 'suspicious-stat-jump'
+    | 'missing-curation';
+  severity: 'blocking' | 'warning';
+  message: string;
+  itemIds?: Array<number | string>;
+}
+
+export interface CatalogueReadinessReport {
+  status: 'ready' | 'preliminary' | 'blocked';
+  confidence: RecommendationConfidence;
+  issues: CatalogueReadinessIssue[];
+  checkedItemCount: number;
+  coveredSlots: GearSlot[];
+}
+
 export interface GearSet {
   id: string;
   origin: 'generated' | 'curated' | 'saved' | 'custom';
@@ -284,6 +464,7 @@ export interface GearSet {
   evaluation?: EvaluationMetadata;
   calculationContext?: CalculationContext;
   legacyCalculationContext?: LegacyCalculationContext;
+  recommendationConfidence?: RecommendationConfidenceReport;
   assumptions: string[];
   provenance: Provenance[];
   calculatedAt?: string;
@@ -325,6 +506,7 @@ export interface GearSnapshot {
   materia: Materia[];
   foods: Food[];
   curatedSets: GearSet[];
+  contentGraph?: ContentAccessGraph;
 }
 
 /** @deprecated Use GearSnapshot. Retained for compatibility with early prototype integrations. */
@@ -335,6 +517,14 @@ export interface OptimizerConstraints {
   minGcd: number;
   maxGcd: number;
   allowedSources: SourceFamily[];
+  /** Optional on legacy persisted workspaces; defaults to true when tomestone gear is enabled. */
+  includeUpgradedTomestoneGear?: boolean;
+  /** Optional on legacy persisted workspaces; defaults to true when crafted gear is enabled. */
+  includeAugmentedCraftedGear?: boolean;
+  /** Optional on legacy persisted workspaces; defaults to no item-level filtering. */
+  itemLevelMode?: 'any' | 'exact' | 'range';
+  minItemLevel?: number;
+  maxItemLevel?: number;
   requiredItemIds: Array<number | string>;
   excludedItemIds: Array<number | string>;
   frontierLimit: number;
@@ -347,6 +537,8 @@ export interface OptimizerConstraints {
   lockedFoodId?: number;
   allowedMateriaStats?: StatKey[];
   allowedMateriaTiers?: number[];
+  /** Identifies which available materia tiers the persisted selection was created against. */
+  materiaCatalogueVersion?: string;
   allowOvermelds?: boolean;
   allowCustomItems?: boolean;
   accessExpansion?: ExpansionId;
@@ -365,6 +557,11 @@ export interface ResolvedOptimizerConstraints extends OptimizerConstraints {
   allowOvermelds: boolean;
   allowCustomItems: boolean;
   allowExperimentalAccess: boolean;
+  includeUpgradedTomestoneGear: boolean;
+  includeAugmentedCraftedGear: boolean;
+  itemLevelMode: 'any' | 'exact' | 'range';
+  minItemLevel: number;
+  maxItemLevel: number;
 }
 
 export const resolveOptimizerConstraints = (
@@ -381,7 +578,12 @@ export const resolveOptimizerConstraints = (
   allowedMateriaTiers: constraints.allowedMateriaTiers ?? [...new Set(availableMateria.map((entry) => entry.tier))],
   allowOvermelds: constraints.allowOvermelds ?? false,
   allowCustomItems: constraints.allowCustomItems ?? true,
-  allowExperimentalAccess: constraints.allowExperimentalAccess ?? false
+  allowExperimentalAccess: constraints.allowExperimentalAccess ?? false,
+  includeUpgradedTomestoneGear: constraints.includeUpgradedTomestoneGear ?? true,
+  includeAugmentedCraftedGear: constraints.includeAugmentedCraftedGear ?? true,
+  itemLevelMode: constraints.itemLevelMode ?? 'any',
+  minItemLevel: constraints.minItemLevel ?? 1,
+  maxItemLevel: constraints.maxItemLevel ?? constraints.minItemLevel ?? 9999
 });
 
 export const emptyStats = (): StatBlock => ({
@@ -457,6 +659,109 @@ export const jobAvailableAtAccess = (
   if (!selectedExpansion || !jobExpansion || !modeExpansion) return false;
   return selectedExpansion.order >= Math.max(jobExpansion.order, modeExpansion.order) &&
     effectiveLevel(registry, expansion, selectedLevel) >= definition.minimumLevel;
+};
+
+const expansionAvailableAtAccess = (
+  registry: GameRegistry,
+  requiredExpansion: ExpansionId,
+  selectedExpansion: ExpansionId
+): boolean => {
+  const required = registry.expansions.find((entry) => entry.id === requiredExpansion);
+  const selected = registry.expansions.find((entry) => entry.id === selectedExpansion);
+  return Boolean(required && selected && required.order <= selected.order);
+};
+
+export const assessAcquisitionRoute = (
+  route: AcquisitionRoute,
+  registry: GameRegistry,
+  access: AccessProfile,
+  graph?: ContentAccessGraph
+): RouteAccessReport => {
+  const implicitRequirements: AcquisitionRequirement[] = [
+    {
+      kind: 'expansion',
+      expansionId: route.expansionId,
+      description: `${route.name} belongs to ${route.expansionId}.`
+    },
+    {
+      kind: 'level',
+      level: route.minimumLevel,
+      description: `${route.name} requires level ${route.minimumLevel}.`
+    }
+  ];
+  const requirements = [...implicitRequirements, ...route.requirements];
+  const unmetRequirements: AcquisitionRequirement[] = [];
+  const unknownRequirements: AcquisitionRequirement[] = [];
+
+  for (const requirement of requirements) {
+    if (requirement.kind === 'expansion') {
+      if (!requirement.expansionId || !expansionAvailableAtAccess(registry, requirement.expansionId, access.expansionId)) {
+        unmetRequirements.push(requirement);
+      }
+      continue;
+    }
+    if (requirement.kind === 'level') {
+      if (requirement.level === undefined || access.level < requirement.level) unmetRequirements.push(requirement);
+      continue;
+    }
+    if (requirement.kind === 'job') {
+      if (!access.job) unknownRequirements.push(requirement);
+      else if (!requirement.job || requirement.job !== access.job) unmetRequirements.push(requirement);
+      continue;
+    }
+    if (requirement.kind === 'manual') {
+      unknownRequirements.push(requirement);
+      continue;
+    }
+
+    if (!requirement.contentId) {
+      unknownRequirements.push(requirement);
+      continue;
+    }
+    const node = graph?.nodes.find((entry) => entry.id === requirement.contentId);
+    if (!node) {
+      unknownRequirements.push(requirement);
+      continue;
+    }
+    if (!expansionAvailableAtAccess(registry, node.expansionId, access.expansionId) ||
+      (node.level !== undefined && access.level < node.level)) {
+      unmetRequirements.push(requirement);
+      continue;
+    }
+    if (!access.completedContentIds) unknownRequirements.push(requirement);
+    else if (!access.completedContentIds.includes(requirement.contentId)) unmetRequirements.push(requirement);
+  }
+
+  const status = unmetRequirements.length > 0
+    ? 'blocked'
+    : unknownRequirements.length > 0 || route.status !== 'validated'
+      ? 'unknown'
+      : 'available';
+  return { status, route, unmetRequirements, unknownRequirements };
+};
+
+export const assessItemAccess = (
+  item: EquipmentItem,
+  registry: GameRegistry,
+  access: AccessProfile,
+  graph?: ContentAccessGraph
+): ItemAccessReport => {
+  const reasons: string[] = [];
+  const expansionId = item.expansionId ?? item.customData?.expansionId;
+  if (item.level > access.level) reasons.push(`${item.name} requires level ${item.level}.`);
+  if (expansionId && !expansionAvailableAtAccess(registry, expansionId, access.expansionId)) {
+    reasons.push(`${item.name} belongs to expansion ${expansionId}.`);
+  }
+  if (reasons.length > 0) return { status: 'blocked', item, routes: [], reasons };
+
+  const routes = (item.acquisitionRoutes ?? []).map((route) => assessAcquisitionRoute(route, registry, access, graph));
+  if (routes.some((route) => route.status === 'available')) return { status: 'available', item, routes, reasons };
+  if (routes.some((route) => route.status === 'unknown')) {
+    return { status: 'unknown', item, routes, reasons: ['Acquisition access is not fully known for this item.'] };
+  }
+  if (routes.length > 0) return { status: 'blocked', item, routes, reasons: ['No acquisition route is accessible.'] };
+  if (item.origin === 'custom') return { status: 'available', item, routes, reasons };
+  return { status: 'unknown', item, routes, reasons: ['No acquisition route is available in the active data.'] };
 };
 
 export interface RuntimeCompatibility {
@@ -569,11 +874,45 @@ export const assessSnapshotCompatibility = (
   for (const duplicate of duplicateValues(snapshot.evaluatorProfiles.map((entry) => entry.id))) {
     errors.push(`Duplicate evaluator profile ID ${duplicate}.`);
   }
+  for (const duplicate of duplicateValues(snapshot.items.map((entry) => String(entry.id)))) {
+    errors.push(`Duplicate item ID ${duplicate}.`);
+  }
 
   const expansionIds = new Set(registry.expansions.map((entry) => entry.id));
   const jobsById = new Map(registry.jobs.map((entry) => [entry.id, entry]));
   const rulesetsById = new Map(snapshot.rulesets.map((entry) => [entry.id, entry]));
   const profilesById = new Map(snapshot.evaluatorProfiles.map((entry) => [entry.id, entry]));
+  const contentIds = new Set(snapshot.contentGraph?.nodes.map((entry) => entry.id) ?? []);
+
+  if (snapshot.contentGraph) {
+    if (snapshot.contentGraph.schemaVersion !== 'content-access@1') {
+      errors.push(`Unsupported content graph schema ${snapshot.contentGraph.schemaVersion}.`);
+    }
+    for (const duplicate of duplicateValues(snapshot.contentGraph.nodes.map((entry) => entry.id))) {
+      errors.push(`Duplicate content node ID ${duplicate}.`);
+    }
+    for (const node of snapshot.contentGraph.nodes) {
+      if (!expansionIds.has(node.expansionId)) errors.push(`Content node ${node.id} references unknown expansion ${node.expansionId}.`);
+      for (const prerequisite of node.prerequisites) {
+        if (!contentIds.has(prerequisite)) errors.push(`Content node ${node.id} references missing prerequisite ${prerequisite}.`);
+      }
+    }
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const byId = new Map(snapshot.contentGraph.nodes.map((entry) => [entry.id, entry]));
+    const visit = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      const cyclic = (byId.get(id)?.prerequisites ?? []).some(visit);
+      visiting.delete(id);
+      visited.add(id);
+      return cyclic;
+    };
+    for (const node of snapshot.contentGraph.nodes) {
+      if (visit(node.id)) errors.push(`Content graph contains a prerequisite cycle involving ${node.id}.`);
+    }
+  }
 
   for (const ruleset of snapshot.rulesets) {
     if (ruleset.schemaVersion !== manifest.rulesetSchemaVersion) {
@@ -648,6 +987,42 @@ export const assessSnapshotCompatibility = (
   }
 
   for (const item of snapshot.items) {
+    if (!SOURCE_FAMILIES.includes(item.sourceFamily)) errors.push(`Item ${item.id} uses unsupported source family ${item.sourceFamily}.`);
+    if (item.expansionId && !expansionIds.has(item.expansionId)) errors.push(`Item ${item.id} references unknown expansion ${item.expansionId}.`);
+    if (item.sourceFamily === 'crafted' && item.quality !== 'hq') errors.push(`Crafted item ${item.id} is not explicitly HQ.`);
+    for (const duplicate of duplicateValues((item.acquisitionRoutes ?? []).map((entry) => entry.id))) {
+      errors.push(`Item ${item.id} has duplicate acquisition route ${duplicate}.`);
+    }
+    for (const route of item.acquisitionRoutes ?? []) {
+      if (!SOURCE_FAMILIES.includes(route.sourceFamily)) errors.push(`Item ${item.id} route ${route.id} uses unsupported source family ${route.sourceFamily}.`);
+      if (!expansionIds.has(route.expansionId)) errors.push(`Item ${item.id} route ${route.id} references unknown expansion ${route.expansionId}.`);
+      if (route.contentId && !contentIds.has(route.contentId)) errors.push(`Item ${item.id} route ${route.id} references missing content ${route.contentId}.`);
+      if (route.location) {
+        if (!route.location.name.trim()) errors.push(`Item ${item.id} route ${route.id} has an empty acquisition location name.`);
+        if ((route.location.x === undefined) !== (route.location.y === undefined)) {
+          errors.push(`Item ${item.id} route ${route.id} has incomplete acquisition coordinates.`);
+        }
+        if (route.location.x !== undefined && (
+          !Number.isFinite(route.location.x) || !Number.isFinite(route.location.y) ||
+          route.location.x < 0 || route.location.y! < 0
+        )) {
+          errors.push(`Item ${item.id} route ${route.id} has invalid acquisition coordinates.`);
+        }
+      }
+      for (const requirement of route.requirements) {
+        if (requirement.kind === 'content' && requirement.contentId && !contentIds.has(requirement.contentId)) {
+          errors.push(`Item ${item.id} route ${route.id} requires missing content ${requirement.contentId}.`);
+        }
+      }
+      for (const cost of route.costs) {
+        if (cost.amount !== undefined && (!Number.isFinite(cost.amount) || cost.amount < 0)) {
+          errors.push(`Item ${item.id} route ${route.id} has invalid cost ${cost.name}.`);
+        }
+        if (cost.valuation === 'fixed' && ['gil', 'currency', 'item'].includes(cost.kind) && cost.amount === undefined) {
+          errors.push(`Item ${item.id} route ${route.id} has a fixed ${cost.name} cost without an amount.`);
+        }
+      }
+    }
     for (const job of item.jobs) {
       if (!jobsById.has(job)) errors.push(`Item ${item.id} references unknown job ${job}.`);
     }

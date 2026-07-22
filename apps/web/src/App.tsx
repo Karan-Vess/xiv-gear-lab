@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { getCombatEvaluatorProfile, recalculateGearSet, zeroCaps } from '@xiv-gear-lab/calculations';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  getCombatEvaluatorProfileForAccess,
+  getCombatEvaluatorProfileForSet,
+  levelFormulaConstantsFor,
+  recalculateGearSet,
+  zeroCaps
+} from '@xiv-gear-lab/calculations';
 import {
   downloadSnapshotCandidate,
   gearSnapshot as bundledGearSnapshot,
@@ -8,9 +14,11 @@ import {
 import {
   effectiveLevel,
   emptyStats,
+  assessItemAccess,
   getEvaluatorCapability,
   gearSlotsForJob,
   jobAvailableAtAccess,
+  type AcquisitionCost,
   type CombatJob,
   type EquipmentItem,
   type EquippedItem,
@@ -24,7 +32,7 @@ import {
   type StatKey
 } from '@xiv-gear-lab/domain';
 import { exportToXivGearJson, XivGearExportError } from '@xiv-gear-lab/export';
-import type { OptimizerResult } from '@xiv-gear-lab/optimizer';
+import { assessCatalogueReadiness, type OptimizerResult } from '@xiv-gear-lab/optimizer';
 import {
   deleteCustomItem as deleteStoredCustomItem,
   deleteSavedSet,
@@ -41,13 +49,23 @@ import { ComparisonView } from './ComparisonView';
 import { OptimizerRules } from './OptimizerRules';
 import { derivedCombatStats, percentage } from './derived-stats';
 import { trustedExternalUrl } from './external-links';
-import { itemStatDisplay, materiaSlotDisplay } from './item-display';
+import { itemStatDisplay, materiaSlotDisplay, statLabel } from './item-display';
 import { equipmentSourceLabel, officialCloneItemGroups } from './item-options';
+import {
+  acquisitionCostIconUrl,
+  acquisitionLocationLabel,
+  acquisitionSourceIconUrl,
+  displayAcquisitionCosts,
+  displayRouteCosts,
+  groupAcquisitionRoutes
+} from './acquisition-display';
 import { communitySourcesForResult, resultMethodologyDescription } from './provenance-display';
 import { gearSetTimingDisplay } from './timing-display';
+import { normalizeUiScale, readUiScale, UI_SCALE_OPTIONS, writeUiScale, type UiScale } from './ui-preferences';
 import {
   BUILD_IDS,
   buildUsesItem,
+  constraintsForExpansion,
   copyBuildLoadout,
   createInitialBuildWorkspaceState,
   isBuildId,
@@ -63,10 +81,15 @@ import {
 let gearSnapshot = bundledGearSnapshot;
 let EXPANSIONS = gearSnapshot.registry.expansions;
 let SUPPORTED_JOBS = gearSnapshot.registry.jobs;
-const evaluatorProfileFor = (job: CombatJob) =>
-  getCombatEvaluatorProfile(job, gearSnapshot.evaluatorProfiles);
+const evaluatorProfileFor = (job: CombatJob, expansionId?: ExpansionId, level?: number) => {
+  const latest = gearSnapshot.registry.expansions.at(-1)!;
+  return expansionId && level !== undefined
+    ? getCombatEvaluatorProfileForAccess(job, gearSnapshot, expansionId, level)
+    : getCombatEvaluatorProfileForAccess(job, gearSnapshot, latest.id, latest.levelCap);
+};
+const evaluatorProfileForSet = (set: GearSet) => getCombatEvaluatorProfileForSet(set, gearSnapshot);
 
-type View = 'optimize' | 'community' | 'saved' | 'about';
+type View = 'optimize' | 'community' | 'saved' | 'settings' | 'about';
 type CustomDraft = {
   slot: GearSlot;
   name: string;
@@ -217,27 +240,28 @@ const getCustomItemLimits = (job: CombatJob, slot: GearSlot): CustomItemLimits =
 };
 
 const SOURCE_GROUPS: Array<{ id: string; sources: SourceFamily[]; label: string; detail: string }> = [
-  { id: 'savage', sources: ['savage'], label: 'Savage raid', detail: 'Grand Champion gear' },
+  { id: 'crafted', sources: ['crafted'], label: 'Crafted gear', detail: 'HQ equipment only' },
+  { id: 'normal', sources: ['normal-raid'], label: 'Normal raids', detail: 'Normal-mode raid drops and exchanges' },
+  { id: 'savage', sources: ['savage'], label: 'Savage raids', detail: 'Savage drops and exchanges' },
   {
     id: 'tomestone',
     sources: ['tomestone', 'tomestone-upgrade'],
     label: 'Tomestone gear',
-    detail: 'Bygone Brass and its augmented upgrades'
-  }
+    detail: 'Base and augmented tomestone equipment'
+  },
+  { id: 'dungeon', sources: ['dungeon'], label: 'Dungeons', detail: 'Dungeon equipment drops' },
+  { id: 'trial', sources: ['trial'], label: 'Trials', detail: 'Trial drops and totem exchanges' },
+  { id: 'alliance', sources: ['alliance-raid'], label: 'Alliance raids (24-player)', detail: 'Alliance raid drops and exchanges' },
+  { id: 'relic', sources: ['relic'], label: 'Relic equipment', detail: 'Versioned relic quest steps' },
+  { id: 'ultimate', sources: ['ultimate'], label: 'Ultimate raids', detail: 'Ultimate duty rewards and exchanges' },
+  { id: 'quest-vendor', sources: ['quest', 'vendor'], label: 'Quests and vendors', detail: 'Quest rewards and fixed-price vendors' },
+  { id: 'other', sources: ['other'], label: 'Other classified sources', detail: 'Additional validated acquisition families' }
 ];
 
 const ROLE_GROUPS: Array<{ role: JobRole; label: string }> = [
   { role: 'tank', label: 'Tanks' },
   { role: 'healer', label: 'Healers' },
   { role: 'dps', label: 'DPS' }
-];
-
-const UNAVAILABLE_SOURCE_OPTIONS = [
-  { id: 'alliance', label: 'Alliance raids (24-player)', detail: 'Not included in the current verified pool' },
-  { id: 'normal', label: 'Normal raids', detail: 'Not included in the current verified pool' },
-  { id: 'trials', label: 'Trials', detail: 'Not included in the current verified pool' },
-  { id: 'dungeons', label: 'Dungeons', detail: 'Not included in the current verified pool' },
-  { id: 'crafted', label: 'Crafted gear', detail: 'Not included in the current verified pool' }
 ];
 
 const slotLabel: Record<GearSlot, string> = {
@@ -255,14 +279,24 @@ const slotLabel: Record<GearSlot, string> = {
   ringRight: 'Right ring'
 };
 
+const currentSourceSlotCoverage = (items: EquipmentItem[]) => {
+  const slots = [...new Set(items.map((item) => item.slot))];
+  if (slots.length === 1 && slots[0] === 'weapon') return 'Current pool: weapons only';
+  if (slots.every((slot) => ['head', 'body', 'hands', 'legs', 'feet'].includes(slot))) return 'Current pool: armour only';
+  const labels = slots.map((slot) => slot === 'ring' ? 'rings' : slotLabel[slot]).filter(Boolean);
+  return `Current slots: ${labels.join(', ')}`;
+};
+
 const formatNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
 const sourceLabel = (source?: SourceFamily) => {
-  if (source === 'savage') return 'Savage';
-  if (source === 'tomestone-upgrade') return 'Tome upgrade';
-  if (source === 'tomestone') return 'Tomestone';
-  if (source === 'custom') return 'Custom';
-  return 'Unknown';
+  return source ? equipmentSourceLabel(source) : 'Unknown source';
+};
+
+const acquisitionCostLabel = (cost: NonNullable<EquipmentItem['acquisitionRoutes']>[number]['costs'][number]) => {
+  if (cost.kind === 'variable') return `${cost.name} (user-valued)`;
+  const amount = cost.amount === undefined ? '' : `${formatNumber.format(cost.amount)} `;
+  return `${amount}${cost.name}`.trim();
 };
 
 const curatedProviderLabel = (set: GearSet) => {
@@ -287,6 +321,11 @@ const defaultConstraints: OptimizerConstraints = {
   minGcd: 2.41,
   maxGcd: 2.41,
   allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+  includeUpgradedTomestoneGear: true,
+  includeAugmentedCraftedGear: true,
+  itemLevelMode: 'any',
+  minItemLevel: 780,
+  maxItemLevel: 790,
   requiredItemIds: [],
   excludedItemIds: [],
   frontierLimit: 1_800,
@@ -297,6 +336,7 @@ const defaultConstraints: OptimizerConstraints = {
   foodMode: 'allowed',
   allowedMateriaStats: [...new Set(gearSnapshot.materia.map((entry) => entry.stat))],
   allowedMateriaTiers: [...new Set(gearSnapshot.materia.map((entry) => entry.tier))],
+  materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3',
   allowOvermelds: false,
   allowCustomItems: true,
   allowExperimentalAccess: false
@@ -392,7 +432,7 @@ function RuntimeDataStatus({
 
 function StatStrip({ set }: { set: GearSet }) {
   const stats = set.metrics.stats;
-  const profile = evaluatorProfileFor(set.job);
+  const profile = evaluatorProfileForSet(set);
   const timing = gcdTimingForSet(set);
   const secondary: [string, number] = profile.resourceStat
     ? [profile.resourceStatAbbreviation!, stats[profile.resourceStat]]
@@ -419,8 +459,9 @@ function StatStrip({ set }: { set: GearSet }) {
 }
 
 function DerivedStatStrip({ set }: { set: GearSet }) {
-  const derived = derivedCombatStats(set.metrics.stats);
-  const role = evaluatorProfileFor(set.job).role;
+  const profile = evaluatorProfileForSet(set);
+  const derived = derivedCombatStats(set.metrics.stats, levelFormulaConstantsFor(profile));
+  const role = profile.role;
   return (
     <div className="derived-stat-strip" aria-label="Derived combat stat effects">
       <div><span>Critical Hit</span><strong>{percentage(derived.criticalChance)} chance · {percentage(derived.criticalDamage)} damage</strong></div>
@@ -432,8 +473,114 @@ function DerivedStatStrip({ set }: { set: GearSet }) {
   );
 }
 
+function AcquisitionCostList({ costs }: { costs: AcquisitionCost[] }) {
+  return (
+    <span className="acquisition-costs">
+      {costs.map((cost) => {
+        const matchingItem = gearSnapshot.items.find((candidate) => candidate.name === cost.name);
+        const costIcon = acquisitionCostIconUrl(cost) ?? matchingItem?.iconUrl;
+        return (
+          <span className="acquisition-cost" title={acquisitionCostLabel(cost)} key={`${cost.kind}:${cost.name}:${cost.amount}`}>
+            {costIcon && <span className="acquisition-cost-icon"><SafeIcon src={costIcon} /></span>}
+            <b>{formatNumber.format(cost.amount!)}</b>
+            {!costIcon && <small>{cost.name}</small>}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+const compactRouteLabel = (routeId: string, fallback: string) => {
+  if (routeId.startsWith('savage-coffer:')) return 'Coffer drop';
+  if (routeId.startsWith('savage-book-exchange:')) return 'Book exchange';
+  if (routeId.startsWith('tomestone-upgrade-savage:')) return 'Tomestone upgrade';
+  if (routeId.startsWith('tomestone-upgrade-catchup:')) return 'Alliance / hunt material';
+  if (routeId.startsWith('mnemonics-vendor:')) return 'Purchase';
+  if (routeId.startsWith('alliance-windurst-drop:')) return 'Treasure drop';
+  if (routeId.startsWith('normal-heavyweight-exchange:')) return 'Token exchange';
+  if (routeId.startsWith('crafted-courtly-hq:')) return 'Craft / market';
+  if (routeId.startsWith('crafted-courtly-augmentation:')) return 'Equipment exchange';
+  if (routeId.startsWith('dungeon-clyteum-drop:')) return 'Treasure drop';
+  if (routeId.startsWith('trial-runaway-drop:')) return 'Weapon drop';
+  if (routeId.startsWith('trial-runaway-exchange:')) return 'Totem exchange';
+  if (routeId.startsWith('relic-phantom-obscurum-quest:')) return 'First weapon quest';
+  if (routeId.startsWith('relic-phantom-obscurum-repeat:')) return 'Repeat exchange';
+  if (routeId.startsWith('relic-mandervillous-upgrade:')) return 'Relic upgrade';
+  if (routeId.startsWith('trial-unmaking-drop:')) return 'Weapon drop';
+  if (routeId.startsWith('trial-naught-exchange:') || routeId.startsWith('ultimate-palazzo-exchange:')) return 'Totem exchange';
+  return fallback;
+};
+
+function AcquisitionCell({ item }: { item?: EquipmentItem }) {
+  if (!item) return <div className="acquisition-cell unavailable"><small className="acquisition-heading">Acquisition</small><span>Unavailable</span></div>;
+  const costs = displayAcquisitionCosts(item, gearSnapshot.items);
+  const routes = item.acquisitionRoutes ?? [];
+  const routeGroups = groupAcquisitionRoutes(routes);
+  const references = [...new Map(routes.flatMap((route) => route.provenance)
+    .filter((entry) => entry.sourceUrl)
+    .map((entry) => [entry.sourceUrl!, entry])).values()];
+  const sourceIcon = acquisitionSourceIconUrl(item.sourceFamily);
+  const customCost = item.customData?.fixedCost.trim();
+  return (
+    <div className="acquisition-cell" data-acquisition-column={item.id}>
+      <small className="acquisition-heading">Acquisition</small>
+      <details className="acquisition-popover" data-acquisition-routes={item.id}>
+        <summary aria-label={`Show acquisition details for ${item.name}`}>
+          <span className="acquisition-source-icon" title={sourceLabel(item.sourceFamily)}><SafeIcon src={sourceIcon} /></span>
+          {costs.length > 0
+            ? <AcquisitionCostList costs={costs} />
+            : <span className="acquisition-no-cost">{customCost || (routes.length > 0 ? 'Drop / route' : 'Unknown')}</span>}
+        </summary>
+        <div className="acquisition-detail-box">
+          {item.origin === 'custom' ? (
+            <div className="acquisition-route-detail">
+              <strong>{sourceLabel(item.sourceFamily)}</strong>
+              <span>{item.acquisitionNote}</span>
+              {customCost && <small>Recorded cost: {customCost}</small>}
+            </div>
+          ) : routeGroups.length > 0 ? routeGroups.map((group) => {
+            const firstRoute = group.routes[0]!;
+            const location = acquisitionLocationLabel(firstRoute.location);
+            return (
+              <div className="acquisition-route-detail" key={group.key}>
+                <strong>{location ?? firstRoute.name}</strong>
+                <div className="acquisition-route-options">
+                  {group.routes.map((route) => {
+                    const routeCosts = displayRouteCosts(route, gearSnapshot.items);
+                    const qualifiers = [
+                      route.frequency === 'weekly' ? 'Weekly' : undefined,
+                      route.status === 'partial' ? 'Partial' : undefined
+                    ].filter(Boolean).join(' · ');
+                    return (
+                      <div className="acquisition-route-option" key={route.id} title={route.note}>
+                        <span>{compactRouteLabel(route.id, route.name)}</span>
+                        {routeCosts.length > 0 && <AcquisitionCostList costs={routeCosts} />}
+                        {qualifiers && <small>{qualifiers}</small>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }) : <div className="acquisition-route-detail"><span>No acquisition route is available in the active data.</span></div>}
+          {references.length > 0 && (
+            <div className="acquisition-references">
+              {references.map((reference) => (
+                <SafeExternalLink href={reference.sourceUrl} key={reference.sourceUrl}>
+                  {references.length === 1 ? 'Reference ↗' : `${reference.provider} ↗`}
+                </SafeExternalLink>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function ResultMethodology({ set, customItems }: { set: GearSet; customItems: EquipmentItem[] }) {
-  const role = evaluatorProfileFor(set.job).role;
+  const role = evaluatorProfileForSet(set).role;
   const equippedItems = gearSlotsForJob(set.job)
     .map((slot) => set.items[slot])
     .map((equipped) => equipped ? findItem(equipped.itemId, customItems) : undefined)
@@ -524,7 +671,7 @@ function SetDetails({
           <h2 id="set-heading">{set.name}</h2>
           {set.evaluation && (
             <span className="evaluation-note" title={`${set.evaluation.objective} ${set.evaluation.limitation}`}>
-              {set.evaluation.profileId} · reference-validated proxy
+              {set.evaluation.profileId} · {set.evaluation.confidence === 'reference-validated-proxy' ? 'reference-validated proxy' : 'internal preliminary proxy'}
             </span>
           )}
           <span className="gcd-state-note">
@@ -542,9 +689,14 @@ function SetDetails({
               Hypothetical access override · {set.hypotheticalAccess.reason}
             </span>
           )}
+          {set.recommendationConfidence && (
+            <span className={`confidence-badge ${set.recommendationConfidence.status}`} data-recommendation-confidence>
+              {set.recommendationConfidence.status.replaceAll('-', ' ')}
+            </span>
+          )}
           {previousSet && (
             <span className="change-legend">
-              {gearChanged || foodChanged ? 'Highlighted rows changed since the previous optimisation.' : 'No item, meld, or food changes since the previous optimisation.'}
+              {gearChanged || foodChanged ? 'Highlighted rows changed from the previously displayed set.' : 'No item, meld, or food changes from the previously displayed set.'}
             </span>
           )}
         </div>
@@ -566,6 +718,13 @@ function SetDetails({
       <DerivedStatStrip set={set} />
 
       <div className="equipment-list">
+        <div className="equipment-columns" aria-hidden="true">
+          <span />
+          <span />
+          <span>Item</span>
+          <span>Materia</span>
+          <span>Acquisition</span>
+        </div>
         {gearSlots.map((slot) => {
           const equipped = set.items[slot];
           const item = equipped ? findItem(equipped.itemId, customItems) : undefined;
@@ -573,11 +732,12 @@ function SetDetails({
           const previousItem = previousEquipped ? findItem(previousEquipped.itemId, customItems) : undefined;
           const itemChanged = Boolean(previousSet && String(previousEquipped?.itemId) !== String(equipped?.itemId));
           const meldsChanged = Boolean(previousSet && JSON.stringify(previousEquipped?.materiaIds ?? []) !== JSON.stringify(equipped?.materiaIds ?? []));
+          const relicStatsChanged = Boolean(previousSet && JSON.stringify(previousEquipped?.relicStats ?? {}) !== JSON.stringify(equipped?.relicStats ?? {}));
           const displayedMateriaSlots = item && equipped
-            ? materiaSlotDisplay(item, equipped.materiaIds, gearSnapshot.materia)
+            ? materiaSlotDisplay(item, equipped.materiaIds, gearSnapshot.materia, equipped.relicStats)
             : [];
           return (
-            <div className={`equipment-row ${itemChanged || meldsChanged ? 'changed' : ''}`} key={slot}>
+            <div className={`equipment-row ${itemChanged || meldsChanged || relicStatsChanged ? 'changed' : ''}`} key={slot}>
               <span className="slot-name">{slotLabel[slot]}</span>
               <div className="item-icon-wrap" aria-hidden="true">
                 <SafeIcon src={item?.iconUrl} />
@@ -593,7 +753,7 @@ function SetDetails({
                 {item && (
                   <span className="item-stat-line" data-item-stats title="Final stats contributed by this item after its displayed materia; food and party bonuses are not included">
                     <b className="item-stat-heading">Final item stats</b>
-                    {itemStatDisplay(item, equipped?.materiaIds, gearSnapshot.materia).map((stat) => (
+                    {itemStatDisplay(item, equipped?.materiaIds, gearSnapshot.materia, equipped?.relicStats).map((stat) => (
                       <span className="item-stat" data-item-stat-key={stat.key} key={stat.key}><b>{stat.label}</b> {stat.value}</span>
                     ))}
                   </span>
@@ -606,28 +766,45 @@ function SetDetails({
                     <button type="button" className="ghost compact" data-equipped-custom-unequip={item.id} onClick={() => onUnequipCustom(item)}>Unequip</button>
                   </div>
                 )}
-                <div className="meld-stack">
-                  {displayedMateriaSlots.length > 0 && <small className="meld-heading">Materia slots</small>}
-                  <div className="melds" aria-label={`${displayedMateriaSlots.length} materia slots`}>
-                    {displayedMateriaSlots.map((slot) => {
-                      const materia = slot.materia;
-                      return (
-                        <span
-                          className={`materia-chip ${materia ? '' : 'empty'} ${slot.advanced ? 'advanced' : ''}`}
-                          key={`${materia?.id ?? 'empty'}-${slot.index}`}
-                          title={materia ? `${slot.advanced ? 'Advanced meld · ' : ''}${materia.name}: ${slot.statLabel} +${slot.applied}${slot.waste > 0 ? ` (${slot.waste} wasted at cap)` : ''}` : `${slot.advanced ? 'Advanced meld' : 'Materia'} slot ${slot.index + 1}: empty`}
-                          aria-label={materia ? `Slot ${slot.index + 1}, ${materia.name}, adds ${slot.applied} ${slot.statLabel}` : `Materia slot ${slot.index + 1}, empty`}
-                        >
-                          <span className="meld-icon">{materia ? <SafeIcon src={materia.iconUrl} /> : <span className="empty-meld-icon" aria-hidden="true">◇</span>}</span>
-                          <small className="materia-key" aria-hidden="true">{materia ? `${materiaShortKey(materia)}${slot.advanced ? ' · O' : ''}` : 'Empty'}</small>
-                          {materia && <small className="materia-contribution" aria-hidden="true">{slot.statLabel} +{slot.applied}</small>}
-                        </span>
-                      );
-                    })}
-                  </div>
-                  {meldsChanged && <small className="previous-melds">was {materiaShortList(previousEquipped?.materiaIds ?? []) || 'none'}</small>}
+                <div className={`meld-stack ${equipped?.relicStats ? 'relic-stat-stack' : ''}`}>
+                  {equipped?.relicStats ? (
+                    <>
+                      <small className="meld-heading">Relic stats</small>
+                      <div className="relic-stat-chips" aria-label="Allocated relic stats">
+                        {Object.entries(equipped.relicStats).filter(([, value]) => value).map(([stat, value]) => (
+                          <span className="relic-stat-chip" data-relic-stat={stat} key={stat}>
+                            <b>{statLabel[stat as StatKey]}</b>
+                            <small>+{value}</small>
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {displayedMateriaSlots.length > 0 && <small className="meld-heading">Materia slots</small>}
+                      <div className="melds" aria-label={`${displayedMateriaSlots.length} materia slots`}>
+                        {displayedMateriaSlots.map((slot) => {
+                          const materia = slot.materia;
+                          return (
+                            <span
+                              className={`materia-chip ${materia ? '' : 'empty'} ${slot.advanced ? 'advanced' : ''}`}
+                              key={`${materia?.id ?? 'empty'}-${slot.index}`}
+                              title={materia ? `${slot.advanced ? 'Advanced meld · ' : ''}${materia.name}: ${slot.statLabel} +${slot.applied}${slot.waste > 0 ? ` (${slot.waste} wasted at cap)` : ''}` : `${slot.advanced ? 'Advanced meld' : 'Materia'} slot ${slot.index + 1}: empty`}
+                              aria-label={materia ? `Slot ${slot.index + 1}, ${materia.name}, adds ${slot.applied} ${slot.statLabel}` : `Materia slot ${slot.index + 1}, empty`}
+                            >
+                              <span className="meld-icon">{materia ? <SafeIcon src={materia.iconUrl} /> : <span className="empty-meld-icon" aria-hidden="true">◇</span>}</span>
+                              <small className="materia-key" aria-hidden="true">{materia ? `${materiaShortKey(materia)}${slot.advanced ? ' · O' : ''}` : 'Empty'}</small>
+                              {materia && <small className="materia-contribution" aria-hidden="true">{slot.statLabel} +{slot.applied}</small>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      {meldsChanged && <small className="previous-melds">was {materiaShortList(previousEquipped?.materiaIds ?? []) || 'none'}</small>}
+                    </>
+                  )}
                 </div>
               </div>
+              <AcquisitionCell item={item} />
             </div>
           );
         })}
@@ -695,6 +872,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     message: 'Ready to search the verified current-tier pool.'
   }), []);
   const [view, setView] = useState<View>('optimize');
+  const [uiScale, setUiScale] = useState<UiScale>(() => readUiScale(typeof window === 'undefined' ? undefined : window.localStorage));
   const [workspaceState, setWorkspaceState] = useState<BuildWorkspaceState>(initialWorkspaceState);
   const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
   const [savedSets, setSavedSets] = useState<GearSet[]>([]);
@@ -712,6 +890,19 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const [dataUpdateState, setDataUpdateState] = useState<'idle' | 'checking' | 'error'>('idle');
   const [dataUpdateMessage, setDataUpdateMessage] = useState(dataRuntime.configurationMessage ?? dataRuntime.active.fallbackReason);
   const workerRef = useRef<{ worker: Worker; buildId: BuildId } | null>(null);
+
+  useEffect(() => {
+    writeUiScale(window.localStorage, uiScale);
+    const bridge = (window as Window & {
+      xivGearLab?: { setUiScale?: (percentage: number) => number };
+    }).xivGearLab;
+    if (bridge?.setUiScale) {
+      document.documentElement.style.removeProperty('zoom');
+      bridge.setUiScale(uiScale);
+    } else {
+      document.documentElement.style.setProperty('zoom', String(uiScale / 100));
+    }
+  }, [uiScale]);
 
   const activeBuildId = workspaceState.activeBuildId;
   const activeBuild = workspaceState.builds[activeBuildId];
@@ -738,7 +929,58 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       : next
   }));
 
-  const setExpansion = (next: ExpansionId) => setBuildField('expansion', next);
+  const setExpansion = (next: ExpansionId) => {
+    const pending = workerRef.current;
+    pending?.worker.terminate();
+    if (pending) workerRef.current = null;
+    updateBuildById(activeBuildId, (build) => {
+      const nextLevel = effectiveLevel(gearSnapshot.registry, next, build.level);
+      const currentJobRemainsAvailable = jobAvailableAtAccess(gearSnapshot.registry, build.job, next, nextLevel);
+      const nextJob = currentJobRemainsAvailable
+        ? build.job
+        : SUPPORTED_JOBS.find((definition) =>
+          jobAvailableAtAccess(gearSnapshot.registry, definition.id, next, nextLevel) &&
+          getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available'
+        )?.id ?? build.job;
+      const nextProfile = evaluatorProfileFor(nextJob, next, nextLevel);
+      const expansionOrder = new Map(gearSnapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
+      const nextOrder = expansionOrder.get(next) ?? -1;
+      const supportsAccess = (entry: { expansionId?: ExpansionId; requiredLevel?: number }) =>
+        (entry.requiredLevel === undefined || entry.requiredLevel <= nextLevel) &&
+        (entry.expansionId === undefined || (expansionOrder.get(entry.expansionId) ?? Number.MAX_SAFE_INTEGER) <= nextOrder);
+      const availableMateriaTiers = [...new Set(gearSnapshot.materia
+        .filter((entry) => nextProfile.meldStats.includes(entry.stat) && supportsAccess(entry))
+        .map((entry) => entry.tier))]
+        .sort((left, right) => right - left);
+      const availableFoods = gearSnapshot.foods.filter(supportsAccess);
+      const lockedFoodIsAvailable = availableFoods.some((food) => food.id === build.constraints.lockedFoodId);
+      const nextConstraints = constraintsForExpansion(build.constraints, {
+        minimumResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0,
+        materiaTiers: availableMateriaTiers,
+        lockedFoodIsAvailable,
+        hasAvailableFood: availableFoods.length > 0,
+        materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3'
+      });
+      const expansionName = gearSnapshot.registry.expansions.find((entry) => entry.id === next)?.name ?? next;
+      const nextJobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === nextJob)!;
+      const nextReferenceSet = gearSnapshot.curatedSets.find((set) => set.job === nextJob);
+      const materiaLabel = nextConstraints.allowedMateriaTiers?.length
+        ? `Grade ${nextConstraints.allowedMateriaTiers.join('/')}`
+        : 'no materia';
+      return {
+        ...build,
+        expansion: next,
+        job: nextJob,
+        gcdTarget: nextJob === build.job ? build.gcdTarget : nextJobDefinition.defaultGcdTarget.toFixed(2),
+        selectedSet: nextJob === build.job || !nextReferenceSet ? build.selectedSet : nextReferenceSet,
+        constraints: nextConstraints,
+        result: undefined,
+        previousOptimizedSet: undefined,
+        runState: 'idle',
+        message: `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).`
+      };
+    });
+  };
   const setLevel = (next: number) => setBuildField('level', next);
   const setConstraints = (next: OptimizerConstraints | ((current: OptimizerConstraints) => OptimizerConstraints)) => setBuildField('constraints', next);
   const setGcdTarget = (next: string) => setBuildField('gcdTarget', next);
@@ -787,8 +1029,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   }, [workspaceHydrated, workspaceState, savedSets]);
 
   const activeLevel = effectiveLevel(gearSnapshot.registry, expansion, level);
+  const catalogueReadiness = useMemo(() => assessCatalogueReadiness(gearSnapshot, job, {
+    accessExpansion: expansion,
+    accessLevel: activeLevel
+  }), [activeLevel, expansion, job]);
   const jobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === job)!;
-  const evaluatorProfile = evaluatorProfileFor(job);
+  const evaluatorProfile = evaluatorProfileFor(job, expansion, activeLevel);
   const evaluatorRuleset = gearSnapshot.rulesets.find((entry) => entry.id === evaluatorProfile.rulesetId);
   const customEvaluatorProfile = evaluatorProfileFor(customJob);
   const customItemLimits = useMemo(
@@ -814,7 +1060,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const referenceSet = gearSnapshot.curatedSets.find((set) => set.job === fallback.id);
     setJob(fallback.id);
     setGcdTarget(fallback.defaultGcdTarget.toFixed(2));
-    const fallbackProfile = evaluatorProfileFor(fallback.id);
+    const fallbackProfile = evaluatorProfileFor(fallback.id, expansion, activeLevel);
     setConstraints((current) => ({
       ...current,
       minResource: fallbackProfile.resourceStat ? fallbackProfile.baseStats[fallbackProfile.resourceStat] : 0
@@ -836,7 +1082,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       return;
     }
     const referenceSet = gearSnapshot.curatedSets.find((set) => set.job === nextJob);
-    const nextProfile = evaluatorProfileFor(nextJob);
+    const nextProfile = evaluatorProfileFor(nextJob, expansion, activeLevel);
     setJob(nextJob);
     setGcdTarget(definition.defaultGcdTarget.toFixed(2));
     setConstraints((current) => ({
@@ -860,6 +1106,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   };
 
   const runOptimizer = () => {
+    if (catalogueReadiness.status === 'blocked') {
+      const blocking = catalogueReadiness.issues.filter((issue) => issue.severity === 'blocking');
+      setRunState('error');
+      setMessage(`The active catalogue is not safe to optimise: ${blocking.map((issue) => issue.message).join(' ')}`);
+      return;
+    }
     if (!evaluatorRuleset || activeLevel < evaluatorRuleset.minimumLevel || activeLevel > evaluatorRuleset.maximumLevel) {
       setRunState('error');
       setMessage(evaluatorRuleset
@@ -870,6 +1122,21 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     if (constraints.allowedSources.length === 0) {
       setRunState('error');
       setMessage('Choose at least one acquisition source. Even an ethereal orb cannot equip pure optimism.');
+      return;
+    }
+    const itemLevelMode = constraints.itemLevelMode ?? 'any';
+    const minimumItemLevel = Number(constraints.minItemLevel ?? 1);
+    const maximumItemLevel = itemLevelMode === 'exact'
+      ? minimumItemLevel
+      : Number(constraints.maxItemLevel ?? minimumItemLevel);
+    if (
+      itemLevelMode !== 'any' && (
+        !Number.isFinite(minimumItemLevel) || !Number.isFinite(maximumItemLevel) ||
+        minimumItemLevel < 1 || maximumItemLevel < 1 || minimumItemLevel > maximumItemLevel
+      )
+    ) {
+      setRunState('error');
+      setMessage('Enter a valid positive item level, with the minimum no higher than the maximum.');
       return;
     }
     const gcdMode = constraints.gcdMode ?? 'exact';
@@ -900,6 +1167,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     };
 
     const runBuildId = activeBuildId;
+    const comparisonBaseline = structuredClone(selectedSet);
     const priorWorker = workerRef.current;
     priorWorker?.worker.terminate();
     if (priorWorker) {
@@ -923,12 +1191,11 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     worker.onmessage = (event: MessageEvent) => {
       if (event.data.type === 'result') {
         const next = event.data.result as OptimizerResult;
-        const previousBest = result?.best;
         updateBuildById(runBuildId, (build) => ({
           ...build,
           result: next,
           runState: 'done',
-          previousOptimizedSet: next.best ? previousBest : undefined,
+          previousOptimizedSet: next.best ? comparisonBaseline : undefined,
           selectedSet: next.best ?? build.selectedSet,
           message: next.best
             ? next.speedFallback
@@ -995,7 +1262,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   };
 
   const recalculateWithCustomItems = (set: GearSet, items: EquipmentItem[]) => {
-    const profile = evaluatorProfileFor(set.job);
+    const profile = evaluatorProfileForSet(set);
     const ruleset = gearSnapshot.rulesets.find((entry) => entry.id === profile.rulesetId);
     if (!ruleset) throw new Error(`Missing calculation ruleset ${profile.rulesetId}.`);
     return recalculateGearSet(
@@ -1416,6 +1683,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       assumptions: [...selectedSet.assumptions.filter((entry) => entry !== `Custom override in ${slotLabel[customSlot]}.`), `Custom override in ${slotLabel[customSlot]}.`]
     };
     setCustomItems(nextItems);
+    setConstraints((current) => ({ ...current, allowCustomItems: true }));
     setCustomFallbacks((current) => ({ ...current, [String(custom.id)]: { slot: customSlot, equipped: fallback } }));
     setSelectedSet(withHypotheticalAccess(recalculateWithCustomItems(replaced, nextItems), nextItems, expansion, activeLevel));
     setResult(undefined);
@@ -1451,6 +1719,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       items: { ...selectedSet.items, [slot]: { itemId: item.id, materiaIds: [] } }
     };
     setCustomFallbacks((current) => ({ ...current, [String(item.id)]: { slot, equipped: fallback } }));
+    setConstraints((current) => ({ ...current, allowCustomItems: true }));
     setSelectedSet(withHypotheticalAccess(recalculateWithCustomItems(replaced, customItems), customItems, expansion, activeLevel));
     setResult(undefined);
     setPreviousOptimizedSet(undefined);
@@ -1634,7 +1903,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       workerRef.current.worker.terminate();
       workerRef.current = null;
     }
-    const profile = evaluatorProfileFor(activeBuild.job);
+    const profile = evaluatorProfileFor(activeBuild.job, activeBuild.expansion, effectiveLevel(gearSnapshot.registry, activeBuild.expansion, activeBuild.level));
     const minimumResource = profile.resourceStat ? profile.baseStats[profile.resourceStat] : 0;
     setWorkspaceState((current) => copyBuildLoadout(current, activeBuildId, targetId, minimumResource));
   };
@@ -1645,7 +1914,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       workerRef.current = null;
     }
     const definition = SUPPORTED_JOBS.find((entry) => entry.id === set.job);
-    const profile = evaluatorProfileFor(set.job);
+    const profile = evaluatorProfileForSet(set);
     updateBuildById(activeBuildId, (build) => ({
       ...build,
       job: set.job,
@@ -1676,6 +1945,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
             ['optimize', 'Optimise', '⌁'],
             ['community', 'Community sets', '✦'],
             ['saved', 'Saved locally', '◇'],
+            ['settings', 'Settings', 'Aa'],
             ['about', 'Data & sources', 'ⓘ']
           ] as Array<[View, string, string]>).map(([id, label, icon]) => (
             <button className={view === id ? 'active' : ''} onClick={() => setView(id)} key={id}>
@@ -1701,11 +1971,11 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         <header className="topbar">
           <div>
             <p className="eyebrow">Unfinished preview · Windows-first prototype · browser-capable core</p>
-            <h1>{view === 'optimize' ? 'Build around how you actually play.' : view === 'community' ? 'Current community reference sets' : view === 'saved' ? 'Your locally saved sets' : 'Data, provenance, and limits'}</h1>
+            <h1>{view === 'optimize' ? 'Build around how you actually play.' : view === 'community' ? 'Current community reference sets' : view === 'saved' ? 'Your locally saved sets' : view === 'settings' ? 'Make the interface comfortable.' : 'Data, provenance, and limits'}</h1>
           </div>
           <div className="top-actions">
             <button className="ghost" data-custom-library-open onClick={openCustomManager} disabled={!selectedSet}>Custom items{customItems.length > 0 ? ` · ${customItems.length}` : ''}</button>
-            <button className="ghost" onClick={saveCurrent}>Save {activeBuild.name}</button>
+            <button className="ghost" data-save-active-build onClick={saveCurrent}>Save {activeBuild.name}</button>
             <button className="primary small" onClick={prepareExport}>Export {activeBuild.name}</button>
           </div>
         </header>
@@ -1822,19 +2092,105 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
 
                   <fieldset>
                     <legend>Allowed acquisition</legend>
-                    {SOURCE_GROUPS.map((source) => (
-                      <label className="check-row" key={source.id}>
-                        <input type="checkbox" checked={source.sources.every((entry) => constraints.allowedSources.includes(entry))} onChange={(event) => setSourceAllowed(source.sources, event.target.checked)} />
-                        <span><strong>{source.label}</strong><small>{source.detail}</small></span>
+                    <div className={`catalogue-readiness ${catalogueReadiness.status}`} data-catalogue-readiness={catalogueReadiness.status}>
+                      <strong>{catalogueReadiness.status === 'ready' ? 'Catalogue ready' : catalogueReadiness.status === 'preliminary' ? 'Preliminary catalogue' : 'Catalogue blocked'}</strong>
+                      <span>{catalogueReadiness.checkedItemCount} official {job} items checked Â· {catalogueReadiness.coveredSlots.length}/{gearSlotsForJob(job).length} slots covered</span>
+                      {catalogueReadiness.issues.map((issue) => <small key={`${issue.code}:${issue.message}`}>{issue.severity === 'blocking' ? 'Blocked' : 'Notice'} Â· {issue.message}</small>)}
+                    </div>
+                    <div className="item-level-constraint" data-item-level-constraint>
+                      <label>Individual item level
+                        <select
+                          data-item-level-mode
+                          value={constraints.itemLevelMode ?? 'any'}
+                          onChange={(event) => setConstraints((current) => ({
+                            ...current,
+                            itemLevelMode: event.target.value as 'any' | 'exact' | 'range'
+                          }))}
+                        >
+                          <option value="any">Any item level</option>
+                          <option value="exact">Exact item level</option>
+                          <option value="range">Item-level range</option>
+                        </select>
                       </label>
-                    ))}
-                    {UNAVAILABLE_SOURCE_OPTIONS.map((source) => (
-                      <label className="check-row unavailable" key={source.id} title="Planned for a broader data-pool milestone">
-                        <input type="checkbox" disabled />
-                        <span><strong>{source.label}<em>Not in pool</em></strong><small>{source.detail}</small></span>
-                      </label>
-                    ))}
-                    {constraints.allowedSources.length === 1 && constraints.allowedSources[0] === 'savage' && (
+                      {(constraints.itemLevelMode ?? 'any') === 'exact' && (
+                        <label>Exact
+                          <input
+                            data-item-level-exact
+                            type="number"
+                            min="1"
+                            max="9999"
+                            step="1"
+                            value={constraints.minItemLevel ?? 780}
+                            onChange={(event) => setConstraints((current) => ({
+                              ...current,
+                              minItemLevel: Number(event.target.value),
+                              maxItemLevel: Number(event.target.value)
+                            }))}
+                          />
+                        </label>
+                      )}
+                      {(constraints.itemLevelMode ?? 'any') === 'range' && (
+                        <div className="item-level-range">
+                          <label>Minimum
+                            <input data-item-level-min type="number" min="1" max="9999" step="1" value={constraints.minItemLevel ?? 780} onChange={(event) => setConstraints((current) => ({ ...current, minItemLevel: Number(event.target.value) }))} />
+                          </label>
+                          <label>Maximum
+                            <input data-item-level-max type="number" min="1" max="9999" step="1" value={constraints.maxItemLevel ?? 790} onChange={(event) => setConstraints((current) => ({ ...current, maxItemLevel: Number(event.target.value) }))} />
+                          </label>
+                        </div>
+                      )}
+                      <small>Filters each equipment piece, including applied custom items. This is not an average set item level.</small>
+                    </div>
+                    {SOURCE_GROUPS.map((source) => {
+                      const candidates = gearSnapshot.items.filter((item) =>
+                        source.sources.includes(item.sourceFamily) &&
+                        item.jobs.includes(job) &&
+                        item.level === activeLevel &&
+                        assessItemAccess(item, gearSnapshot.registry, {
+                          expansionId: expansion,
+                          level: activeLevel,
+                          job
+                        }, gearSnapshot.contentGraph).status !== 'blocked'
+                      );
+                      const available = candidates.length > 0 && candidates.every((item) =>
+                        item.acquisitionRoutes?.some((route) => route.status !== 'unknown')
+                      );
+                      return (
+                        <Fragment key={source.id}>
+                          <label className={`check-row ${available ? '' : 'unavailable'}`} data-source-group={source.id} title={available ? undefined : 'No validated routes in the active catalogue'}>
+                            <input type="checkbox" disabled={!available} checked={available && source.sources.every((entry) => constraints.allowedSources.includes(entry))} onChange={(event) => setSourceAllowed(source.sources, event.target.checked)} />
+                            <span><strong>{source.label}{!available && <em>Not in pool</em>}</strong><small>{available ? `${source.detail} · ${currentSourceSlotCoverage(candidates)}` : 'No validated routes in the active catalogue'}</small></span>
+                          </label>
+                          {source.id === 'tomestone' && available && (
+                            <label className={`check-row acquisition-sub-option ${constraints.allowedSources.includes('tomestone') ? '' : 'unavailable'}`}>
+                              <input
+                                type="checkbox"
+                                data-use-upgraded-tomestone
+                                disabled={!constraints.allowedSources.includes('tomestone')}
+                                checked={constraints.allowedSources.includes('tomestone') && (constraints.includeUpgradedTomestoneGear ?? true)}
+                                onChange={(event) => setConstraints((current) => ({ ...current, includeUpgradedTomestoneGear: event.target.checked }))}
+                              />
+                              <span><strong>Use upgraded tomestone gear</strong><small>Include augmented pieces alongside the unupgraded set.</small></span>
+                            </label>
+                          )}
+                          {source.id === 'crafted' && available && (
+                            <label className={`check-row acquisition-sub-option ${constraints.allowedSources.includes('crafted') ? '' : 'unavailable'}`}>
+                              <input
+                                type="checkbox"
+                                data-use-augmented-crafted
+                                disabled={!constraints.allowedSources.includes('crafted')}
+                                checked={constraints.allowedSources.includes('crafted') && (constraints.includeAugmentedCraftedGear ?? true)}
+                                onChange={(event) => setConstraints((current) => ({ ...current, includeAugmentedCraftedGear: event.target.checked }))}
+                              />
+                              <span><strong>Use augmented crafted gear</strong><small>Include upgraded crafted pieces alongside the base HQ set.</small></span>
+                            </label>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {constraints.allowedSources.length === 1 && constraints.allowedSources[0] === 'savage' && !customItems.some((item) =>
+                      item.slot === 'ring' && Object.values(selectedSet.items).some((entry) => String(entry?.itemId) === String(item.id))
+                    ) && (
                       <p className="source-warning">Savage alone has only one unique ring in this prototype pool. Add Tomestone gear to fill both ring slots.</p>
                     )}
                   </fieldset>
@@ -1846,13 +2202,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     snapshot={gearSnapshot}
                     customItems={customItems}
                     selectedSet={selectedSet}
+                    expansionId={expansion}
+                    accessLevel={activeLevel}
                   />
 
                   <div className={`run-message ${runState}`} role="status"><span aria-hidden="true">{runState === 'running' ? '◌' : runState === 'error' ? '!' : '✓'}</span><p>{message}</p></div>
                   {result?.explanation.map((line) => <p className="explanation" key={line}>{line}</p>)}
                   {runState === 'running'
                     ? <button className="danger wide" onClick={cancelOptimizer}>Cancel search</button>
-                    : <button className="primary wide" onClick={runOptimizer}>Optimise {activeBuild.name} <span>→</span></button>}
+                    : <button className="primary wide" data-optimize-build onClick={runOptimizer}>Optimise {activeBuild.name} <span>→</span></button>}
                 </section>
 
                 <div className="result-column">
@@ -1904,6 +2262,27 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                   </div>
                 </article>
               ))}
+          </div>
+        )}
+
+        {view === 'settings' && (
+          <div className="settings-grid" data-settings-view>
+            <section className="settings-card">
+              <div><p className="eyebrow">Interface</p><h2>UI size</h2><p>Scale the entire application, including text, icons, controls and spacing. Your choice is saved on this device.</p></div>
+              <label>Interface scale
+                <select data-ui-scale value={uiScale} onChange={(event) => setUiScale(normalizeUiScale(event.target.value))}>
+                  {UI_SCALE_OPTIONS.map((scale) => (
+                    <option value={scale} key={scale}>{scale}%{scale === 125 ? ' · recommended larger size' : scale === 100 ? ' · default' : ''}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="ui-scale-preview" aria-live="polite">
+                <strong>{uiScale}%</strong>
+                <span>Preview text and controls at the selected size.</span>
+                <button type="button" className="ghost" onClick={() => setUiScale(100)}>Reset to 100%</button>
+              </div>
+              <small>Very large settings may require maximising the window or scrolling horizontally. The setting does not affect exported data or calculations.</small>
+            </section>
           </div>
         )}
 

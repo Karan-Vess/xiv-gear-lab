@@ -4,7 +4,7 @@ export const PROVIDER_OVERLAY_SCHEMA = 'provider-overlay@1';
 export const PROVIDER_OVERLAY_KINDS = ['official', 'acquisition', 'curated'];
 const SOURCE_FAMILIES = new Set([
   'savage', 'alliance-raid', 'normal-raid', 'tomestone', 'tomestone-upgrade',
-  'relic', 'crafted', 'dungeon', 'trial', 'custom', 'other'
+  'relic', 'crafted', 'dungeon', 'trial', 'ultimate', 'quest', 'vendor', 'custom', 'other', 'unknown'
 ]);
 const STATUS_WEIGHT = { current: 0, partial: 1, stale: 2, failed: 3 };
 
@@ -44,6 +44,11 @@ export const validateProviderOverlay = (overlay) => {
     const items = expectArray(payload.items, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official.payload.items');
     const materia = expectArray(payload.materia, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official.payload.materia');
     const foods = expectArray(payload.foods, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official.payload.foods');
+    if (payload.contentGraph !== undefined) {
+      const graph = expectRecord(payload.contentGraph, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official.payload.contentGraph');
+      const nodes = expectArray(graph.nodes, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official.payload.contentGraph.nodes');
+      assertUnique(nodes, (node) => node.id, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'content graph nodes');
+    }
     if (items.length === 0) throw new ProviderContractError('snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official overlay cannot contain zero items.');
     assertUnique(items, (item) => String(item.id), 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official items');
     assertUnique(materia, (entry) => String(entry.id), 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, 'official materia');
@@ -54,6 +59,15 @@ export const validateProviderOverlay = (overlay) => {
     for (const item of items) {
       if (!SOURCE_FAMILIES.has(item.sourceFamily)) {
         throw new ProviderContractError('snapshot builder', PROVIDER_OVERLAY_SCHEMA, `item ${item.itemId} has unsupported source family ${item.sourceFamily}.`);
+      }
+      if (item.acquisitionRoutes !== undefined) {
+        const routes = expectArray(item.acquisitionRoutes, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, `item ${item.itemId}.acquisitionRoutes`);
+        assertUnique(routes, (route) => route.id, 'snapshot builder', PROVIDER_OVERLAY_SCHEMA, `item ${item.itemId} acquisition routes`);
+        for (const route of routes) {
+          if (!SOURCE_FAMILIES.has(route.sourceFamily)) {
+            throw new ProviderContractError('snapshot builder', PROVIDER_OVERLAY_SCHEMA, `item ${item.itemId} route ${route.id} has unsupported source family ${route.sourceFamily}.`);
+          }
+        }
       }
     }
   } else {
@@ -84,7 +98,8 @@ const previousOverlays = (snapshot) => {
           provenance: item.provenance.filter((entry) => entry.kind !== 'acquisition-overlay')
         })),
         materia: snapshot.materia,
-        foods: snapshot.foods
+        foods: snapshot.foods,
+        contentGraph: snapshot.contentGraph
       }
     }),
     acquisition: createProviderOverlay({
@@ -93,6 +108,7 @@ const previousOverlays = (snapshot) => {
         itemId: item.id,
         sourceFamily: item.sourceFamily,
         acquisitionNote: item.acquisitionNote,
+        acquisitionRoutes: item.acquisitionRoutes,
         provenance: item.provenance.filter((entry) => entry.kind === 'acquisition-overlay')
       })) }
     }),
@@ -189,6 +205,7 @@ export const publishOverlaySnapshot = ({ previousSnapshot, manifest, attempts })
       ...item,
       sourceFamily: overlay?.sourceFamily ?? 'other',
       acquisitionNote: overlay?.acquisitionNote ?? 'Acquisition route is not available in the current overlay.',
+      acquisitionRoutes: overlay?.acquisitionRoutes ?? item.acquisitionRoutes,
       provenance: [
         ...item.provenance.filter((entry) => entry.kind !== 'acquisition-overlay'),
         ...(overlay?.provenance ?? [])
@@ -203,6 +220,7 @@ export const publishOverlaySnapshot = ({ previousSnapshot, manifest, attempts })
       items,
       materia: official.payload.materia,
       foods: official.payload.foods,
+      contentGraph: official.payload.contentGraph,
       curatedSets: curated.payload.sets
     },
     providers,

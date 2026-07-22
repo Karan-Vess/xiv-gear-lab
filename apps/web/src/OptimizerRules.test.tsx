@@ -25,6 +25,8 @@ describe('optimizer rule grouping', () => {
         snapshot={gearSnapshot}
         customItems={[]}
         selectedSet={selectedSet}
+        expansionId="dt"
+        accessLevel={100}
       />
     );
 

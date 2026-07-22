@@ -7,6 +7,7 @@ artifacts/
 *.tsbuildinfo
 .vite/
 release/
+/apps/web/public/icons/items/
 .env
 .env.*
 !.env.example

@@ -1,6 +1,6 @@
 {
   "name": "xiv-gear-lab",
-  "version": "0.8.1",
+  "version": "0.9.0-alpha.17",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -14,6 +14,7 @@
     "package:windows": "npm run build && npm run package:windows -w @xiv-gear-lab/desktop",
     "sync:data": "node scripts/sync-whm-data.mjs",
     "sync:whm": "npm run sync:data",
+    "catalogue:update": "tsx scripts/catalogue-update-assistant.mjs",
     "build:data-release": "tsx scripts/build-data-release.ts",
     "stage:data-production": "node scripts/stage-production-data-release.mjs",
     "verify:data-production": "tsx scripts/verify-production-data-channel.ts",

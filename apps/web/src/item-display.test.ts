@@ -36,4 +36,21 @@ describe('equipment item stat display', () => {
     expect(slots).toHaveLength(item.materiaSlots);
     expect(slots.slice(1).every((slot) => slot.materia === undefined && slot.applied === 0)).toBe(true);
   });
+
+  it('includes allocated relic stats in the final item stat line', () => {
+    const relic = gearSnapshot.items.find((item) => item.name === 'Mandervillous Cane')!;
+    const displayed = itemStatDisplay(relic, [], gearSnapshot.materia, {
+      criticalHit: 306,
+      determination: 306,
+      spellSpeed: 72
+    });
+    expect(displayed.find((entry) => entry.key === 'criticalHit')?.value).toBe('+306');
+    expect(displayed.find((entry) => entry.key === 'determination')?.value).toBe('+306');
+    expect(displayed.find((entry) => entry.key === 'spellSpeed')?.value).toBe('+72');
+    expect(() => materiaSlotDisplay(relic, [], gearSnapshot.materia, {
+      criticalHit: 306,
+      determination: 306,
+      spellSpeed: 72
+    })).not.toThrow();
+  });
 });

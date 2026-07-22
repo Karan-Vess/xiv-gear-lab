@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyMateria,
+  applyRelicStats,
   expectedAction100,
   gcdFromSpellSpeed,
   getCombatEvaluatorProfile,
+  LEVEL_50,
+  LEVEL_60,
+  LEVEL_70,
+  LEVEL_90,
+  SUPPORTED_CALCULATION_SCHEMAS,
   pietyMpBonusPerTick,
   pietyMpPerTick,
   tenacityIncomingDamageMultiplier,
@@ -52,6 +58,17 @@ const whmProfile: CombatEvaluatorProfile = {
 };
 
 describe('level 100 combat proxy calculations', () => {
+  it('keeps historical-cap formula constants available for data-only catalogue updates', () => {
+    expect(LEVEL_70).toEqual({ baseMain: 292, baseSub: 364, levelDiv: 900 });
+    expect(LEVEL_60).toEqual({ baseMain: 218, baseSub: 354, levelDiv: 600 });
+    expect(LEVEL_50).toEqual({ baseMain: 202, baseSub: 341, levelDiv: 341 });
+    expect(SUPPORTED_CALCULATION_SCHEMAS).toEqual(expect.arrayContaining([
+      'ffxiv-combat-level-70@1',
+      'ffxiv-combat-level-60@1',
+      'ffxiv-combat-level-50@1'
+    ]));
+  });
+
   it('matches the published 2.29 reference GCD', () => {
     expect(gcdFromSpellSpeed(2155)).toBe(2.29);
   });
@@ -132,6 +149,13 @@ describe('level 100 combat proxy calculations', () => {
     expect(pietyMpPerTick(929)).toBe(226);
   });
 
+  it('uses the Endwalker level-90 constants instead of level-100 scaling', () => {
+    expect(gcdFromSpellSpeed(400, 2500, 0, LEVEL_90)).toBe(2.5);
+    expect(gcdFromSpellSpeed(1000, 2500, 0, LEVEL_90)).toBeLessThan(gcdFromSpellSpeed(1000));
+    expect(tenacityMultiplier(622, LEVEL_90)).toBe(1.013);
+    expect(pietyMpBonusPerTick(929, LEVEL_90)).toBe(42);
+  });
+
   it('refuses missing or unsupported profiles instead of silently applying a generic one', () => {
     expect(() => getCombatEvaluatorProfile('BLU', [whmProfile])).toThrow('No combat evaluator profile');
     expect(() => getCombatEvaluatorProfile('WHM', [{ ...whmProfile, schemaVersion: 'future-formula@9' }]))
@@ -147,5 +171,21 @@ describe('level 100 combat proxy calculations', () => {
     const materia: Materia = { id: 1, name: 'Grade XII test', stat: 'criticalHit', value: 54, tier: 12, advancedMeldingLimit: 'first-slot-only' };
     expect(() => applyMateria(item, [1, 1, 1], [materia])).not.toThrow();
     expect(() => applyMateria(item, [1, 1, 1, 1], [materia])).toThrow('advanced meld slot 2');
+  });
+
+  it('applies and validates the discrete Endwalker relic allocation', () => {
+    const item: EquipmentItem = {
+      id: 40949, origin: 'official', name: 'Mandervillous Wings', jobs: ['SGE'], slot: 'weapon', level: 90, itemLevel: 665,
+      stats: { ...emptyStats(), mind: 416, vitality: 458 }, statCaps: { ...emptyStats(), criticalHit: 306, determination: 306, directHit: 306, spellSpeed: 306, piety: 306 },
+      weaponDamage: 132, weaponDelayMs: 3120, materiaSlots: 0, advancedMelding: false, unique: true, sourceFamily: 'relic', acquisitionNote: 'Test', provenance: [],
+      relicStatModel: {
+        schemaVersion: 'relic-stat-allocation@1', type: 'endwalker-discrete', largeValue: 306, largeStatCount: 2,
+        smallValue: 72, smallStatCount: 1, allowedStats: ['criticalHit', 'determination', 'directHit', 'spellSpeed', 'piety']
+      }
+    };
+    const applied = applyRelicStats(item, { criticalHit: 306, determination: 306, spellSpeed: 72 });
+    expect(applied).toMatchObject({ criticalHit: 306, determination: 306, spellSpeed: 72 });
+    expect(() => applyRelicStats(item, { criticalHit: 306, determination: 306 })).toThrow('requires 2 large and 1 small');
+    expect(() => applyRelicStats(item, { criticalHit: 305, determination: 306, spellSpeed: 72 })).toThrow('must use 306 or 72');
   });
 });

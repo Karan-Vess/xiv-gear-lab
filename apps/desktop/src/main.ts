@@ -53,7 +53,7 @@ const createWindow = async () => {
     show: false,
     title: 'XIV Gear Lab',
     webPreferences: {
-      preload: join(currentDirectory, 'preload.js'),
+      preload: join(currentDirectory, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -234,6 +234,85 @@ const createWindow = async () => {
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
     }
     if (!completed) throw new Error('Packaged optimiser smoke test timed out.');
+
+    const sourceCoverageAudit = await window.webContents.executeJavaScript(`
+      (() => Object.fromEntries(['alliance', 'trial', 'ultimate'].map((id) => {
+        const row = document.querySelector('[data-source-group="' + id + '"]');
+        const input = row?.querySelector('input');
+        return [id, {
+          rendered: Boolean(row),
+          enabled: input instanceof HTMLInputElement && !input.disabled,
+          label: row?.querySelector('strong')?.textContent?.trim() ?? ''
+        }];
+      })))()
+    `) as Record<string, { rendered?: boolean; enabled?: boolean; label?: string }>;
+    if (['alliance', 'trial', 'ultimate'].some((id) =>
+      !sourceCoverageAudit[id]?.rendered || !sourceCoverageAudit[id]?.enabled
+    )) {
+      throw new Error(`Packaged M11 source-coverage audit failed: ${JSON.stringify(sourceCoverageAudit)}`);
+    }
+    const constraintToggleSetup = await window.webContents.executeJavaScript(`
+      (() => {
+        const upgraded = document.querySelector('[data-use-upgraded-tomestone]');
+        const custom = document.querySelector('[data-allow-custom-items]');
+        if (!(upgraded instanceof HTMLInputElement) || !(custom instanceof HTMLInputElement)) {
+          throw new Error('M11 constraint toggles were not rendered.');
+        }
+        const initial = { upgraded: upgraded.checked, upgradedEnabled: !upgraded.disabled, custom: custom.checked };
+        upgraded.click();
+        custom.click();
+        return initial;
+      })()
+    `) as { upgraded?: boolean; upgradedEnabled?: boolean; custom?: boolean };
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    const constraintToggleAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const upgraded = document.querySelector('[data-use-upgraded-tomestone]');
+        const custom = document.querySelector('[data-allow-custom-items]');
+        const result = {
+          upgradedAfterClick: upgraded instanceof HTMLInputElement ? upgraded.checked : undefined,
+          customAfterClick: custom instanceof HTMLInputElement ? custom.checked : undefined
+        };
+        if (upgraded instanceof HTMLInputElement) upgraded.click();
+        return result;
+      })()
+    `) as { upgradedAfterClick?: boolean; customAfterClick?: boolean };
+    if (
+      !constraintToggleSetup.upgraded || !constraintToggleSetup.upgradedEnabled || !constraintToggleSetup.custom ||
+      constraintToggleAudit.upgradedAfterClick !== false || constraintToggleAudit.customAfterClick !== false
+    ) {
+      throw new Error(`Packaged M11 constraint-toggle audit failed: ${JSON.stringify({ constraintToggleSetup, constraintToggleAudit })}`);
+    }
+    await window.webContents.executeJavaScript(`
+      (() => {
+        const mode = document.querySelector('[data-item-level-mode]');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (!(mode instanceof HTMLSelectElement)) throw new Error('Item-level mode selector was not rendered.');
+        setter?.call(mode, 'exact');
+        mode.dispatchEvent(new Event('change', { bubbles: true }));
+      })()
+    `);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    const itemLevelConstraintAudit = await window.webContents.executeJavaScript(`
+      (() => {
+        const mode = document.querySelector('[data-item-level-mode]');
+        const exact = document.querySelector('[data-item-level-exact]');
+        const result = {
+          mode: mode instanceof HTMLSelectElement ? mode.value : undefined,
+          exactRendered: exact instanceof HTMLInputElement,
+          exactValue: exact instanceof HTMLInputElement ? exact.value : undefined
+        };
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        if (mode instanceof HTMLSelectElement) {
+          setter?.call(mode, 'any');
+          mode.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        return result;
+      })()
+    `) as { mode?: string; exactRendered?: boolean; exactValue?: string };
+    if (itemLevelConstraintAudit.mode !== 'exact' || !itemLevelConstraintAudit.exactRendered || itemLevelConstraintAudit.exactValue !== '780') {
+      throw new Error(`Packaged item-level constraint audit failed: ${JSON.stringify(itemLevelConstraintAudit)}`);
+    }
 
     const expandedJobAudits: Array<{
       selectedJob?: string;
@@ -684,18 +763,20 @@ const createWindow = async () => {
           ruleGroups: [...document.querySelectorAll('.optimizer-rule-group > legend')].map((entry) => entry.textContent?.trim() ?? ''),
           overmeldAllowed: overmeld instanceof HTMLInputElement && overmeld.checked,
           hasExperimentalAccess: Boolean(document.querySelector('[data-experimental-access]')),
+          customItemsAllowed: document.querySelector('[data-allow-custom-items]')?.checked === true,
           weaponLocked: weaponLock instanceof HTMLSelectElement && Boolean(weaponLock.value),
           itemRuleCount: itemRules.length,
           hasLockedMeldControls: (modal?.textContent ?? '').includes('Locked meld prefix')
         };
       })()
-    `) as { hasModal?: boolean; foodMode?: string; ruleGroups?: string[]; overmeldAllowed?: boolean; hasExperimentalAccess?: boolean; weaponLocked?: boolean; itemRuleCount?: number; hasLockedMeldControls?: boolean };
+    `) as { hasModal?: boolean; foodMode?: string; ruleGroups?: string[]; overmeldAllowed?: boolean; hasExperimentalAccess?: boolean; customItemsAllowed?: boolean; weaponLocked?: boolean; itemRuleCount?: number; hasLockedMeldControls?: boolean };
     if (
       !optimizerRulesAudit.hasModal ||
       optimizerRulesAudit.foodMode !== 'none' ||
       !['Food', 'Materia', 'Custom equipment'].every((group) => optimizerRulesAudit.ruleGroups?.includes(group)) ||
       !optimizerRulesAudit.overmeldAllowed ||
       !optimizerRulesAudit.hasExperimentalAccess ||
+      !optimizerRulesAudit.customItemsAllowed ||
       !optimizerRulesAudit.weaponLocked ||
       !optimizerRulesAudit.itemRuleCount ||
       !optimizerRulesAudit.hasLockedMeldControls
@@ -829,6 +910,9 @@ const createWindow = async () => {
     if (smokeResultPath) {
       await writeFile(smokeResultPath, JSON.stringify({
         status: 'passed',
+        sourceCoverageAudit,
+        constraintToggleAudit,
+        itemLevelConstraintAudit,
         expandedJobAudits,
         balanceSourceAudit,
         postConfirmationInputAudit,

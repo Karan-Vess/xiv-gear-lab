@@ -1,6 +1,6 @@
 {
   "name": "@xiv-gear-lab/export",
-  "version": "0.8.1",
+  "version": "0.9.0-alpha.17",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",

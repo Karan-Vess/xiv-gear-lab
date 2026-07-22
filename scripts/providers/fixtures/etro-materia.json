@@ -1,6 +1,8 @@
 [
   {
     "param": 27,
+    "tier11": { "id": 6000, "name": "Savage Aim Materia XI", "iconPath": "ui/icon/020000/020000_hr1.tex" },
+    "tier11Value": 18,
     "tier12": { "id": 6001, "name": "Savage Aim Materia XII", "iconPath": "ui/icon/020000/020001_hr1.tex" },
     "tier12Value": 54
   }

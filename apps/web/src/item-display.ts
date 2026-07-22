@@ -1,6 +1,7 @@
 import { STAT_KEYS, type EquipmentItem, type Materia, type StatBlock, type StatKey } from '@xiv-gear-lab/domain';
+import { applyRelicStats } from '@xiv-gear-lab/calculations';
 
-const statLabel: Record<StatKey, string> = {
+export const statLabel: Record<StatKey, string> = {
   strength: 'STR',
   dexterity: 'DEX',
   intelligence: 'INT',
@@ -30,8 +31,8 @@ export interface MateriaSlotDisplay {
   waste: number;
 }
 
-const meldedItemStats = (item: EquipmentItem, materiaIds: number[], materia: Materia[]) => {
-  const stats: StatBlock = { ...item.stats };
+const meldedItemStats = (item: EquipmentItem, materiaIds: number[], materia: Materia[], relicStats?: Partial<Record<StatKey, number>>) => {
+  const stats: StatBlock = applyRelicStats(item, relicStats);
   const slots: MateriaSlotDisplay[] = [];
 
   for (let index = 0; index < Math.max(item.materiaSlots, materiaIds.length); index += 1) {
@@ -56,11 +57,15 @@ const meldedItemStats = (item: EquipmentItem, materiaIds: number[], materia: Mat
   return { stats, slots };
 };
 
-export const materiaSlotDisplay = (item: EquipmentItem, materiaIds: number[], materia: Materia[]) =>
-  meldedItemStats(item, materiaIds, materia).slots;
+export const materiaSlotDisplay = (
+  item: EquipmentItem,
+  materiaIds: number[],
+  materia: Materia[],
+  relicStats?: Partial<Record<StatKey, number>>
+) => meldedItemStats(item, materiaIds, materia, relicStats).slots;
 
-export const itemStatDisplay = (item: EquipmentItem, materiaIds: number[] = [], materia: Materia[] = []): ItemStatDisplay[] => {
-  const stats = meldedItemStats(item, materiaIds, materia).stats;
+export const itemStatDisplay = (item: EquipmentItem, materiaIds: number[] = [], materia: Materia[] = [], relicStats?: Partial<Record<StatKey, number>>): ItemStatDisplay[] => {
+  const stats = meldedItemStats(item, materiaIds, materia, relicStats).stats;
   return [
   ...(item.weaponDamage > 0
     ? [{ key: 'weaponDamage', label: 'WD', value: String(item.weaponDamage) }]

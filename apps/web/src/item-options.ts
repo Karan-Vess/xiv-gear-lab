@@ -29,11 +29,24 @@ const ITEM_SLOT_LABEL: Record<ItemSlot, string> = {
 };
 
 export const equipmentSourceLabel = (source: SourceFamily): string => {
-  if (source === 'savage') return 'Savage';
-  if (source === 'tomestone-upgrade') return 'Tomestone upgrade';
-  if (source === 'tomestone') return 'Tomestone';
-  if (source === 'custom') return 'Custom';
-  return 'Unknown source';
+  const labels: Record<SourceFamily, string> = {
+    crafted: 'Crafted (HQ)',
+    'normal-raid': 'Normal raid',
+    savage: 'Savage',
+    tomestone: 'Tomestone',
+    'tomestone-upgrade': 'Tomestone upgrade',
+    dungeon: 'Dungeon',
+    trial: 'Trial',
+    'alliance-raid': 'Alliance raid',
+    relic: 'Relic',
+    ultimate: 'Ultimate',
+    quest: 'Quest',
+    vendor: 'Vendor',
+    custom: 'Custom',
+    other: 'Other',
+    unknown: 'Unknown source'
+  };
+  return labels[source];
 };
 
 export interface OfficialCloneItemGroup {
