@@ -7,6 +7,7 @@ import {
   copyBuildLoadout,
   isBuildWorkspaceState,
   prepareBuildWorkspaceStateForStorage,
+  resetIncompatibleWorkspaceBuilds,
   workspaceBuildsUsingItem,
   workspaceSnapshotIds
 } from './workspace';
@@ -85,6 +86,28 @@ describe('build workspaces', () => {
     expect(stored.builds['build-2'].runState).toBe('idle');
     expect(stored.builds['build-2'].result?.evaluatedStates).toBe(12);
     expect(stored.builds['build-2'].message).toContain('application closed');
+  });
+
+  it('resets only persisted builds whose expansion evaluator is no longer compatible', () => {
+    const fallback = createState();
+    const stored = createState();
+    stored.builds['build-1'].name = 'Old Stormblood test';
+    stored.builds['build-1'].expansion = 'sb';
+    stored.builds['build-1'].result = { alternatives: [], evaluatedStates: 5, durationMs: 1, truncated: false, explanation: [] };
+    stored.builds['build-2'].gcdTarget = '2.50';
+
+    const restored = resetIncompatibleWorkspaceBuilds(
+      stored,
+      fallback,
+      (build) => build.expansion !== 'sb'
+    );
+
+    expect(restored.builds['build-1'].expansion).toBe(fallback.builds['build-1'].expansion);
+    expect(restored.builds['build-1'].name).toBe('Old Stormblood test');
+    expect(restored.builds['build-1'].result).toBeUndefined();
+    expect(restored.builds['build-1'].message).toContain('was reset');
+    expect(restored.builds['build-2']).toBe(stored.builds['build-2']);
+    expect(restored.builds['build-2'].gcdTarget).toBe('2.50');
   });
 
   it('tracks snapshot pins and item use across all builds', () => {

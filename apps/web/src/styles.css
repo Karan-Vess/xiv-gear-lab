@@ -387,6 +387,15 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
 .custom-limit-toggle.enabled small { color: #b89c68; }
 .export-modal textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; line-height: 1.5; resize: vertical; }
 
+.fatal-error { min-height: 100vh; display: grid; place-items: center; padding: 32px; background: radial-gradient(circle at top, rgba(48, 151, 202, .12), transparent 42%), #080c14; }
+.fatal-error > section { width: min(680px, 100%); display: grid; gap: 16px; padding: 32px; border: 1px solid var(--line-strong); border-radius: 14px; background: #101928; box-shadow: 0 28px 100px rgba(0, 0, 0, .55); }
+.fatal-error h1 { margin: 0; color: #edf7ff; font: 400 32px/1.2 Georgia, serif; }
+.fatal-error p:not(.eyebrow) { margin: 0; color: #8da2b5; font-size: 12px; line-height: 1.7; }
+.fatal-error details { padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; color: #9ab0c2; }
+.fatal-error summary { cursor: pointer; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.fatal-error code { display: block; margin-top: 10px; color: #d6b978; white-space: pre-wrap; word-break: break-word; }
+.fatal-error-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+
 @media (max-width: 1180px) {
   .workspace { grid-template-columns: 285px minmax(0, 1fr); }
   .topbar { flex-wrap: wrap; padding: 18px 0; }

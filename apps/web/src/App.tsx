@@ -69,6 +69,7 @@ import {
   copyBuildLoadout,
   createInitialBuildWorkspaceState,
   isBuildId,
+  resetIncompatibleWorkspaceBuilds,
   workspaceBuildsUsingItem,
   workspaceSnapshotIds,
   type BuildId,
@@ -86,6 +87,13 @@ const evaluatorProfileFor = (job: CombatJob, expansionId?: ExpansionId, level?: 
   return expansionId && level !== undefined
     ? getCombatEvaluatorProfileForAccess(job, gearSnapshot, expansionId, level)
     : getCombatEvaluatorProfileForAccess(job, gearSnapshot, latest.id, latest.levelCap);
+};
+const evaluatorProfileForAccessOrUndefined = (job: CombatJob, expansionId: ExpansionId, level: number) => {
+  try {
+    return evaluatorProfileFor(job, expansionId, level);
+  } catch {
+    return undefined;
+  }
 };
 const evaluatorProfileForSet = (set: GearSet) => getCombatEvaluatorProfileForSet(set, gearSnapshot);
 
@@ -935,14 +943,24 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     if (pending) workerRef.current = null;
     updateBuildById(activeBuildId, (build) => {
       const nextLevel = effectiveLevel(gearSnapshot.registry, next, build.level);
-      const currentJobRemainsAvailable = jobAvailableAtAccess(gearSnapshot.registry, build.job, next, nextLevel);
+      const currentJobRemainsAvailable = jobAvailableAtAccess(gearSnapshot.registry, build.job, next, nextLevel) &&
+        Boolean(evaluatorProfileForAccessOrUndefined(build.job, next, nextLevel));
       const nextJob = currentJobRemainsAvailable
         ? build.job
         : SUPPORTED_JOBS.find((definition) =>
           jobAvailableAtAccess(gearSnapshot.registry, definition.id, next, nextLevel) &&
-          getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available'
+          getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available' &&
+          Boolean(evaluatorProfileForAccessOrUndefined(definition.id, next, nextLevel))
         )?.id ?? build.job;
-      const nextProfile = evaluatorProfileFor(nextJob, next, nextLevel);
+      const nextProfile = evaluatorProfileForAccessOrUndefined(nextJob, next, nextLevel);
+      const expansionName = gearSnapshot.registry.expansions.find((entry) => entry.id === next)?.name ?? next;
+      if (!nextProfile) {
+        return {
+          ...build,
+          runState: 'error',
+          message: `${expansionName} calculation data is not installed in the active catalogue. Use Check data, then try again.`
+        };
+      }
       const expansionOrder = new Map(gearSnapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
       const nextOrder = expansionOrder.get(next) ?? -1;
       const supportsAccess = (entry: { expansionId?: ExpansionId; requiredLevel?: number }) =>
@@ -953,6 +971,9 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         .map((entry) => entry.tier))]
         .sort((left, right) => right - left);
       const availableFoods = gearSnapshot.foods.filter(supportsAccess);
+      const catalogueAvailable = gearSnapshot.items.some((item) =>
+        item.expansionId === next && item.level === nextLevel
+      );
       const lockedFoodIsAvailable = availableFoods.some((food) => food.id === build.constraints.lockedFoodId);
       const nextConstraints = constraintsForExpansion(build.constraints, {
         minimumResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0,
@@ -961,7 +982,6 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         hasAvailableFood: availableFoods.length > 0,
         materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3'
       });
-      const expansionName = gearSnapshot.registry.expansions.find((entry) => entry.id === next)?.name ?? next;
       const nextJobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === nextJob)!;
       const nextReferenceSet = gearSnapshot.curatedSets.find((set) => set.job === nextJob);
       const materiaLabel = nextConstraints.allowedMateriaTiers?.length
@@ -976,8 +996,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         constraints: nextConstraints,
         result: undefined,
         previousOptimizedSet: undefined,
-        runState: 'idle',
-        message: `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).`
+        runState: catalogueAvailable ? 'idle' : 'error',
+        message: catalogueAvailable
+          ? `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).`
+          : `${expansionName} calculation support is installed, but its level-${nextLevel} item catalogue is incomplete. Run the local catalogue updater, then use Check data.`
       };
     });
   };
@@ -1007,7 +1029,17 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       if (savedResult.status === 'fulfilled') {
         setSavedSets(savedResult.value);
       }
-      if (workspaceResult.status === 'fulfilled') setWorkspaceState(workspaceResult.value);
+      if (workspaceResult.status === 'fulfilled') {
+        setWorkspaceState(resetIncompatibleWorkspaceBuilds(
+          workspaceResult.value,
+          initialWorkspaceState,
+          (build) => Boolean(evaluatorProfileForAccessOrUndefined(
+            build.job,
+            build.expansion,
+            effectiveLevel(gearSnapshot.registry, build.expansion, build.level)
+          ))
+        ));
+      }
       if (customResult.status === 'rejected') setMessage('Custom items could not be loaded; saved sets using them may show a missing item.');
       else if (savedResult.status === 'rejected') setMessage('Saved sets could not be loaded; the app still works without them.');
       else if (workspaceResult.status === 'rejected') setMessage('Build workspaces could not be loaded. Safe independent defaults were created for this session.');

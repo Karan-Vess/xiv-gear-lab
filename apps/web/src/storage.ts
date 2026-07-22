@@ -164,6 +164,17 @@ export const saveBuildWorkspaceState = async (state: BuildWorkspaceState): Promi
   database.close();
 };
 
+export const resetBuildWorkspaceState = async (): Promise<void> => {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(WORKSPACE_STORE, 'readwrite');
+    transaction.objectStore(WORKSPACE_STORE).delete('primary');
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('Could not reset build workspaces.'));
+  });
+  database.close();
+};
+
 export const loadBuildWorkspaceState = async (
   fallback: BuildWorkspaceState
 ): Promise<BuildWorkspaceState> => {

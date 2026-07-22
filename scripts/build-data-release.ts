@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { gearSnapshot } from '../packages/data/src/index.ts';
 import {
   canonicalUpdateManifestPayload,
@@ -59,13 +60,14 @@ for (const entity of [...publishedSnapshot.items, ...publishedSnapshot.materia, 
 }
 
 const safeSnapshotId = publishedSnapshot.manifest.id.replace(/[^a-zA-Z0-9._-]/g, '-');
-const snapshotFileName = `snapshot-${safeSnapshotId}.json`;
+const snapshotFileName = `snapshot-${safeSnapshotId}.json.gz`;
 if (!snapshotUrl.pathname.endsWith(`/${snapshotFileName}`)) {
   throw new Error(`XIV_GEAR_LAB_DATA_SNAPSHOT_URL must end with /${snapshotFileName}.`);
 }
 
 const snapshotJson = JSON.stringify(publishedSnapshot);
-const snapshotBytes = Buffer.from(snapshotJson, 'utf8');
+const uncompressedSnapshotBytes = Buffer.from(snapshotJson, 'utf8');
+const snapshotBytes = gzipSync(uncompressedSnapshotBytes, { level: 9 });
 const counts: SnapshotCounts = {
   expansions: publishedSnapshot.registry.expansions.length,
   jobs: publishedSnapshot.registry.jobs.length,
@@ -128,5 +130,5 @@ await Promise.all([
 ]);
 
 process.stdout.write(`Signed data release written to ${outputDirectory}\n`);
-process.stdout.write(`${snapshotFileName}: ${snapshotBytes.byteLength.toLocaleString()} bytes, ${manifest.snapshot.sha256}\n`);
+process.stdout.write(`${snapshotFileName}: ${snapshotBytes.byteLength.toLocaleString()} compressed bytes (${uncompressedSnapshotBytes.byteLength.toLocaleString()} expanded), ${manifest.snapshot.sha256}\n`);
 process.stdout.write(`${embeddedIcons.size.toLocaleString()} unique icons embedded for offline use.\n`);

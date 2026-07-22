@@ -1,10 +1,10 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.9.0-alpha.17 M11/M11B checkpoint
-Date: 2026-07-21
-Current runnable baseline: Windows/browser-capable v0.9.0-alpha.17, Dawntrail level 100 plus Endwalker level 90 and preliminary Shadowbringers level 80, with dormant level 70/60/50 formula compatibility for signed catalogue updates
+Status: revised through the v0.9.0-alpha.18 M11/M11B checkpoint
+Date: 2026-07-22
+Current runnable baseline: Windows/browser-capable v0.9.0-alpha.18, Dawntrail level 100 plus preliminary historical level-90, level-80 and level-70 catalogues. Level-60 calculations are installed without Heavensward items for the frozen-client update drill, and level-50 formula compatibility remains dormant.
 
-Current unsigned data-channel candidate: preliminary Stormblood level 70 adds 1,731 cap items across all 15 available jobs, Grade V/VI materia, eleven source families, a level-70 ruleset and 15 preliminary evaluator profiles. The frozen alpha.17 update-baseline executable intentionally does not bundle this candidate.
+Current signed data-channel release: preliminary Stormblood level 70 adds 1,731 cap items across all 15 available jobs, Grade V/VI materia, eleven source families, a level-70 ruleset and 15 preliminary evaluator profiles. The frozen alpha.18 test executable bundles this state and intentionally omits the next Heavensward catalogue.
 
 This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
 
@@ -352,10 +352,10 @@ Current checkpoint:
 - The live current-tier catalogue now contains 618 official items. Crafted and augmented-crafted, normal-raid, Savage, tomestone, augmented-tomestone, dungeon, alliance-raid, Extreme-trial, relic and Ultimate categories have usable acquisition coverage, including fixed raid-token, upgrade-material, certificate, rain, relic-material and totem costs where applicable.
 - The first historical cap is usable end to end: 540 Endwalker level-90 items across 19 then-available jobs, ten source families, Grade IX/X materia, eight foods, a level-90 calculation ruleset and 635 validated historical acquisition routes. Optimiser candidates, locks, food and materia are bounded to the selected expansion and cap.
 - The M11B backfill path has generated the second historical cap: 609 Shadowbringers level-80 items across all 17 then-available jobs and ten source families, Grade VII/VIII materia, a level-80 ruleset and explicit internal-preliminary evaluator profiles. Slot/job coverage is complete and optimisation works; exact acquisition details, food and historical curation remain pending.
-- The unsigned Stormblood channel candidate adds 1,731 level-70 items across all 15 then-available jobs, eleven source families, Grade V/VI materia, a level-70 ruleset and 15 internal-preliminary evaluator profiles. It is reserved for the frozen-client M11B update drill and is not bundled into the alpha.17 baseline executable.
+- The signed Stormblood channel release adds 1,731 level-70 items across all 15 then-available jobs, eleven source families, Grade V/VI materia, a level-70 ruleset and 15 internal-preliminary evaluator profiles. Its frozen-client drill succeeded and it is now the bundled baseline for the Heavensward drill.
 - All final Mandervillous arms use a versioned configurable-stat model. The optimiser chooses their legal two-large/one-small allocation, handles Paladin's split sword and shield values, displays allocation-only changes and exports compatible relic stats to XivGear.
 - Endwalker results are honestly marked as lacking compatible historical curation even while current Dawntrail curation is loaded.
-- Current-tier acquisition coverage is intentionally partial where a provider does not yet verify the exact exchange requirement. ARR and Heavensward cap catalogues/rules/consumables, Stormblood and Shadowbringers consumables and exact routes, historical curation, and broader route/cost coverage remain before M11 can be marked complete.
+- Current-tier acquisition coverage is intentionally partial where a provider does not yet verify the exact exchange requirement. Heavensward calculation rules are present, but its cap catalogue, consumables and real update-channel acceptance still remain. ARR catalogues/rules/consumables, Stormblood and Shadowbringers consumables and exact routes, historical curation, and broader route/cost coverage also remain before M11 can be marked complete.
 - The Lodestone item-link feasibility check found no trustworthy direct mapping from official game item IDs to Lodestone's separate opaque Eorzea Database IDs. Exact item links are therefore deferred under `Do later / explicitly deferred`.
 
 Deliver:
@@ -400,9 +400,10 @@ Current checkpoint:
 
 - `npm run catalogue:update` provides a read-only local inspection and JSON report; historical candidates require explicit `--mode backfill --expansion <id> --apply` permission and never sign or publish.
 - Cap profiles, deterministic content fingerprints, job/slot/ruleset/evaluator coverage checks, icon-duplication analysis and separate catalogue/icon/rollback size budgets are implemented.
-- The workflow has produced and validated real Shadowbringers and Stormblood backfill candidates rather than relying only on synthetic fixtures. Stormblood is the first candidate reserved for delivery to a frozen client through the signed channel.
+- The workflow has produced and validated real Shadowbringers and Stormblood backfills rather than relying only on synthetic fixtures. Stormblood is the first signed release delivered to a frozen client through the hosted channel.
 - Item, food and materia icons are content-addressed for bundled builds: 3,566 catalogue references currently resolve to 1,900 unique physical assets. Provider source-ID copies remain local for repeatable refreshes and are excluded from release builds.
-- Current-patch detection, provider-fingerprint no-op decisions, exact acquisition/food enrichment, separate runtime-channel icon delivery, explicit owner confirmation, signing and hosted publication verification remain.
+- Hosted signature/checksum verification passes, and the unchanged pre-Stormblood alpha.17 client downloaded and persisted the Stormblood snapshot in an isolated update-drill profile. The alpha.18 follow-up deliberately starts without Heavensward items for a true owner-run publication test.
+- Signed snapshots now use bounded gzip delivery, which makes repeated embedded icon payloads practical without weakening checksum or signature validation. The Heavensward launcher includes explicit owner confirmation. Generic current-patch detection, provider-fingerprint no-op decisions and exact acquisition/food enrichment remain.
 
 Deliver:
 

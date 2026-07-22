@@ -36,6 +36,7 @@ export interface SnapshotUpdatePolicy {
   trustedEd25519Keys: Record<string, string>;
   maximumManifestBytes?: number;
   maximumSnapshotBytes?: number;
+  maximumExpandedSnapshotBytes?: number;
   minimumSnapshotCounts?: Partial<SnapshotCounts>;
   allowInsecureLocalhost?: boolean;
 }
@@ -305,6 +306,25 @@ const fetchChecked = async (fetcher: typeof fetch, url: URL, maximumBytes: numbe
   return readBounded(response, maximumBytes, label);
 };
 
+const isGzip = (value: ArrayBuffer): boolean => {
+  const bytes = new Uint8Array(value);
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+};
+
+const expandSnapshotBytes = async (value: ArrayBuffer, maximumBytes: number): Promise<ArrayBuffer> => {
+  if (!isGzip(value)) return value;
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('This app version cannot expand compressed catalogue updates.');
+  }
+  try {
+    const stream = new Blob([value]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await readBounded(new Response(stream), maximumBytes, 'Expanded snapshot');
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('exceeds')) throw error;
+    throw new Error('Downloaded snapshot uses invalid gzip compression.');
+  }
+};
+
 export const downloadSnapshotCandidate = async (
   policy: SnapshotUpdatePolicy,
   runtime: RuntimeCompatibility,
@@ -312,6 +332,7 @@ export const downloadSnapshotCandidate = async (
 ): Promise<DownloadedSnapshotCandidate> => {
   const maximumManifestBytes = policy.maximumManifestBytes ?? 256 * 1024;
   const maximumSnapshotBytes = policy.maximumSnapshotBytes ?? 64 * 1024 * 1024;
+  const maximumExpandedSnapshotBytes = policy.maximumExpandedSnapshotBytes ?? 128 * 1024 * 1024;
   const manifestUrl = assertAllowedUrl(policy.manifestUrl, policy);
   const manifestBytes = await fetchChecked(fetcher, manifestUrl, maximumManifestBytes, 'Update manifest');
   let manifestUnknown: unknown;
@@ -336,9 +357,11 @@ export const downloadSnapshotCandidate = async (
     throw new Error('Snapshot checksum does not match the signed update manifest.');
   }
 
+  const expandedSnapshotBytes = await expandSnapshotBytes(snapshotBytes, maximumExpandedSnapshotBytes);
+
   let snapshotUnknown: unknown;
   try {
-    snapshotUnknown = JSON.parse(new TextDecoder().decode(snapshotBytes));
+    snapshotUnknown = JSON.parse(new TextDecoder().decode(expandedSnapshotBytes));
   } catch {
     throw new Error('Downloaded snapshot is not valid JSON.');
   }

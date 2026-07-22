@@ -132,6 +132,20 @@ describe('pinned provider contracts', () => {
     expect(exchangeCost(7)?.sharedGroupId).toBe('phantom-obscurum-paladin-arms');
   });
 
+  it('classifies preliminary Heavensward cap routes without leaking another expansion', () => {
+    const records = buildAcquisitionRecords([
+      { id: 60, name: 'Augmented Shire Preceptor\'s Coat', slot: 'body', jobs: ['WHM'], expansionId: 'hw', itemLevel: 270, quality: 'not-applicable' },
+      { id: 61, name: 'Alexandrian Jacket of Casting', slot: 'body', jobs: ['BLM'], expansionId: 'hw', itemLevel: 270, quality: 'not-applicable' },
+      { id: 62, name: 'Zurvanite Rod', slot: 'weapon', jobs: ['BLM'], expansionId: 'hw', itemLevel: 265, quality: 'not-applicable' },
+      { id: 63, name: 'Aettir Lux', slot: 'weapon', jobs: ['PLD'], expansionId: 'hw', itemLevel: 275, quality: 'not-applicable' }
+    ], '2026-07-22T00:00:00.000Z');
+
+    expect(records.map((record) => record.sourceFamily)).toEqual(['tomestone-upgrade', 'savage', 'trial', 'relic']);
+    expect(records.every((record) => record.acquisitionRoutes.every((route) =>
+      route.expansionId === 'hw' && route.minimumLevel === 60 && route.status === 'partial'
+    ))).toBe(true);
+  });
+
   it('accepts the pinned XIVAPI sheet and rejects missing, duplicate, and bad IDs', async () => {
     const sheet = await fixture('xivapi-item-sheet.json');
     expect(validateXivApiSheet(sheet, [1001, 1002], 'fixture').rows).toHaveLength(2);

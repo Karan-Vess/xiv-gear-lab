@@ -5,13 +5,13 @@ This entire project is made by instructing chatgpt 5.6. As of this writing, no h
 > [!WARNING]
 > **Unfinished pre-release project.** This repository and its public data channel exist for active development and testing. The app is not a finished release, has no support or uptime promise, and should not yet be treated as authoritative gearing advice.
 
-XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.9.0-alpha.17 executable bundles Dawntrail, Endwalker and preliminary Shadowbringers data, and is prepared to receive preliminary Stormblood level-70 support through the signed M11B data channel.
+XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.9.0-alpha.18 executable bundles Dawntrail, Endwalker, preliminary Shadowbringers and preliminary Stormblood data, and is prepared to receive preliminary Heavensward level-60 support through the signed M11B data channel.
 
 The first end-to-end vertical slice began with current-patch White Mage. The combat-job expansion now supports all 21 standard combat jobs: four healers, four tanks, six melee DPS, three physical ranged DPS, and four magical ranged DPS.
 
 ## Try the Windows prototype
 
-Run `release/XIV-Gear-Lab-0.9.0-alpha.17-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
+Run `release/XIV-Gear-Lab-0.9.0-alpha.18-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
 
 The same renderer builds as a browser application. For local development:
 
@@ -49,7 +49,7 @@ Notable project changes are recorded in [CHANGELOG.md](CHANGELOG.md). It is upda
 
 ## Implemented slice
 
-- Current generated XIVAPI v2 candidate with 3,498 official combat-job items: 618 Dawntrail records, 540 Endwalker level-90 records, 609 preliminary Shadowbringers level-80 records and 1,731 preliminary Stormblood level-70 records, with official IDs, job eligibility, stats, caps, slots and content-addressed icons. The frozen alpha.17 executable still bundles the pre-Stormblood 1,767-item baseline for the M11B update drill.
+- Current generated XIVAPI v2 candidate with 3,498 official combat-job items: 618 Dawntrail records, 540 Endwalker level-90 records, 609 preliminary Shadowbringers level-80 records and 1,731 preliminary Stormblood level-70 records, with official IDs, job eligibility, stats, caps, slots and content-addressed icons. The frozen alpha.18 executable deliberately excludes Heavensward items for the owner-run M11B update drill.
 - Sixty deduplicated final-tier references across all 21 standard combat jobs. Fifty-one exact Etro/The Balance combinations are cross-attributed, while genuinely distinct source variants remain separate and retain their original links.
 - Independently identified level-100 evaluator profiles for every standard combat job, including Paladin's separate sword and shield budgets and the haste-adjusted GCDs used by Monk, Ninja, Samurai, and Viper.
 - Background reference-pool optimisation across Critical Hit, Determination, Direct Hit, role speed, food, Piety or Tenacity, GCD, and acquisition constraints.
@@ -63,7 +63,7 @@ Notable project changes are recorded in [CHANGELOG.md](CHANGELOG.md). It is upda
 - Final post-materia stats on every equipped item, actual per-slot meld contributions, derived Critical Hit/Direct Hit/Determination outcomes, and direct loadout-copy controls between builds.
 - Named exact or ranged GCD targets; expansion-appropriate Grade VII-XII materia and currently validated food; five-slot overmeld; official-item and locked-meld rules; actionable conflicts; and complete persistent custom equipment with cloning, caps, legal advanced melding and explicit hypothetical-access warnings.
 
-All 21 current combat jobs use bounded expected-single-100-potency-hit proxy profiles rather than rotation or encounter simulation, and the UI labels that limitation explicitly. Endwalker and Shadowbringers use separate cap-specific formula constants; Shadowbringers evaluator profiles and acquisition details are explicitly preliminary until independently validated. Historical recommendations currently lack compatible community curation. Final Mandervillous weapons use optimised player-allocated stats, including Paladin's split sword and shield values. The v0.9.0-alpha.17 preview uses the existing public-read HTTPS channel with signed, immutable snapshots and a pre-trusted recovery key. Its bundled catalogue stops at Shadowbringers, while dormant level-70, level-60 and level-50 formula support prepares the unchanged client to accept older cap catalogues through signed data updates. Crafting-job optimisation, gathering, bundled pre-Shadowbringers historical tiers, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
+All 21 current combat jobs use bounded expected-single-100-potency-hit proxy profiles rather than rotation or encounter simulation, and the UI labels that limitation explicitly. Historical evaluator profiles and acquisition details are explicitly preliminary until independently validated. Historical recommendations currently lack compatible community curation. Final Mandervillous weapons use optimised player-allocated stats, including Paladin's split sword and shield values. The v0.9.0-alpha.18 preview uses the existing public-read HTTPS channel with signed, immutable, compressed snapshots and a pre-trusted recovery key. Its bundled catalogue stops at Stormblood, while level-60 and dormant level-50 formula support prepare the unchanged client to accept Heavensward and A Realm Reborn cap catalogues through signed data updates. Crafting-job optimisation, gathering, bundled pre-Heavensward historical tiers, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
 
 ## Rights and project status
 

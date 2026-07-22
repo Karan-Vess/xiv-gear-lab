@@ -65,10 +65,10 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     gamePatch: '3.58',
     minimumItemLevel: 235,
     maximumItemLevel: 275,
-    minimumItemsPerJob: 0,
+    minimumItemsPerJob: 50,
     excludedJobs: ['SAM', 'RDM', 'GNB', 'DNC', 'SGE', 'RPR', 'VPR', 'PCT'],
     materiaTiers: [3, 4],
-    itemNamePattern: '',
+    itemNamePattern: '.+',
     itemIdRanges: []
   }),
   arr: Object.freeze({

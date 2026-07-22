@@ -23,6 +23,7 @@ const OMEGA_PROTOCOL_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Th
 const MANDERVILLE_WEAPONS_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Manderville_Weapons';
 const SHADOWBRINGERS_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_80_Gear_Guide';
 const STORMBLOOD_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_70_Gear_Guide';
+const HEAVENSWARD_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_60_Gear_Guide';
 
 const patchForSource = (sourceUrl) => {
   if ([ENDWALKER_GEAR_REFERENCE_URL, ANABASEIOS_REFERENCE_URL, ANABASEIOS_SAVAGE_REFERENCE_URL].includes(sourceUrl)) return '6.4';
@@ -31,6 +32,7 @@ const patchForSource = (sourceUrl) => {
   if (sourceUrl === MANDERVILLE_WEAPONS_REFERENCE_URL) return '6.55';
   if (sourceUrl === SHADOWBRINGERS_GEAR_REFERENCE_URL) return '5.5';
   if (sourceUrl === STORMBLOOD_GEAR_REFERENCE_URL) return '4.5';
+  if (sourceUrl === HEAVENSWARD_GEAR_REFERENCE_URL) return '3.5';
   if (sourceUrl === PATCH_741_NOTES_URL || sourceUrl === PHANTOM_REFERENCE_URL) return '7.41';
   if (sourceUrl === PATCH_75_NOTES_URL || sourceUrl === UNMAKING_REFERENCE_URL || sourceUrl === CLYTEUM_REFERENCE_URL || sourceUrl === AUGMENTED_COURTLY_REFERENCE_URL) return '7.5';
   if (sourceUrl === PALAZZO_REFERENCE_URL) return '7.51';
@@ -172,6 +174,7 @@ const acquisitionForItem = (item, generatedAt) => {
   const endwalkerRoute = (details) => route({ ...details, expansionId: 'ew', minimumLevel: 90 });
   const shadowbringersRoute = (details) => route({ ...details, expansionId: 'shb', minimumLevel: 80 });
   const stormbloodRoute = (details) => route({ ...details, expansionId: 'sb', minimumLevel: 70 });
+  const heavenswardRoute = (details) => route({ ...details, expansionId: 'hw', minimumLevel: 60 });
   if (item.name.startsWith('Mandervillous')) {
     const sharedGroupId = item.jobs.includes('PLD') ? 'mandervillous-paladin-arms' : undefined;
     return {
@@ -827,6 +830,35 @@ const acquisitionForItem = (item, generatedAt) => {
         requirements: [{ kind: 'content', contentId: 'expansion:sb', description: 'Own Stormblood and reach level 70.' }],
         generatedAt,
         sourceUrl: STORMBLOOD_GEAR_REFERENCE_URL
+      })]
+    };
+  }
+  const heavenswardSource = (() => {
+    if (item.quality === 'hq') return ['crafted', 'High quality level-60 crafted equipment'];
+    if (/^(Filibuster's|Valkyrie's|Dravanian )/.test(item.name)) return ['dungeon', 'Level-60 dungeon drop'];
+    if (item.name.startsWith('Prototype Alexandrian')) return ['normal-raid', 'Alexander normal-raid exchange'];
+    if (item.name.startsWith('Alexandrian')) return ['savage', 'Alexander Savage drop or exchange'];
+    if (item.name.startsWith('Augmented Shire')) return ['tomestone-upgrade', 'Augmented tomestone equipment exchange'];
+    if (item.name.startsWith('Shire')) return ['tomestone', 'Level-60 tomestone equipment exchange'];
+    if (item.name.startsWith('Diabolic')) return ['alliance-raid', 'Shadow of Mhach alliance-raid drop'];
+    if (/^(Sophic|Zurvanite)/.test(item.name)) return ['trial', 'Heavensward Extreme-trial weapon'];
+    if (item.itemLevel === 275 && ['weapon', 'offHand'].includes(item.slot)) return ['relic', 'Anima weapon progression'];
+    return ['other', 'Other level-60 equipment source'];
+  })();
+  if (item.expansionId === 'hw') {
+    const [sourceFamily, name] = heavenswardSource;
+    return {
+      sourceFamily,
+      acquisitionNote: `${name}. Exact duty, vendor and cost validation is pending.`,
+      routes: [heavenswardRoute({
+        id: `heavensward-preliminary:${sourceFamily}:${item.id}`,
+        name,
+        sourceFamily,
+        status: 'partial',
+        note: 'The source family is classified from the official item family. Exact historical route, location and cost details remain to be validated.',
+        requirements: [{ kind: 'content', contentId: 'expansion:hw', description: 'Own Heavensward and reach level 60.' }],
+        generatedAt,
+        sourceUrl: HEAVENSWARD_GEAR_REFERENCE_URL
       })]
     };
   }

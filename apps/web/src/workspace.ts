@@ -181,6 +181,28 @@ export const prepareBuildWorkspaceStateForStorage = (
   updatedAt: now
 });
 
+export const resetIncompatibleWorkspaceBuilds = (
+  state: BuildWorkspaceState,
+  fallback: BuildWorkspaceState,
+  isCompatible: (build: BuildWorkspace) => boolean
+): BuildWorkspaceState => {
+  const incompatibleIds = BUILD_IDS.filter((id) => !isCompatible(state.builds[id]));
+  if (incompatibleIds.length === 0) return state;
+  const incompatible = new Set(incompatibleIds);
+  return {
+    ...state,
+    builds: Object.fromEntries(BUILD_IDS.map((id) => {
+      if (!incompatible.has(id)) return [id, state.builds[id]];
+      const restored = clone(fallback.builds[id]);
+      return [id, {
+        ...restored,
+        name: state.builds[id].name,
+        message: `${state.builds[id].name} was reset because its saved expansion or evaluator is unavailable in the active catalogue.`
+      }];
+    })) as Record<BuildId, BuildWorkspace>
+  };
+};
+
 export const workspaceSnapshotIds = (state: BuildWorkspaceState): string[] => {
   const ids = BUILD_IDS.flatMap((id) => {
     const build = state.builds[id];

@@ -143,7 +143,7 @@ const createWindow = async () => {
 
     await window.webContents.executeJavaScript(`
       (() => {
-        const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise this brief'));
+        const button = document.querySelector('[data-optimize-build]');
         if (!(button instanceof HTMLButtonElement)) throw new Error('Optimise button was not rendered during update drill.');
         button.click();
       })()

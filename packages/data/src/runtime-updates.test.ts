@@ -39,6 +39,9 @@ const bytes = (value: string): ArrayBuffer => {
 const base64 = (value: ArrayBuffer): string =>
   btoa(String.fromCharCode(...new Uint8Array(value)));
 
+const gzip = async (value: ArrayBuffer): Promise<ArrayBuffer> =>
+  new Response(new Blob([value]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+
 const countsFor = (snapshot: GearSnapshot): SnapshotCounts => ({
   expansions: snapshot.registry.expansions.length,
   jobs: snapshot.registry.jobs.length,
@@ -53,10 +56,12 @@ const countsFor = (snapshot: GearSnapshot): SnapshotCounts => ({
 const signedFixture = async (
   snapshot: GearSnapshot,
   checksumOverride?: string,
-  countOverrides: Partial<SnapshotCounts> = {}
+  countOverrides: Partial<SnapshotCounts> = {},
+  compressed = false
 ) => {
   const snapshotText = JSON.stringify(snapshot);
-  const snapshotBytes = bytes(snapshotText);
+  const expandedSnapshotBytes = bytes(snapshotText);
+  const snapshotBytes = compressed ? await gzip(expandedSnapshotBytes) : expandedSnapshotBytes;
   const keyPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
   const publicKey = await crypto.subtle.exportKey('raw', keyPair.publicKey);
   const manifest: DataUpdateManifest = {
@@ -66,7 +71,7 @@ const signedFixture = async (
     keyId: 'test-key',
     snapshot: {
       id: snapshot.manifest.id,
-      url: 'https://updates.example.test/snapshot.json',
+      url: `https://updates.example.test/snapshot.json${compressed ? '.gz' : ''}`,
       sha256: checksumOverride ?? await sha256Hex(snapshotBytes),
       byteLength: snapshotBytes.byteLength,
       counts: { ...countsFor(snapshot), ...countOverrides }
@@ -93,8 +98,8 @@ const signedFixture = async (
     if (url.endsWith('/manifest.json')) {
       return new Response(manifestText, { status: 200, headers: { 'content-length': String(bytes(manifestText).byteLength) } });
     }
-    if (url.endsWith('/snapshot.json')) {
-      return new Response(snapshotText, { status: 200, headers: { 'content-length': String(snapshotBytes.byteLength) } });
+    if (url.endsWith(`/snapshot.json${compressed ? '.gz' : ''}`)) {
+      return new Response(snapshotBytes, { status: 200, headers: { 'content-length': String(snapshotBytes.byteLength) } });
     }
     return new Response('', { status: 404 });
   }) as unknown as typeof fetch;
@@ -150,6 +155,17 @@ describe('signed runtime update download', () => {
     expect(candidate.snapshot.manifest.id).toBe(gearSnapshot.manifest.id);
     expect(candidate.updateManifest.providers.map((provider) => provider.status)).toEqual(['current', 'partial']);
     expect(candidate.compatibility.compatible).toBe(true);
+  });
+
+  it('accepts a signed gzip-compressed snapshot while enforcing an expanded-size ceiling', async () => {
+    const fixture = await signedFixture(gearSnapshot, undefined, {}, true);
+    const candidate = await downloadSnapshotCandidate(fixture.policy, runtime, fixture.fetcher);
+    expect(candidate.snapshot.manifest.id).toBe(gearSnapshot.manifest.id);
+
+    await expect(downloadSnapshotCandidate({
+      ...fixture.policy,
+      maximumExpandedSnapshotBytes: 100
+    }, runtime, fixture.fetcher)).rejects.toThrow('Expanded snapshot exceeds');
   });
 
   it('rejects a manifest changed after signing', async () => {

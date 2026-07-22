@@ -1,7 +1,7 @@
 # Runtime data releases
 
-Status: v0.6.3 M8C production channel configured and verified
-Date: 2026-07-16
+Status: v0.9.0-alpha.18 production channel and owner-run historical backfill configured
+Date: 2026-07-22
 
 ## Trust boundary
 
@@ -12,7 +12,7 @@ The update client accepts a candidate only when all of the following pass:
 - manifest and snapshot URLs use HTTPS and match the build-time origin allowlist;
 - the manifest schema and signing-key ID are supported;
 - the Ed25519 signature is valid;
-- declared and received byte lengths remain within policy limits;
+- declared and received compressed byte lengths remain within policy limits, followed by a separate expanded-size limit;
 - the snapshot SHA-256 checksum matches;
 - signed expansion, job, ruleset, evaluator, item, materia, food and curated-set counts match the payload and exceed configured minimums;
 - registry, ruleset, calculation and evaluator schemas are compatible with the installed app;
@@ -63,7 +63,7 @@ Saved-set database v4 marks records created before calculation-context tracking 
 
 ## Offline icons
 
-The data-release builder embeds every local item, materia and food PNG as a data URL before hashing and signing the snapshot. A downloaded patch therefore remains visually complete after internet access disappears. Runtime data never trusts an unsigned remote icon URL.
+The generated catalogue uses content-addressed local icons, so byte-identical images occupy one physical file in bundled builds. The data-release builder then embeds every required item, materia and food PNG as a data URL. Signed channel snapshots use deterministic gzip delivery, which compresses repeated embedded icon payloads without changing their offline behaviour. The checksum and signature cover the compressed bytes; the client verifies them before expansion. A downloaded patch therefore remains visually complete after internet access disappears. Runtime data never trusts an unsigned remote icon URL.
 
 ## Build configuration
 
@@ -86,11 +86,17 @@ The signed release publisher requires protected environment variables:
 ```text
 XIV_GEAR_LAB_DATA_SIGNING_KEY_ID=stable-2026
 XIV_GEAR_LAB_DATA_SIGNING_KEY_PKCS8=BASE64_PKCS8_PRIVATE_KEY
-XIV_GEAR_LAB_DATA_SNAPSHOT_URL=https://updates.example/snapshot-SNAPSHOT_ID.json
+XIV_GEAR_LAB_DATA_SNAPSHOT_URL=https://updates.example/snapshot-SNAPSHOT_ID.json.gz
 npm run build:data-release -- path/to/empty-output-directory
 ```
 
 The output contains the complete snapshot and `manifest.json`. Publishing/uploading is intentionally separate so a build cannot silently mutate the live channel.
+
+## Owner-run Heavensward publication drill
+
+`Update-Heavensward-Data.cmd` is the manual Windows launcher for the level-60 backfill acceptance test. It requires a clean `main` branch and the local signing key, verifies the currently hosted channel, downloads only level-60 i235-i275 Heavensward candidates, validates cap-job/slot coverage, runs type checks, focused tests and a production build, then prints the candidate summary.
+
+Nothing is signed, committed or uploaded unless the owner types the exact phrase `PUBLISH HEAVENSWARD`. After confirmation it stages and locally verifies the signed gzip snapshot, commits only the generated catalogue, content-addressed icons, channel files and changelog, pushes `main`, then waits for hosted verification. The frozen alpha.18 client deliberately contains the calculation rules but no Heavensward items, allowing a real incomplete-client to live-channel download test.
 
 ## Installed and hosted update/offline drills
 

@@ -8,7 +8,7 @@ const config = await loadProductionChannelConfig();
 const generatedSnapshot = JSON.parse(await readFile(resolve(workspace, 'packages', 'data', 'src', 'generated', 'whm-snapshot.json'), 'utf8'));
 const snapshotId = String(generatedSnapshot.manifest.id);
 const safeSnapshotId = snapshotId.replace(/[^a-zA-Z0-9._-]/g, '-');
-const snapshotFileName = `snapshot-${safeSnapshotId}.json`;
+const snapshotFileName = `snapshot-${safeSnapshotId}.json.gz`;
 const releaseUrl = `${config.snapshotBaseUrl.replace(/\/$/, '')}/${encodeURIComponent(safeSnapshotId)}/${snapshotFileName}`;
 const signingKeyFile = resolve(process.env.XIV_GEAR_LAB_DATA_SIGNING_KEY_FILE?.trim() ||
   join(homedir(), '.xiv-gear-lab', 'signing', `${config.signingKeyId}.pkcs8.b64`));

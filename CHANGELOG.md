@@ -6,6 +6,10 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Added
 
+- Added an owner-run `Update-Heavensward-Data.cmd` workflow that builds and validates the level-60 candidate locally, shows its coverage, and requires the exact `PUBLISH HEAVENSWARD` confirmation before signing, committing or uploading anything.
+- Added a preliminary Heavensward level-60 ruleset and 13 internal evaluator profiles to the client while deliberately leaving the level-60 item and Grade III/IV materia catalogue absent for the frozen-client update test.
+- Added gzip delivery for signed runtime snapshots. Checksums and signatures cover the compressed payload, and the client applies separate compressed and expanded size limits before activation.
+- Added a full-app recovery screen for unexpected renderer or startup failures, with safe reload and build-workspace reset actions instead of an unexplained blank window.
 - Added a preliminary Stormblood level-70 catalogue with 1,731 items across all 15 jobs available at that cap, eleven classified source families, Grade V/VI materia, a level-70 ruleset and 15 internal-preliminary evaluator profiles.
 - Added dormant level-70, level-60 and level-50 calculation-schema compatibility so a frozen client can accept future Stormblood, Heavensward and A Realm Reborn cap catalogues through the signed data channel without an executable rebuild.
 - Added a persistent Settings page with whole-interface scaling from 90% to 175%. Desktop builds use native Chromium zoom while browser builds retain a CSS fallback.
@@ -30,6 +34,10 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- Heavensward can now be selected in the deliberately incomplete test client and reports that its level-60 catalogue must be supplied through the local updater and Check data flow.
+- The Heavensward backfill profile now accepts only level-60 items in the i235-i275 cap range, keeps HQ-only crafted gear, adds Grade III/IV materia, and classifies preliminary historical source families.
+- Expansion choices whose calculation data is not installed now remain on the current build and direct the user to Check data instead of crashing the interface. Persisted prototype builds with unavailable evaluator data reset safely during startup.
+- Updated the packaged hosted-update drill to target the current build optimiser control after the M9 workspace redesign.
 - Optimizer result construction now uses an indexed item lookup, preventing historical catalogue growth from making unrelated current-tier searches scan the full item list for every equipped piece.
 - Historical backfill discovery now retains existing populated expansions and rejects cross-expansion records outside each configured level-cap and item-level slice.
 - Snapshot identities now fingerprint stable item stats, materia, food, acquisition and curated-set content, so metadata changes cannot reuse an immutable release ID while timestamp-only rebuilds remain stable.

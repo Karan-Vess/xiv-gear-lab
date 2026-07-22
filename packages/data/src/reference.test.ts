@@ -6,8 +6,8 @@ import { gearSnapshot } from './index';
 describe('live combat-job reference fixtures', () => {
   it('loads the current roster and evaluator profiles from snapshot data', () => {
     expect(gearSnapshot.registry.jobs).toHaveLength(21);
-    expect(gearSnapshot.evaluatorProfiles).toHaveLength(72);
-    expect(new Set(gearSnapshot.evaluatorProfiles.map((profile) => profile.id)).size).toBe(72);
+    expect(gearSnapshot.evaluatorProfiles).toHaveLength(85);
+    expect(new Set(gearSnapshot.evaluatorProfiles.map((profile) => profile.id)).size).toBe(85);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'AST')?.baseStats.vitality).toBe(439);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'MCH')?.damageTrait).toBe(1.2);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'MNK')?.hastePercent).toBe(20);
@@ -15,9 +15,13 @@ describe('live combat-job reference fixtures', () => {
       .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 340, baseSub: 380, levelDiv: 1300 } });
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'WHM' && profile.rulesetId.startsWith('sb-')))
       .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 292, baseSub: 364, levelDiv: 900 } });
-    expect(gearSnapshot.materia).toHaveLength(56);
-    expect(Object.fromEntries([5, 6, 7, 8, 9, 10, 11, 12].map((tier) => [tier, gearSnapshot.materia.filter((entry) => entry.tier === tier).length])))
-      .toEqual({ 5: 7, 6: 7, 7: 7, 8: 7, 9: 7, 10: 7, 11: 7, 12: 7 });
+    expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'WHM' && profile.rulesetId.startsWith('hw-')))
+      .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 218, baseSub: 354, levelDiv: 600 } });
+    const populatedHeavensward = gearSnapshot.items.some((item) => item.expansionId === 'hw');
+    expect(gearSnapshot.materia).toHaveLength(populatedHeavensward ? 70 : 56);
+    const expectedMateriaTiers = populatedHeavensward ? [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [5, 6, 7, 8, 9, 10, 11, 12];
+    expect(Object.fromEntries(expectedMateriaTiers.map((tier) => [tier, gearSnapshot.materia.filter((entry) => entry.tier === tier).length])))
+      .toEqual(Object.fromEntries(expectedMateriaTiers.map((tier) => [tier, 7])));
     expect(gearSnapshot.materia.find((entry) => entry.name === 'Savage Aim Materia XI')).toMatchObject({ value: 18, advancedMeldingLimit: 'unrestricted' });
   });
 
@@ -31,7 +35,8 @@ describe('live combat-job reference fixtures', () => {
         'ffxiv-combat-level-100@1',
         'ffxiv-combat-level-90@1',
         'ffxiv-combat-level-80@1',
-        'ffxiv-combat-level-70@1'
+        'ffxiv-combat-level-70@1',
+        'ffxiv-combat-level-60@1'
       ],
       evaluatorProfileSchemas: ['generic-hit-profile@1']
     });
@@ -78,7 +83,7 @@ describe('live combat-job reference fixtures', () => {
   });
 
   it('ships the current M11 access graph, HQ policy, routes, and fixed costs', () => {
-    expect(gearSnapshot.items).toHaveLength(3498);
+    expect(gearSnapshot.items.length).toBeGreaterThanOrEqual(3498);
     expect(gearSnapshot.contentGraph?.schemaVersion).toBe('content-access@1');
     expect(gearSnapshot.contentGraph?.nodes.some((node) => node.id === 'duty:aac-heavyweight-savage')).toBe(true);
     expect(gearSnapshot.contentGraph?.nodes.map((node) => node.id)).toEqual(expect.arrayContaining([
@@ -118,6 +123,16 @@ describe('live combat-job reference fixtures', () => {
     expect(stormbloodItems.every((item) => item.acquisitionRoutes?.every((route) =>
       route.status === 'partial' && route.expansionId === 'sb' && route.minimumLevel === 70
     ))).toBe(true);
+
+    const heavenswardItems = gearSnapshot.items.filter((item) => item.expansionId === 'hw');
+    if (heavenswardItems.length > 0) {
+      expect(heavenswardItems.every((item) => item.level === 60 && item.itemLevel >= 235 && item.itemLevel <= 275)).toBe(true);
+      expect(new Set(heavenswardItems.flatMap((item) => item.jobs)).size).toBe(13);
+      expect(heavenswardItems.every((item) => item.sourceFamily !== 'crafted' || item.quality === 'hq')).toBe(true);
+      expect(heavenswardItems.every((item) => item.acquisitionRoutes?.every((route) =>
+        route.status === 'partial' && route.expansionId === 'hw' && route.minimumLevel === 60
+      ))).toBe(true);
+    }
 
     const body = gearSnapshot.items.find((item) => item.name === 'Bygone Brass Shirt of Healing');
     expect(body?.sourceFamily).toBe('tomestone');

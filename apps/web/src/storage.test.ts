@@ -8,8 +8,10 @@ import {
   loadCustomItems,
   loadSavedSets,
   pinnedSnapshotIdsForSavedSets,
+  resetBuildWorkspaceState,
   saveBuildWorkspaceState,
-  saveCustomItem
+  saveCustomItem,
+  saveSet
 } from './storage';
 import { createInitialBuildWorkspaceState } from './workspace';
 
@@ -148,6 +150,35 @@ describe('saved-set storage migration', () => {
     });
     expect(customRecord).toBeTruthy();
     upgraded.close();
+  });
+
+  it('resets only the three-build workspace while preserving saved sets and custom items', async () => {
+    const fallback = createInitialBuildWorkspaceState({
+      expansion: 'dt',
+      level: 100,
+      job: 'WHM',
+      constraints: { minResource: 440, minGcd: 2.41, maxGcd: 2.41, allowedSources: ['savage'], requiredItemIds: [], excludedItemIds: [], frontierLimit: 100 },
+      gcdTarget: '2.41',
+      selectedSet: structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'WHM')!),
+      message: 'Ready.'
+    });
+    fallback.builds['build-1'].job = 'SCH';
+    await saveBuildWorkspaceState(fallback);
+    await saveSet({ ...structuredClone(fallback.builds['build-1'].selectedSet), id: 'reset-preserved-save' });
+    const custom = structuredClone(gearSnapshot.items[0]!);
+    custom.id = 'reset-preserved-custom';
+    custom.origin = 'custom';
+    await saveCustomItem(custom, 'body');
+
+    await resetBuildWorkspaceState();
+    const reloaded = await loadBuildWorkspaceState(createInitialBuildWorkspaceState({
+      expansion: 'dt', level: 100, job: 'WHM', constraints: fallback.builds['build-1'].constraints,
+      gcdTarget: '2.41', selectedSet: fallback.builds['build-1'].selectedSet, message: 'Fresh.'
+    }));
+
+    expect(reloaded.builds['build-1'].job).toBe('WHM');
+    expect((await loadSavedSets()).some((set) => set.id === 'reset-preserved-save')).toBe(true);
+    expect((await loadCustomItems()).some((record) => record.id === 'reset-preserved-custom')).toBe(true);
   });
 
   it('adds newly supported materia tiers to a legacy workspace exactly once', async () => {
