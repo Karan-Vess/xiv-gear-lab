@@ -6,6 +6,8 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Added
 
+- Added 1,025 preliminary Heavensward level-60 items, Grade III/IV materia and 13 cap-job evaluator profiles through the owner-run signed data channel (xivapi-f8764efd76cdb31a-dt-ew-shb-sb-hw-30515b767b74635d).
+
 - Added an owner-run `Update-Heavensward-Data.cmd` workflow that builds and validates the level-60 candidate locally, shows its coverage, and requires the exact `PUBLISH HEAVENSWARD` confirmation before signing, committing or uploading anything.
 - Added a preliminary Heavensward level-60 ruleset and 13 internal evaluator profiles to the client while deliberately leaving the level-60 item and Grade III/IV materia catalogue absent for the frozen-client update test.
 - Added gzip delivery for signed runtime snapshots. Checksums and signatures cover the compressed payload, and the client applies separate compressed and expanded size limits before activation.
