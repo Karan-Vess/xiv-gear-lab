@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.9.0-alpha.21 completed M11/M11B baseline
+Status: revised through the v0.9.0-alpha.22 completed pre-M12 optimiser-hardening checkpoint
 Date: 2026-07-26
-Current runnable baseline: Windows/browser-capable v0.9.0-alpha.21 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.9.0-alpha.22 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -434,6 +434,18 @@ Tests:
 - Unchanged official version/schema; compatible patch; forced supporting refresh; gradual pagination; missing slot/job; essential and optional provider outages; later acquisition and curation overlays.
 - Unknown schema, formula/evaluator incompatibility, suspicious stat/count jumps, signing-secret absence, declined confirmation, interrupted publication and hosted verification failure.
 - Repeat runs after failure, after successful publication and from a clean machine with no publishing credentials.
+
+### Pre-M12 optimiser-hardening checkpoint
+
+Status: **Complete**.
+
+- Remove an equipment candidate before meld generation only when another legal candidate is at least as strong in weapon damage, every stat, item level, materia capacity, applicable stat caps and per-slot melding legality. Required, locked, custom and configurable-relic items remain protected, while rings remain subject to whole-set uniqueness checks.
+- Rank bounded intermediate states against optimistic contributions from every remaining slot instead of treating a partial set as final. Branches that cannot possibly reach a required role-resource minimum stop immediately.
+- Preserve unique-ring identity when equal-stat intermediate states would otherwise conflict with a locked ring in the other slot.
+- Retain representative speed tiers while bounding per-slot meld variants according to the configured whole-set frontier. The Dawntrail Paladin all-source, Grade III-XII advanced-melding stress case keeps the pre-change result while reducing evaluated combinations from about 7.78 million to 4.20 million.
+- Differential tests compare an untruncated compact search with independent exhaustive enumeration, prove that a stronger lower-item-level option survives, prove that an exactly dominated item is removed, cover locked equal-stat unique rings and enforce a stable broad-search state budget.
+
+This is a reliability prerequisite, not the start of M12. The existing fast generic-hit proxy remains bounded rather than globally exhaustive whenever it reports truncation.
 
 ### M12 - Bounded combat evaluator framework
 

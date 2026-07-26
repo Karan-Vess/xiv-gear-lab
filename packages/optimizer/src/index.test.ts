@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { gearSnapshot, whmSnapshot } from '@xiv-gear-lab/data';
-import { isAugmentedCraftedItem, type CombatJob, type EquipmentItem, type GearSnapshot, type StatKey } from '@xiv-gear-lab/domain';
+import {
+  addStats,
+  emptyStats,
+  gearSlotsForJob,
+  isAugmentedCraftedItem,
+  type CombatJob,
+  type EquipmentItem,
+  type GearSnapshot,
+  type StatKey
+} from '@xiv-gear-lab/domain';
+import { expectedAction100, getCombatEvaluatorProfileForAccess } from '@xiv-gear-lab/calculations';
 import {
   optimizeCombatJob,
   optimizeAstrologian,
@@ -170,9 +180,8 @@ describe('WHM optimiser', () => {
     expect(Object.keys(result.best?.items ?? {})).toHaveLength(11);
     expect(result.best!.metrics.gcd).toBeGreaterThanOrEqual(2.29);
     expect(result.best!.metrics.gcd).toBeLessThanOrEqual(2.44);
-    expect(result.best!.metrics.expectedAction100).toBeCloseTo(
-      Math.max(...whmSnapshot.curatedSets.filter((set) => set.job === 'WHM').map((set) => set.metrics.expectedAction100)),
-      2
+    expect(result.best!.metrics.expectedAction100).toBeGreaterThanOrEqual(
+      Math.max(...whmSnapshot.curatedSets.filter((set) => set.job === 'WHM').map((set) => set.metrics.expectedAction100))
     );
     expect(result.best!.calculationContext).toMatchObject({
       snapshotId: whmSnapshot.manifest.id,
@@ -217,10 +226,8 @@ describe('WHM optimiser', () => {
     }
   }, 20_000);
 
-  it.each([
-    ['fast', 2.29],
-    ['slow', 2.43]
-  ])('returns a labelled closest-attainable Tomestone result for the %s target', (_profile, targetGcd) => {
+  it('returns a labelled closest-attainable Tomestone result for an unattainable fast target', () => {
+    const targetGcd = 2.29;
     const result = optimizeWhm(whmSnapshot, {
       minResource: 440,
       minGcd: targetGcd,
@@ -242,6 +249,22 @@ describe('WHM optimiser', () => {
       const item = whmSnapshot.items.find((candidate) => candidate.id === equipped?.itemId);
       expect(item?.sourceFamily).not.toBe('savage');
     }
+  }, 20_000);
+
+  it('returns an exact Tomestone result when the requested slow target is attainable', () => {
+    const targetGcd = 2.43;
+    const result = optimizeWhm(whmSnapshot, {
+      minResource: 440,
+      minGcd: targetGcd,
+      maxGcd: targetGcd,
+      allowedSources: ['tomestone-upgrade', 'tomestone'],
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800
+    });
+    expect(result.best?.metrics.gcd).toBe(targetGcd);
+    expect(result.speedFallback).toBeUndefined();
+    expect(result.best?.name).toBe('Best reference-pool result');
   }, 20_000);
 
   it('explains when exclusions remove every weapon', () => {
@@ -797,7 +820,214 @@ describe('M10 optimiser restrictions', () => {
     expect(craftedMeldCounts).toContain(5);
   }, 20_000);
 
-  it('handles every accessible materia grade with advanced melding without overflowing', () => {
+  it('requires an explicit override and marks an out-of-access custom result hypothetical', () => {
+    const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;
+    const custom: EquipmentItem = {
+      ...source,
+      id: 'custom-future-head',
+      origin: 'custom',
+      sourceFamily: 'custom',
+      level: 110,
+      customData: {
+        schemaVersion: 'custom-equipment@1', mode: 'final-stats', role: 'healer', expansionId: 'future',
+        sourceDescription: 'Test', fixedCost: '', notes: '', iconProvenance: 'generic'
+      }
+    };
+    const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
+    const denied = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100 });
+    expect(denied.best).toBeUndefined();
+    expect(denied.explanation[0]).toContain('experimental access override');
+    const allowed = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100, allowExperimentalAccess: true });
+    expect(allowed.best?.hypotheticalAccess?.itemIds).toContain(custom.id);
+  }, 20_000);
+});
+
+describe('optimizer search hardening', () => {
+  const makeCompactWhmSnapshot = () => {
+    const slots = gearSlotsForJob('WHM');
+    const withoutRoutes = (item: EquipmentItem): EquipmentItem => ({
+      ...item,
+      acquisitionRoutes: []
+    });
+    const nonRingItems = slots
+      .filter((slot) => slot !== 'ringLeft' && slot !== 'ringRight')
+      .map((slot) => withoutRoutes(whmSnapshot.items.find((item) =>
+        item.slot === slot &&
+        item.jobs.includes('WHM') &&
+        item.expansionId === 'dt' &&
+        item.level === 100
+      )!));
+    const rings = whmSnapshot.items.filter((item) =>
+      item.slot === 'ring' &&
+      item.jobs.includes('WHM') &&
+      item.expansionId === 'dt' &&
+      item.level === 100
+    ).slice(0, 2).map(withoutRoutes);
+    const baseHead = nonRingItems.find((item) => item.slot === 'head')!;
+    const lowerItemLevelHead: EquipmentItem = {
+      ...baseHead,
+      id: 'search-regression-lower-item-level-head',
+      name: 'Lower item-level critical-hit test head',
+      itemLevel: baseHead.itemLevel - 10,
+      stats: {
+        ...baseHead.stats,
+        criticalHit: baseHead.stats.criticalHit + 60
+      },
+      statCaps: {
+        ...baseHead.statCaps,
+        criticalHit: baseHead.statCaps.criticalHit + 60
+      }
+    };
+    return {
+      snapshot: {
+        ...whmSnapshot,
+        manifest: {
+          ...whmSnapshot.manifest,
+          id: 'optimizer-search-hardening-fixture'
+        },
+        items: [...nonRingItems, ...rings, lowerItemLevelHead],
+        materia: [],
+        foods: [],
+        curatedSets: [],
+        contentGraph: undefined
+      } satisfies GearSnapshot,
+      lowerItemLevelHead,
+      baseHead,
+      rings
+    };
+  };
+
+  const compactConstraints = (snapshot: GearSnapshot) => ({
+    minResource: 0,
+    minGcd: 1.5,
+    maxGcd: 2.5,
+    allowedSources: [...new Set(snapshot.items.map((item) => item.sourceFamily))],
+    includeUpgradedTomestoneGear: true,
+    includeAugmentedCraftedGear: true,
+    requiredItemIds: [],
+    excludedItemIds: [],
+    frontierLimit: 10_000,
+    foodMode: 'none' as const,
+    allowedMateriaStats: [] as StatKey[],
+    allowedMateriaTiers: [],
+    accessExpansion: 'dt' as const,
+    accessLevel: 100
+  });
+
+  it('matches exhaustive enumeration on a compact pool and keeps a stronger lower-item-level option', () => {
+    const { snapshot, lowerItemLevelHead } = makeCompactWhmSnapshot();
+    const result = optimizeWhm(snapshot, compactConstraints(snapshot));
+    const profile = getCombatEvaluatorProfileForAccess('WHM', snapshot, 'dt', 100);
+    const slots = gearSlotsForJob('WHM');
+    let exhaustiveBest = Number.NEGATIVE_INFINITY;
+
+    const visit = (
+      index: number,
+      stats = emptyStats(),
+      weaponDamage = 0,
+      uniqueRingIds = new Set<string>()
+    ) => {
+      if (index === slots.length) {
+        const finalStats = addStats(profile.baseStats, stats);
+        finalStats[profile.mainStat] = Math.floor(finalStats[profile.mainStat] * 1.05);
+        finalStats.vitality = Math.floor(finalStats.vitality * 1.05);
+        exhaustiveBest = Math.max(
+          exhaustiveBest,
+          expectedAction100(finalStats, weaponDamage, profile)
+        );
+        return;
+      }
+      const slot = slots[index]!;
+      const candidates = snapshot.items.filter((item) =>
+        item.jobs.includes('WHM') &&
+        (
+          item.slot === slot ||
+          (item.slot === 'ring' && (slot === 'ringLeft' || slot === 'ringRight'))
+        )
+      );
+      for (const item of candidates) {
+        const itemId = String(item.id);
+        if (item.slot === 'ring' && item.unique && uniqueRingIds.has(itemId)) continue;
+        visit(
+          index + 1,
+          addStats(stats, item.stats),
+          Math.max(weaponDamage, item.weaponDamage),
+          item.slot === 'ring' && item.unique
+            ? new Set([...uniqueRingIds, itemId])
+            : uniqueRingIds
+        );
+      }
+    };
+    visit(0);
+
+    expect(result.truncated).toBe(false);
+    expect(result.best?.items.head?.itemId).toBe(lowerItemLevelHead.id);
+    expect(result.best?.metrics.expectedAction100).toBeCloseTo(exhaustiveBest, 8);
+  });
+
+  it('removes only a provably dominated official item before generating meld variants', () => {
+    const { snapshot } = makeCompactWhmSnapshot();
+    const baseBody = snapshot.items.find((item) => item.slot === 'body')!;
+    const dominatedBody: EquipmentItem = {
+      ...baseBody,
+      id: 'search-regression-dominated-body',
+      name: 'Provably dominated test body',
+      itemLevel: baseBody.itemLevel - 1
+    };
+    const withDominated: GearSnapshot = {
+      ...snapshot,
+      manifest: {
+        ...snapshot.manifest,
+        id: 'optimizer-search-hardening-dominated-fixture'
+      },
+      items: [...snapshot.items, dominatedBody]
+    };
+    const baseline = optimizeWhm(snapshot, compactConstraints(snapshot));
+    const result = optimizeWhm(withDominated, compactConstraints(withDominated));
+
+    expect(result.best?.metrics.expectedAction100).toBeCloseTo(baseline.best!.metrics.expectedAction100, 8);
+    expect(result.searchDiagnostics?.legalItemCandidates).toBe(
+      (baseline.searchDiagnostics?.legalItemCandidates ?? 0) + 1
+    );
+    expect(result.searchDiagnostics?.retainedItemCandidates).toBe(
+      baseline.searchDiagnostics?.retainedItemCandidates
+    );
+    expect(result.searchDiagnostics?.dominatedItemCandidates).toBe(
+      (baseline.searchDiagnostics?.dominatedItemCandidates ?? 0) + 1
+    );
+  });
+
+  it('keeps equal-stat unique ring identities distinct when one ring slot is locked', () => {
+    const { snapshot, rings } = makeCompactWhmSnapshot();
+    const lockedRing = rings[0]!;
+    const alternateRing: EquipmentItem = {
+      ...lockedRing,
+      id: 'search-regression-equal-stat-ring',
+      name: 'Equal-stat unique test ring',
+      unique: true
+    };
+    const ringFixture: GearSnapshot = {
+      ...snapshot,
+      manifest: {
+        ...snapshot.manifest,
+        id: 'optimizer-search-hardening-ring-fixture'
+      },
+      items: [
+        ...snapshot.items.filter((item) => item.slot !== 'ring'),
+        lockedRing,
+        alternateRing
+      ]
+    };
+    const result = optimizeWhm(ringFixture, {
+      ...compactConstraints(ringFixture),
+      lockedItemIdsBySlot: { ringRight: lockedRing.id }
+    });
+
+    expect(result.best?.items.ringRight?.itemId).toBe(lockedRing.id);
+    expect(result.best?.items.ringLeft?.itemId).toBe(alternateRing.id);
+  });
+
+  it('keeps the broad all-materia Paladin search inside its protected state budget', () => {
     const allowedSources = [...new Set(
       gearSnapshot.items
         .filter((item) => item.expansionId === 'dt')
@@ -829,31 +1059,10 @@ describe('M10 optimiser restrictions', () => {
       allowExperimentalAccess: false
     });
 
-    expect(result.best).toBeDefined();
-    expect(result.best?.job).toBe('PLD');
-    expect(result.truncated).toBe(true);
-    expect(result.evaluatedStates).toBeGreaterThan(1_000_000);
-  }, 30_000);
-
-  it('requires an explicit override and marks an out-of-access custom result hypothetical', () => {
-    const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;
-    const custom: EquipmentItem = {
-      ...source,
-      id: 'custom-future-head',
-      origin: 'custom',
-      sourceFamily: 'custom',
-      level: 110,
-      customData: {
-        schemaVersion: 'custom-equipment@1', mode: 'final-stats', role: 'healer', expansionId: 'future',
-        sourceDescription: 'Test', fixedCost: '', notes: '', iconProvenance: 'generic'
-      }
-    };
-    const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
-    const denied = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100 });
-    expect(denied.best).toBeUndefined();
-    expect(denied.explanation[0]).toContain('experimental access override');
-    const allowed = optimizeWhm(snapshot, { ...base, allowedSources: [...base.allowedSources], requiredItemIds: [custom.id], allowCustomItems: true, accessExpansion: 'dt', accessLevel: 100, allowExperimentalAccess: true });
-    expect(allowed.best?.hypotheticalAccess?.itemIds).toContain(custom.id);
+    expect(result.best?.metrics.expectedAction100).toBeCloseTo(7901.77511628755, 8);
+    expect(result.searchDiagnostics?.dominatedItemCandidates).toBeGreaterThan(0);
+    expect(result.searchDiagnostics?.peakFrontierStates).toBeLessThanOrEqual(1_800);
+    expect(result.evaluatedStates).toBeLessThan(4_500_000);
   }, 20_000);
 });
 

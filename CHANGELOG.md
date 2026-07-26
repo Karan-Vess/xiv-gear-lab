@@ -40,6 +40,7 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- Hardened bounded optimisation before M12: provably dominated official items are removed without excluding stronger lower-item-level alternatives, remaining-slot bounds guide frontier retention, impossible resource branches stop early, and locked equal-stat unique rings remain distinct. The broad all-grade Paladin stress case retains the same result while evaluating about 46% fewer combinations.
 - Historical materia now follows its own expansion-era advanced-melding limits: high-grade even tiers are restricted to the first advanced slot while the applicable lower grades can fill later overmeld slots.
 - Historical acquisition records now require an explicit validated or partial route state. Family-classified preliminary routes remain usable without pretending that an unverified duty, vendor or cost is exact.
 - Snapshot identities now include the content-access graph, preventing changed duty, vendor or prerequisite data from reusing an immutable catalogue ID.

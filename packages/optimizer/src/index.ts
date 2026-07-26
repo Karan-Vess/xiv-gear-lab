@@ -69,6 +69,7 @@ interface SearchState {
   itemLevelTotal: number;
   waste: number;
   sources: Set<SourceFamily>;
+  uniqueRingItemIds: Set<string>;
 }
 
 export interface OptimizerResult {
@@ -82,6 +83,14 @@ export interface OptimizerResult {
     requestedMinGcd: number;
     requestedMaxGcd: number;
     achievedGcd: number;
+  };
+  searchDiagnostics?: {
+    legalItemCandidates: number;
+    retainedItemCandidates: number;
+    dominatedItemCandidates: number;
+    generatedSlotVariants: number;
+    retainedSlotVariants: number;
+    peakFrontierStates: number;
   };
 }
 
@@ -105,6 +114,76 @@ const materiaAllowedAtItemIndex = (
   if (limit === 'forbidden') return false;
   if (limit === 'first-slot-only') return index === item.materiaSlots;
   return true;
+};
+
+const itemMateriaCapacity = (
+  item: EquipmentItem,
+  constraints: ResolvedOptimizerConstraints
+) => item.materiaSlots + (
+  constraints.allowOvermelds && item.advancedMelding
+    ? Math.max(0, 5 - item.materiaSlots)
+    : 0
+);
+
+const pruneDominatedEquipmentCandidates = (
+  candidates: EquipmentItem[],
+  slot: GearSlot,
+  snapshot: GearSnapshot,
+  profile: CombatEvaluatorProfile,
+  constraints: ResolvedOptimizerConstraints,
+  protectedItemIds: Set<string>
+): EquipmentItem[] => {
+  // Ring identities affect the two-slot unique-item constraint, so they are
+  // deliberately left for whole-set search rather than pruned in isolation.
+  if (slot === 'ringLeft' || slot === 'ringRight') return candidates;
+
+  const relevantMateria = snapshot.materia.filter((entry) =>
+    profile.meldStats.includes(entry.stat) &&
+    constraints.allowedMateriaStats.includes(entry.stat) &&
+    constraints.allowedMateriaTiers.includes(entry.tier) &&
+    supportingRecordIsWithinAccess(entry, snapshot, constraints)
+  );
+  const relevantCapStats = [...new Set(relevantMateria.map((entry) => entry.stat))];
+
+  const canReplicateMeldSpace = (superior: EquipmentItem, candidate: EquipmentItem) => {
+    const candidateCapacity = itemMateriaCapacity(candidate, constraints);
+    if (itemMateriaCapacity(superior, constraints) < candidateCapacity) return false;
+    if (relevantCapStats.some((stat) => superior.statCaps[stat] < candidate.statCaps[stat])) return false;
+    for (let index = 0; index < candidateCapacity; index += 1) {
+      if (relevantMateria.some((materia) =>
+        materiaAllowedAtItemIndex(candidate, index, materia) &&
+        !materiaAllowedAtItemIndex(superior, index, materia)
+      )) return false;
+    }
+    return true;
+  };
+
+  return candidates.filter((candidate) => {
+    if (
+      protectedItemIds.has(String(candidate.id)) ||
+      candidate.origin === 'custom' ||
+      candidate.relicStatModel
+    ) return true;
+    return !candidates.some((other) => {
+      if (
+        other === candidate ||
+        protectedItemIds.has(String(other.id)) ||
+        other.origin === 'custom' ||
+        other.relicStatModel ||
+        other.itemLevel < candidate.itemLevel ||
+        other.weaponDamage < candidate.weaponDamage ||
+        STAT_KEYS.some((stat) => other.stats[stat] < candidate.stats[stat]) ||
+        !canReplicateMeldSpace(other, candidate)
+      ) return false;
+      return (
+        other.itemLevel > candidate.itemLevel ||
+        other.weaponDamage > candidate.weaponDamage ||
+        STAT_KEYS.some((stat) => other.stats[stat] > candidate.stats[stat]) ||
+        relevantCapStats.some((stat) => other.statCaps[stat] > candidate.statCaps[stat]) ||
+        itemMateriaCapacity(other, constraints) > itemMateriaCapacity(candidate, constraints)
+      );
+    });
+  });
 };
 
 const variantsForItem = (
@@ -392,25 +471,60 @@ const statsKey = (state: SearchState, constraints: OptimizerConstraints): string
         const selectedIds = new Set(Object.values(state.items).map((entry) => String(entry?.itemId)));
         return constraints.requiredItemIds.map((id) => (selectedIds.has(String(id)) ? '1' : '0')).join('');
       })();
-  return `${STAT_KEYS.map((key) => state.stats[key]).join(':')}:${state.weaponDamage}:${requiredMask}`;
+  const uniqueItemIdentity = [...state.uniqueRingItemIds].sort().join(',');
+  return `${STAT_KEYS.map((key) => state.stats[key]).join(':')}:${state.weaponDamage}:${requiredMask}:${uniqueItemIdentity}`;
 };
 
-const stateHeuristic = (
+interface RemainingSlotBounds {
+  maxStats: StatBlock;
+  minSpeed: number;
+  maxWeaponDamage: number;
+}
+
+const optimisticStateHeuristic = (
   state: SearchState,
+  remaining: RemainingSlotBounds,
   constraints: OptimizerConstraints,
   profile: CombatEvaluatorProfile
 ): number => {
-  const withBase = addStats(profile.baseStats, state.stats);
-  const gcd = gcdFromSpeed(
-    withBase[profile.speedStat],
+  const optimisticStats = addStats(state.stats, remaining.maxStats);
+  const withBase = addStats(profile.baseStats, optimisticStats);
+  const minimumFinalSpeed = profile.baseStats[profile.speedStat] +
+    state.stats[profile.speedStat] +
+    remaining.minSpeed;
+  const maximumFinalSpeed = withBase[profile.speedStat];
+  const slowestGcd = gcdFromSpeed(
+    minimumFinalSpeed,
     profile.baseGcdMs,
     profile.hastePercent,
     levelFormulaConstantsFor(profile)
   );
-  const target = Math.min(constraints.maxGcd, Math.max(constraints.minGcd, gcd));
-  const gcdPenalty = Math.abs(gcd - target) * 1_000_000;
-  return expectedAction100(withBase, state.weaponDamage, profile) - gcdPenalty;
+  const fastestGcd = gcdFromSpeed(
+    maximumFinalSpeed,
+    profile.baseGcdMs,
+    profile.hastePercent,
+    levelFormulaConstantsFor(profile)
+  );
+  const gcdDistance = fastestGcd > constraints.maxGcd
+    ? fastestGcd - constraints.maxGcd
+    : slowestGcd < constraints.minGcd
+      ? constraints.minGcd - slowestGcd
+      : 0;
+  return expectedAction100(
+    withBase,
+    Math.max(state.weaponDamage, remaining.maxWeaponDamage),
+    profile
+  ) - gcdDistance * 1_000_000;
 };
+
+interface SlotSearchPlan {
+  slot: GearSlot;
+  variants: Variant[];
+  legalCandidateCount: number;
+  retainedCandidateCount: number;
+  generatedVariantCount: number;
+  truncated: boolean;
+}
 
 interface ScoredSearchState {
   key: string;
@@ -952,19 +1066,12 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       : `${missingCoverage.slice(0, -1).join(', ')}, and ${missingCoverage.at(-1)}`;
     return fail(`The selected acquisition categories and equipped custom items cannot fill ${coverageList}. Add a source or compatible custom item covering the missing slots.`);
   }
-  let frontier: SearchState[] = [
-    {
-      items: {},
-      stats: emptyStats(),
-      weaponDamage: 0,
-      itemLevelTotal: 0,
-      waste: 0,
-      sources: new Set()
-    }
-  ];
-  let evaluatedStates = 0;
-  let truncated = false;
-
+  const protectedItemIds = new Set([...required, ...lockedIds]);
+  const slotPlans: SlotSearchPlan[] = [];
+  const slotVariantLimit = Math.min(
+    300,
+    Math.max(96, Math.ceil(Math.sqrt(Math.max(1, resolved.frontierLimit)) * 6))
+  );
   for (const slot of gearSlots) {
     const lockedItemId = resolved.lockedItemIdsBySlot[slot];
     const requiredForSlot = snapshot.items.filter(
@@ -975,7 +1082,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         .filter((item) => item.slot !== 'ring')
         .map((item) => String(item.id))
     );
-    const candidates = snapshot.items.filter(
+    const legalCandidates = snapshot.items.filter(
       (item) =>
         candidateForSlot(item, slot) &&
         itemIsAllowed(item) &&
@@ -983,36 +1090,94 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         (hardRequiredIds.size === 0 || hardRequiredIds.has(String(item.id)))
     );
 
-    if (candidates.length === 0) {
+    if (legalCandidates.length === 0) {
       return {
         alternatives: [],
-        evaluatedStates,
+        evaluatedStates: 0,
         durationMs: performance.now() - started,
-        truncated,
+        truncated: false,
         explanation: [`No legal ${slot} candidate remains after the selected source and exclusion filters.`]
       };
     }
 
+    const retainedCandidates = pruneDominatedEquipmentCandidates(
+      legalCandidates,
+      slot,
+      snapshot,
+      profile,
+      resolved,
+      protectedItemIds
+    );
+    const generatedVariants = retainedCandidates.flatMap((item) =>
+      variantsForItem(item, slot, snapshot, profile, resolved)
+    );
     const slotVariantFrontier = keepBoundedSlotVariants(
       pruneDominatedSlotVariants(
-        candidates.flatMap((item) => variantsForItem(item, slot, snapshot, profile, resolved)),
+        generatedVariants,
         slot,
         profile
       ),
-      Math.max(300, Math.ceil(resolved.frontierLimit / 4)),
+      slotVariantLimit,
       profile
     );
     const variants = slotVariantFrontier.variants;
-    truncated ||= slotVariantFrontier.truncated;
     if (variants.length === 0) {
       return {
         alternatives: [],
-        evaluatedStates,
+        evaluatedStates: 0,
         durationMs: performance.now() - started,
-        truncated,
+        truncated: slotVariantFrontier.truncated,
         explanation: [`No ${slot} item can accept the locked melds under the selected materia and overmelding rules.`]
       };
     }
+    slotPlans.push({
+      slot,
+      variants,
+      legalCandidateCount: legalCandidates.length,
+      retainedCandidateCount: retainedCandidates.length,
+      generatedVariantCount: generatedVariants.length,
+      truncated: slotVariantFrontier.truncated
+    });
+  }
+
+  const remainingBounds: RemainingSlotBounds[] = new Array(slotPlans.length + 1);
+  remainingBounds[slotPlans.length] = {
+    maxStats: emptyStats(),
+    minSpeed: 0,
+    maxWeaponDamage: 0
+  };
+  for (let index = slotPlans.length - 1; index >= 0; index -= 1) {
+    const plan = slotPlans[index]!;
+    const after = remainingBounds[index + 1]!;
+    const maxStats = emptyStats();
+    for (const stat of STAT_KEYS) {
+      maxStats[stat] = after.maxStats[stat] + Math.max(...plan.variants.map((variant) => variant.stats[stat]));
+    }
+    remainingBounds[index] = {
+      maxStats,
+      minSpeed: after.minSpeed + Math.min(...plan.variants.map((variant) => variant.stats[profile.speedStat])),
+      maxWeaponDamage: Math.max(after.maxWeaponDamage, ...plan.variants.map((variant) => variant.item.weaponDamage))
+    };
+  }
+
+  let frontier: SearchState[] = [
+    {
+      items: {},
+      stats: emptyStats(),
+      weaponDamage: 0,
+      itemLevelTotal: 0,
+      waste: 0,
+      sources: new Set(),
+      uniqueRingItemIds: new Set()
+    }
+  ];
+  let evaluatedStates = 0;
+  let truncated = slotPlans.some((plan) => plan.truncated);
+  let peakFrontierStates = frontier.length;
+
+  for (let planIndex = 0; planIndex < slotPlans.length; planIndex += 1) {
+    const { slot, variants } = slotPlans[planIndex]!;
+    const remaining = remainingBounds[planIndex + 1]!;
     const retained = new Map<string, ScoredSearchState>();
     const scoredHeap: ScoredSearchState[] = [];
     const boundedLimit = Math.max(1, resolved.frontierLimit);
@@ -1023,7 +1188,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       for (const variant of variants) {
         if (
           (slot === 'ringRight' || slot === 'ringLeft') &&
-          Object.values(state.items).some((entry) => String(entry?.itemId) === String(variant.item.id)) &&
+          state.uniqueRingItemIds.has(String(variant.item.id)) &&
           variant.item.unique
         ) {
           continue;
@@ -1037,11 +1202,23 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
           waste: state.waste + variant.waste,
           sources: state.sources.has(variant.item.sourceFamily)
             ? state.sources
-            : new Set([...state.sources, variant.item.sourceFamily])
+            : new Set([...state.sources, variant.item.sourceFamily]),
+          uniqueRingItemIds: variant.item.slot === 'ring' && variant.item.unique
+            ? new Set([...state.uniqueRingItemIds, String(variant.item.id)])
+            : state.uniqueRingItemIds
         };
+        evaluatedStates += 1;
+        if (
+          profile.resourceStat &&
+          profile.baseStats[profile.resourceStat] +
+            nextState.stats[profile.resourceStat] +
+            remaining.maxStats[profile.resourceStat] <
+            resolved.minResource
+        ) {
+          continue;
+        }
         const key = statsKey(nextState, resolved);
         const existing = retained.get(key);
-        evaluatedStates += 1;
         if (existing) {
           if (
             nextState.waste < existing.state.waste ||
@@ -1058,7 +1235,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         const entry: ScoredSearchState = {
           key,
           state: nextState,
-          score: stateHeuristic(nextState, resolved, profile),
+          score: optimisticStateHeuristic(nextState, remaining, resolved, profile),
           order: insertionOrder
         };
         insertionOrder += 1;
@@ -1079,8 +1256,20 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     }
 
     frontier = scoredHeap.map((entry) => entry.state);
+    peakFrontierStates = Math.max(peakFrontierStates, frontier.length);
     truncated ||= slotTruncated;
   }
+  const searchDiagnostics: NonNullable<OptimizerResult['searchDiagnostics']> = {
+    legalItemCandidates: slotPlans.reduce((total, plan) => total + plan.legalCandidateCount, 0),
+    retainedItemCandidates: slotPlans.reduce((total, plan) => total + plan.retainedCandidateCount, 0),
+    dominatedItemCandidates: slotPlans.reduce(
+      (total, plan) => total + plan.legalCandidateCount - plan.retainedCandidateCount,
+      0
+    ),
+    generatedSlotVariants: slotPlans.reduce((total, plan) => total + plan.generatedVariantCount, 0),
+    retainedSlotVariants: slotPlans.reduce((total, plan) => total + plan.variants.length, 0),
+    peakFrontierStates
+  };
 
   const feasible: GearSet[] = [];
   const resourceFeasible: GearSet[] = [];
@@ -1220,6 +1409,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     durationMs: performance.now() - started,
     truncated,
     speedFallback,
+    searchDiagnostics,
     explanation:
       selected.length > 0
         ? speedFallback
