@@ -51,7 +51,8 @@ describe('live combat-job reference fixtures', () => {
         'ffxiv-combat-level-60@1',
         'ffxiv-combat-level-50@1'
       ],
-      evaluatorProfileSchemas: ['generic-hit-profile@1']
+      evaluatorProfileSchemas: ['generic-hit-profile@1'],
+      rotationProfileSchemas: ['combat-rotation-profile@1']
     });
     expect(report.errors).toEqual([]);
     expect(report.compatible).toBe(true);

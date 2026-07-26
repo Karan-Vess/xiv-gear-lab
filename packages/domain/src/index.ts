@@ -176,6 +176,168 @@ export interface CombatEvaluatorProfile {
   limitation: string;
 }
 
+export type RotationEvaluationMode = Exclude<EvaluationMode, 'generic-hit'>;
+export type RotationProfileConfidence = 'generated-preliminary' | 'community-validated';
+export type RotationRngMode = 'expected-value';
+export type RotationCutoffPolicy = 'strict-application';
+export type CombatActionKind = 'gcd' | 'ogcd' | 'auto-attack' | 'dot' | 'pet';
+export type CombatActionSpeedScaling = 'none' | 'skill-speed' | 'spell-speed';
+
+export interface CombatMethodReference {
+  id: string;
+  kind: 'official' | 'community' | 'xivgear-reference' | 'xiv-gear-lab';
+  title: string;
+  provider: string;
+  url?: string;
+  gamePatch: string;
+  publishedAt?: string;
+  accessedAt?: string;
+  notes?: string;
+}
+
+export interface CombatResourceChange {
+  resource: string;
+  amount: number;
+}
+
+export type CombatActionEffect =
+  | {
+    kind: 'resource';
+    resource: string;
+    amount: number;
+    timing?: 'snapshot' | 'application';
+  }
+  | {
+    kind: 'buff';
+    buffId: string;
+    durationMs: number;
+    stacks?: number;
+    damageMultiplier?: number;
+    hastePercent?: number;
+  }
+  | {
+    kind: 'dot';
+    dotId: string;
+    durationMs: number;
+    tickPotency: number;
+  }
+  | {
+    kind: 'combo';
+    comboId: string;
+    nextStep: string;
+    durationMs: number;
+  }
+  | {
+    kind: 'expected-proc';
+    procId: string;
+    chance: number;
+  }
+  | {
+    kind: 'schedule-action';
+    actionId: string;
+    delayMs: number;
+    repeatEveryMs?: number;
+    repeatCount?: number;
+  }
+  | {
+    kind: 'mechanic';
+    mechanicId: string;
+    timing?: 'snapshot' | 'application';
+  };
+
+export interface CombatActionProfile {
+  id: string;
+  name: string;
+  kind: CombatActionKind;
+  /** Marks an action that is only available when the matching consumable assumption is enabled. */
+  consumable?: 'potion';
+  potency: number;
+  recastMs: number;
+  /** Independent action cooldown. GCD actions otherwise only use recastMs as the global recast. */
+  cooldownMs?: number;
+  castMs: number;
+  animationLockMs: number;
+  applicationDelayMs: number;
+  charges: number;
+  speedScaling: CombatActionSpeedScaling;
+  resourceCosts?: CombatResourceChange[];
+  expectedProcCosts?: CombatResourceChange[];
+  criticalHitMode?: 'normal' | 'guaranteed' | 'disabled';
+  directHitMode?: 'normal' | 'guaranteed' | 'disabled';
+  effects?: CombatActionEffect[];
+  referenceIds: string[];
+}
+
+export type CombatPriorityCondition =
+  | { kind: 'always' }
+  | { kind: 'cooldown-ready'; actionId: string; minimumCharges?: number }
+  | { kind: 'resource-at-least'; resource: string; amount: number }
+  | { kind: 'resource-at-most'; resource: string; amount: number }
+  | { kind: 'resource-would-overcap'; resource: string; incoming: number; maximum: number }
+  | { kind: 'buff-active'; buffId: string; active: boolean }
+  | { kind: 'buff-remaining-at-most'; buffId: string; durationMs: number }
+  | { kind: 'dot-remaining-at-most'; dotId: string; durationMs: number }
+  | { kind: 'combo-step'; comboId: string; step: string }
+  | { kind: 'proc-active'; procId: string; active: boolean }
+  | { kind: 'mechanic'; mechanicId: string };
+
+export interface CombatPriorityRule {
+  id: string;
+  actionId: string;
+  conditions: CombatPriorityCondition[];
+  /** Allows an oGCD rule to accept GCD clipping instead of waiting for a safe weave window. */
+  allowClipping?: boolean;
+  explanation: string;
+  referenceIds: string[];
+}
+
+export interface CommunityOpenerProfile {
+  id: string;
+  name: string;
+  gamePatch: string;
+  actionIds: string[];
+  confidence: RotationProfileConfidence;
+  potion: 'none' | 'included';
+  externalPartyBuffs: boolean;
+  referenceIds: string[];
+}
+
+export interface CombatDummyAssumptions {
+  targetCount: 1;
+  uptimePercent: 100;
+  movement: false;
+  downtime: false;
+  externalPartyBuffs: false;
+  rngMode: RotationRngMode;
+  latencyMs: number;
+  weaveWindowMs: number;
+  cutoffPolicy: RotationCutoffPolicy;
+}
+
+/**
+ * Safe signed data for an executable combat evaluator already present in the
+ * application. The profile may select known mechanics but cannot deliver code.
+ */
+export interface CombatRotationProfile {
+  id: string;
+  schemaVersion: string;
+  rulesetId: string;
+  job: CombatJob;
+  jobMode: JobModeId;
+  version: string;
+  gamePatch: string;
+  engineId: string;
+  supportedModes: RotationEvaluationMode[];
+  confidence: RotationProfileConfidence;
+  actions: CombatActionProfile[];
+  priorityRules: CombatPriorityRule[];
+  openers: CommunityOpenerProfile[];
+  defaultOpenerId?: string;
+  assumptions: CombatDummyAssumptions;
+  references: CombatMethodReference[];
+  limitation: string;
+}
+
 export type ProvenanceKind =
   | 'official-client'
   | 'official-published'
@@ -401,6 +563,36 @@ export interface EvaluationMetadata {
   limitation: string;
 }
 
+export interface RotationEvaluationSummary {
+  mode: RotationEvaluationMode;
+  label: string;
+  durationMs: number;
+  totalDamage: number;
+  dps: number;
+  profileId: string;
+  profileVersion: string;
+  rulesetId: string;
+  gamePatch: string;
+  engineId: string;
+  method: {
+    kind: 'community-opener' | 'generated-priority';
+    confidence: RotationProfileConfidence;
+    openerId?: string;
+    warning?: string;
+  };
+  actionCount: number;
+  gcdCount: number;
+  ogcdCount: number;
+  clippedMs: number;
+  references: CombatMethodReference[];
+  limitation: string;
+  rerankedCandidateCount: number;
+  rerankDurationMs: number;
+  proxyBestSetId: string;
+  winnerChanged: boolean;
+  timelineCacheHits: number;
+}
+
 export interface CalculationContext {
   snapshotId: string;
   rulesetId: string;
@@ -462,6 +654,7 @@ export interface GearSet {
   foodId?: number;
   metrics: SetMetrics;
   evaluation?: EvaluationMetadata;
+  rotationEvaluation?: RotationEvaluationSummary;
   calculationContext?: CalculationContext;
   legacyCalculationContext?: LegacyCalculationContext;
   recommendationConfidence?: RecommendationConfidenceReport;
@@ -502,6 +695,8 @@ export interface GearSnapshot {
   registry: GameRegistry;
   rulesets: CalculationRuleset[];
   evaluatorProfiles: CombatEvaluatorProfile[];
+  /** Optional until M12-capable snapshots begin shipping rotation data. */
+  rotationProfiles?: CombatRotationProfile[];
   items: EquipmentItem[];
   materia: Materia[];
   foods: Food[];
@@ -771,6 +966,8 @@ export interface RuntimeCompatibility {
   rulesetSchemas: string[];
   calculationSchemas: string[];
   evaluatorProfileSchemas: string[];
+  /** Older runtimes omit this and must reject snapshots that contain rotation profiles. */
+  rotationProfileSchemas?: string[];
 }
 
 export interface SnapshotCompatibilityReport {
@@ -874,6 +1071,9 @@ export const assessSnapshotCompatibility = (
   for (const duplicate of duplicateValues(snapshot.evaluatorProfiles.map((entry) => entry.id))) {
     errors.push(`Duplicate evaluator profile ID ${duplicate}.`);
   }
+  for (const duplicate of duplicateValues((snapshot.rotationProfiles ?? []).map((entry) => entry.id))) {
+    errors.push(`Duplicate rotation profile ID ${duplicate}.`);
+  }
   for (const duplicate of duplicateValues(snapshot.items.map((entry) => String(entry.id)))) {
     errors.push(`Duplicate item ID ${duplicate}.`);
   }
@@ -882,6 +1082,7 @@ export const assessSnapshotCompatibility = (
   const jobsById = new Map(registry.jobs.map((entry) => [entry.id, entry]));
   const rulesetsById = new Map(snapshot.rulesets.map((entry) => [entry.id, entry]));
   const profilesById = new Map(snapshot.evaluatorProfiles.map((entry) => [entry.id, entry]));
+  const rotationProfilesById = new Map((snapshot.rotationProfiles ?? []).map((entry) => [entry.id, entry]));
   const contentIds = new Set(snapshot.contentGraph?.nodes.map((entry) => entry.id) ?? []);
 
   if (snapshot.contentGraph) {
@@ -964,6 +1165,18 @@ export const assessSnapshotCompatibility = (
           errors.push(`Profile ${profile.id} does not belong to job ${job.id} mode ${mode.id}.`);
         }
       }
+      for (const evaluator of ['opener-30', 'dummy-300'] as RotationEvaluationMode[]) {
+        const capability = mode.capabilities[evaluator];
+        if (capability.status !== 'available' || !capability.profileId) continue;
+        const profile = rotationProfilesById.get(capability.profileId);
+        if (!profile) {
+          errors.push(`Job ${job.id} mode ${mode.id} references missing rotation profile ${capability.profileId}.`);
+        } else if (profile.job !== job.id || profile.jobMode !== mode.id) {
+          errors.push(`Rotation profile ${profile.id} does not belong to job ${job.id} mode ${mode.id}.`);
+        } else if (!profile.supportedModes.includes(evaluator)) {
+          errors.push(`Rotation profile ${profile.id} does not support ${evaluator}.`);
+        }
+      }
     }
   }
 
@@ -983,6 +1196,313 @@ export const assessSnapshotCompatibility = (
     }
     if (ruleset && ruleset.jobMode !== profile.jobMode) {
       errors.push(`Profile ${profile.id} mode ${profile.jobMode} does not match ruleset mode ${ruleset.jobMode}.`);
+    }
+  }
+
+  for (const profile of snapshot.rotationProfiles ?? []) {
+    const job = jobsById.get(profile.job);
+    const ruleset = rulesetsById.get(profile.rulesetId);
+    const supportedRotationModes: RotationEvaluationMode[] = ['opener-30', 'dummy-300'];
+    const actionKinds: CombatActionKind[] = ['gcd', 'ogcd', 'auto-attack', 'dot', 'pet'];
+    const speedScalingModes: CombatActionSpeedScaling[] = ['none', 'skill-speed', 'spell-speed'];
+    const effectKinds: CombatActionEffect['kind'][] = ['resource', 'buff', 'dot', 'combo', 'expected-proc', 'schedule-action', 'mechanic'];
+    const conditionKinds: CombatPriorityCondition['kind'][] = [
+      'always',
+      'cooldown-ready',
+      'resource-at-least',
+      'resource-at-most',
+      'resource-would-overcap',
+      'buff-active',
+      'buff-remaining-at-most',
+      'dot-remaining-at-most',
+      'combo-step',
+      'proc-active',
+      'mechanic'
+    ];
+    if (!(runtime.rotationProfileSchemas ?? []).includes(profile.schemaVersion)) {
+      errors.push(`Rotation profile ${profile.id} uses unsupported schema ${profile.schemaVersion}.`);
+    }
+    if (!job) errors.push(`Rotation profile ${profile.id} references unknown job ${profile.job}.`);
+    if (!ruleset) errors.push(`Rotation profile ${profile.id} references unknown ruleset ${profile.rulesetId}.`);
+    if (ruleset && ruleset.jobMode !== profile.jobMode) {
+      errors.push(`Rotation profile ${profile.id} mode ${profile.jobMode} does not match ruleset mode ${ruleset.jobMode}.`);
+    }
+    if (ruleset && ruleset.gamePatch !== profile.gamePatch) {
+      errors.push(`Rotation profile ${profile.id} patch ${profile.gamePatch} does not match ruleset patch ${ruleset.gamePatch}.`);
+    }
+    if (!profile.engineId.trim()) errors.push(`Rotation profile ${profile.id} has no engine ID.`);
+    if (!profile.version.trim()) errors.push(`Rotation profile ${profile.id} has no version.`);
+    if (!profile.limitation.trim()) errors.push(`Rotation profile ${profile.id} has no limitation.`);
+    if (!['generated-preliminary', 'community-validated'].includes(profile.confidence)) {
+      errors.push(`Rotation profile ${profile.id} has unsupported confidence ${profile.confidence}.`);
+    }
+    if (profile.supportedModes.length === 0) errors.push(`Rotation profile ${profile.id} supports no evaluation modes.`);
+    for (const mode of profile.supportedModes) {
+      if (!supportedRotationModes.includes(mode)) {
+        errors.push(`Rotation profile ${profile.id} has unsupported evaluation mode ${mode}.`);
+      }
+    }
+    for (const duplicate of duplicateValues(profile.supportedModes)) {
+      errors.push(`Rotation profile ${profile.id} repeats supported mode ${duplicate}.`);
+    }
+    for (const duplicate of duplicateValues(profile.references.map((entry) => entry.id))) {
+      errors.push(`Rotation profile ${profile.id} has duplicate reference ${duplicate}.`);
+    }
+    const referencesById = new Map(profile.references.map((entry) => [entry.id, entry]));
+    for (const reference of profile.references) {
+      if (!reference.title.trim() || !reference.provider.trim() || !reference.gamePatch.trim()) {
+        errors.push(`Rotation profile ${profile.id} has incomplete reference ${reference.id}.`);
+      }
+      if (reference.kind !== 'xiv-gear-lab' && !reference.url?.trim()) {
+        errors.push(`Rotation profile ${profile.id} external reference ${reference.id} has no direct URL.`);
+      }
+    }
+    for (const duplicate of duplicateValues(profile.actions.map((entry) => entry.id))) {
+      errors.push(`Rotation profile ${profile.id} has duplicate action ${duplicate}.`);
+    }
+    const actionsById = new Map(profile.actions.map((entry) => [entry.id, entry]));
+    const checkReferences = (owner: string, referenceIds: string[]): void => {
+      for (const referenceId of referenceIds) {
+        if (!referencesById.has(referenceId)) {
+          errors.push(`Rotation profile ${profile.id} ${owner} references missing methodology ${referenceId}.`);
+        }
+      }
+    };
+    for (const action of profile.actions) {
+      if (!action.id.trim() || !action.name.trim()) errors.push(`Rotation profile ${profile.id} has an unnamed action.`);
+      if (!actionKinds.includes(action.kind) || !speedScalingModes.includes(action.speedScaling)) {
+        errors.push(`Rotation profile ${profile.id} action ${action.id} has an unsupported kind or speed-scaling mode.`);
+      }
+      if (action.consumable !== undefined && action.consumable !== 'potion') {
+        errors.push(`Rotation profile ${profile.id} action ${action.id} has an unsupported consumable.`);
+      }
+      if (action.consumable === 'potion' && action.kind !== 'ogcd') {
+        errors.push(`Rotation profile ${profile.id} potion action ${action.id} is not an oGCD.`);
+      }
+      if (
+        !Number.isFinite(action.potency) || action.potency < 0 ||
+        !Number.isInteger(action.recastMs) || action.recastMs < 0 ||
+        (action.cooldownMs !== undefined && (!Number.isInteger(action.cooldownMs) || action.cooldownMs <= 0)) ||
+        !Number.isInteger(action.castMs) || action.castMs < 0 ||
+        !Number.isInteger(action.animationLockMs) || action.animationLockMs < 0 ||
+        !Number.isInteger(action.applicationDelayMs) || action.applicationDelayMs < 0 ||
+        !Number.isInteger(action.charges) || action.charges < 1
+      ) {
+        errors.push(`Rotation profile ${profile.id} action ${action.id} has invalid timing, potency or charge data.`);
+      }
+      for (const cost of action.resourceCosts ?? []) {
+        if (!cost.resource.trim() || !Number.isFinite(cost.amount) || cost.amount < 0) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid resource cost.`);
+        }
+      }
+      for (const cost of action.expectedProcCosts ?? []) {
+        if (!cost.resource.trim() || !Number.isFinite(cost.amount) || cost.amount <= 0) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid expected-proc cost.`);
+        }
+      }
+      if (
+        (action.criticalHitMode !== undefined && !['normal', 'guaranteed', 'disabled'].includes(action.criticalHitMode)) ||
+        (action.directHitMode !== undefined && !['normal', 'guaranteed', 'disabled'].includes(action.directHitMode))
+      ) {
+        errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid hit mode.`);
+      }
+      for (const effect of action.effects ?? []) {
+        if (!effectKinds.includes(effect.kind)) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an unsupported effect kind.`);
+          continue;
+        }
+        if (effect.kind === 'resource' && (!effect.resource.trim() || !Number.isFinite(effect.amount))) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid resource effect.`);
+        }
+        if (
+          (effect.kind === 'resource' || effect.kind === 'mechanic') &&
+          effect.timing !== undefined &&
+          !['snapshot', 'application'].includes(effect.timing)
+        ) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid effect timing.`);
+        }
+        if (
+          (effect.kind === 'buff' || effect.kind === 'dot' || effect.kind === 'combo') &&
+          (!Number.isInteger(effect.durationMs) || effect.durationMs < 0)
+        ) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid effect duration.`);
+        }
+        if (
+          effect.kind === 'buff' &&
+          (
+            (effect.damageMultiplier !== undefined && (!Number.isFinite(effect.damageMultiplier) || effect.damageMultiplier <= 0)) ||
+            (effect.hastePercent !== undefined && (!Number.isFinite(effect.hastePercent) || effect.hastePercent < 0 || effect.hastePercent >= 100))
+          )
+        ) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has invalid buff modifiers.`);
+        }
+        if (effect.kind === 'expected-proc' && (!Number.isFinite(effect.chance) || effect.chance < 0 || effect.chance > 1)) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid expected-proc chance.`);
+        }
+        if (
+          effect.kind === 'schedule-action' &&
+          (
+            !actionsById.has(effect.actionId) ||
+            !Number.isInteger(effect.delayMs) || effect.delayMs < 0 ||
+            (effect.repeatEveryMs !== undefined && (!Number.isInteger(effect.repeatEveryMs) || effect.repeatEveryMs <= 0)) ||
+            (effect.repeatCount !== undefined && (!Number.isInteger(effect.repeatCount) || effect.repeatCount < 1)) ||
+            ((effect.repeatCount ?? 1) > 1 && effect.repeatEveryMs === undefined)
+          )
+        ) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid scheduled action.`);
+        }
+        if (effect.kind === 'mechanic' && !effect.mechanicId.trim()) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an empty mechanic ID.`);
+        }
+      }
+      checkReferences(`action ${action.id}`, action.referenceIds);
+    }
+    for (const duplicate of duplicateValues(profile.priorityRules.map((entry) => entry.id))) {
+      errors.push(`Rotation profile ${profile.id} has duplicate priority rule ${duplicate}.`);
+    }
+    for (const rule of profile.priorityRules) {
+      const ruleAction = actionsById.get(rule.actionId);
+      if (!rule.id.trim()) {
+        errors.push(`Rotation profile ${profile.id} has a priority rule with no ID.`);
+      }
+      if (!ruleAction) {
+        errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} references missing action ${rule.actionId}.`);
+      }
+      if (rule.allowClipping !== undefined && typeof rule.allowClipping !== 'boolean') {
+        errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid clipping policy.`);
+      }
+      if (rule.allowClipping && ruleAction?.kind !== 'ogcd') {
+        errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} allows clipping for a non-oGCD action.`);
+      }
+      if (!rule.explanation.trim()) {
+        errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has no explanation.`);
+      }
+      if (rule.conditions.length === 0) {
+        errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has no conditions.`);
+      }
+      for (const condition of rule.conditions) {
+        if (!conditionKinds.includes(condition.kind)) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an unsupported condition kind.`);
+          continue;
+        }
+        if (condition.kind === 'cooldown-ready') {
+          if (!actionsById.has(condition.actionId)) {
+            errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} checks missing action ${condition.actionId}.`);
+          }
+          if (
+            condition.minimumCharges !== undefined &&
+            (!Number.isInteger(condition.minimumCharges) || condition.minimumCharges < 1)
+          ) {
+            errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid minimum charge condition.`);
+          }
+        }
+        if (
+          (condition.kind === 'resource-at-least' || condition.kind === 'resource-at-most') &&
+          (!condition.resource.trim() || !Number.isFinite(condition.amount))
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid resource threshold.`);
+        }
+        if (
+          condition.kind === 'resource-would-overcap' &&
+          (
+            !condition.resource.trim() ||
+            !Number.isFinite(condition.incoming) ||
+            !Number.isFinite(condition.maximum) ||
+            condition.maximum < 0
+          )
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid overcap condition.`);
+        }
+        if (
+          condition.kind === 'buff-active' &&
+          (!condition.buffId.trim() || typeof condition.active !== 'boolean')
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid buff-active condition.`);
+        }
+        if (
+          (condition.kind === 'buff-remaining-at-most' || condition.kind === 'dot-remaining-at-most') &&
+          (
+            !(condition.kind === 'buff-remaining-at-most' ? condition.buffId : condition.dotId).trim() ||
+            !Number.isInteger(condition.durationMs) ||
+            condition.durationMs < 0
+          )
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid remaining-duration condition.`);
+        }
+        if (
+          condition.kind === 'combo-step' &&
+          (!condition.comboId.trim() || !condition.step.trim())
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid combo condition.`);
+        }
+        if (
+          condition.kind === 'proc-active' &&
+          (!condition.procId.trim() || typeof condition.active !== 'boolean')
+        ) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an invalid proc condition.`);
+        }
+        if (condition.kind === 'mechanic' && !condition.mechanicId.trim()) {
+          errors.push(`Rotation profile ${profile.id} priority rule ${rule.id} has an empty mechanic condition.`);
+        }
+      }
+      checkReferences(`priority rule ${rule.id}`, rule.referenceIds);
+    }
+    for (const duplicate of duplicateValues(profile.openers.map((entry) => entry.id))) {
+      errors.push(`Rotation profile ${profile.id} has duplicate opener ${duplicate}.`);
+    }
+    const openersById = new Map(profile.openers.map((entry) => [entry.id, entry]));
+    for (const opener of profile.openers) {
+      if (!opener.name.trim() || opener.actionIds.length === 0) {
+        errors.push(`Rotation profile ${profile.id} opener ${opener.id} is incomplete.`);
+      }
+      if (
+        !opener.gamePatch.trim() ||
+        !['none', 'included'].includes(opener.potion) ||
+        typeof opener.externalPartyBuffs !== 'boolean'
+      ) {
+        errors.push(`Rotation profile ${profile.id} opener ${opener.id} has invalid assumptions.`);
+      }
+      if (!['generated-preliminary', 'community-validated'].includes(opener.confidence)) {
+        errors.push(`Rotation profile ${profile.id} opener ${opener.id} has unsupported confidence ${opener.confidence}.`);
+      }
+      if (opener.confidence === 'community-validated' && opener.referenceIds.length === 0) {
+        errors.push(`Rotation profile ${profile.id} community opener ${opener.id} has no methodology reference.`);
+      }
+      for (const actionId of opener.actionIds) {
+        if (!actionsById.has(actionId)) {
+          errors.push(`Rotation profile ${profile.id} opener ${opener.id} references missing action ${actionId}.`);
+        }
+      }
+      const containsPotion = opener.actionIds.some((actionId) => actionsById.get(actionId)?.consumable === 'potion');
+      if (opener.potion === 'included' && !containsPotion) {
+        errors.push(`Rotation profile ${profile.id} opener ${opener.id} includes a potion assumption without a potion action.`);
+      }
+      if (opener.potion === 'none' && containsPotion) {
+        errors.push(`Rotation profile ${profile.id} opener ${opener.id} contains a potion action despite disabling potions.`);
+      }
+      checkReferences(`opener ${opener.id}`, opener.referenceIds);
+    }
+    if (profile.defaultOpenerId) {
+      const opener = openersById.get(profile.defaultOpenerId);
+      if (!opener) {
+        errors.push(`Rotation profile ${profile.id} references missing default opener ${profile.defaultOpenerId}.`);
+      } else if (opener.gamePatch !== profile.gamePatch) {
+        errors.push(`Rotation profile ${profile.id} default opener ${opener.id} is stale for patch ${profile.gamePatch}.`);
+      }
+    }
+    const assumptions = profile.assumptions;
+    if (
+      assumptions.targetCount !== 1 ||
+      assumptions.uptimePercent !== 100 ||
+      assumptions.movement !== false ||
+      assumptions.downtime !== false ||
+      assumptions.externalPartyBuffs !== false ||
+      assumptions.rngMode !== 'expected-value' ||
+      assumptions.cutoffPolicy !== 'strict-application' ||
+      !Number.isInteger(assumptions.latencyMs) || assumptions.latencyMs < 0 ||
+      !Number.isInteger(assumptions.weaveWindowMs) || assumptions.weaveWindowMs < 0
+    ) {
+      errors.push(`Rotation profile ${profile.id} has unsupported dummy assumptions.`);
     }
   }
 

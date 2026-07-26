@@ -26,6 +26,60 @@ const createState = () => createInitialBuildWorkspaceState({
 });
 
 describe('three-build comparison', () => {
+  it('compares matching rotation results and exposes their method and action totals', () => {
+    const samSet = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const profile = gearSnapshot.rotationProfiles!.find((entry) => entry.job === 'SAM')!;
+    const state = createInitialBuildWorkspaceState({
+      expansion: 'dt',
+      level: 100,
+      job: 'SAM',
+      constraints: { ...constraints, minResource: 0, minGcd: 2.08, maxGcd: 2.14 },
+      gcdTarget: '2.14',
+      selectedSet: samSet,
+      message: 'Ready.'
+    });
+    for (const build of Object.values(state.builds)) {
+      build.selectedSet = structuredClone(samSet);
+      build.selectedSet.rotationEvaluation = {
+        mode: 'dummy-300',
+        label: 'Five-minute dummy rotation',
+        durationMs: 300_000,
+        totalDamage: 10_000_000 + Number(build.id.at(-1)) * 1000,
+        dps: 33_333,
+        profileId: profile.id,
+        profileVersion: profile.version,
+        rulesetId: profile.rulesetId,
+        gamePatch: profile.gamePatch,
+        engineId: profile.engineId,
+        method: {
+          kind: 'generated-priority',
+          confidence: 'generated-preliminary',
+          warning: 'No current community opener is installed.'
+        },
+        actionCount: 180,
+        gcdCount: 120,
+        ogcdCount: 20,
+        clippedMs: 0,
+        references: profile.references,
+        limitation: profile.limitation,
+        rerankedCandidateCount: 12,
+        rerankDurationMs: 150,
+        proxyBestSetId: 'proxy-best',
+        winnerChanged: true,
+        timelineCacheHits: 2
+      };
+    }
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+
+    expect(html).toContain('Five-minute dummy rotation');
+    expect(html).toContain('Rotation DPS');
+    expect(html).toContain('180 actions');
+    expect(html).toContain('generated priority');
+    expect(html).toContain('Directly comparable with Build 1');
+  });
+
   it('shows direct deltas for compatible builds and all required timing labels', () => {
     const state = createState();
     state.builds['build-2'].selectedSet.metrics.expectedAction100 += 10;

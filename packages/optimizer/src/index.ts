@@ -20,6 +20,7 @@ import {
   type GearSet,
   type GearSlot,
   type OptimizerConstraints,
+  type RotationEvaluationMode,
   type ResolvedOptimizerConstraints,
   type SourceFamily,
   type StatBlock,
@@ -43,7 +44,8 @@ export const OPTIMIZER_RUNTIME_COMPATIBILITY = {
   registrySchemas: ['game-registry@1'],
   rulesetSchemas: ['combat-ruleset@1'],
   calculationSchemas: SUPPORTED_CALCULATION_SCHEMAS,
-  evaluatorProfileSchemas: SUPPORTED_EVALUATOR_PROFILE_SCHEMAS
+  evaluatorProfileSchemas: SUPPORTED_EVALUATOR_PROFILE_SCHEMAS,
+  rotationProfileSchemas: ['combat-rotation-profile@1']
 };
 
 const validatedSnapshots = new WeakSet<GearSnapshot>();
@@ -75,6 +77,8 @@ interface SearchState {
 export interface OptimizerResult {
   best?: GearSet;
   alternatives: GearSet[];
+  /** Bounded proxy-selected candidates retained for an optional rotation rerank. */
+  finalists?: GearSet[];
   evaluatedStates: number;
   durationMs: number;
   truncated: boolean;
@@ -92,7 +96,71 @@ export interface OptimizerResult {
     retainedSlotVariants: number;
     peakFrontierStates: number;
   };
+  rotationRerank?: {
+    mode: RotationEvaluationMode;
+    candidateCount: number;
+    durationMs: number;
+    proxyBestSetId: string;
+    winnerChanged: boolean;
+    timelineCacheHits: number;
+  };
 }
+
+export interface OptimizerProgress {
+  progress: number;
+  phase: 'preparing' | 'slot-variants' | 'gear-frontier' | 'finalizing';
+  message: string;
+}
+
+export interface OptimizerControl {
+  isCancelled?(): boolean;
+  reportProgress?(update: OptimizerProgress): void;
+}
+
+export class OptimizerCancelledError extends Error {
+  constructor() {
+    super('Optimisation cancelled.');
+    this.name = 'OptimizerCancelledError';
+  }
+}
+
+export const selectSpeedDiverseFinalists = (
+  sortedCandidates: readonly GearSet[],
+  limit = 12
+): GearSet[] => {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  if (sortedCandidates.length <= boundedLimit) return [...sortedCandidates];
+
+  const selected: GearSet[] = [];
+  const selectedIds = new Set<string>();
+  const add = (candidate: GearSet | undefined) => {
+    if (!candidate || selected.length >= boundedLimit || selectedIds.has(candidate.id)) return;
+    selected.push(candidate);
+    selectedIds.add(candidate.id);
+  };
+
+  for (const candidate of sortedCandidates.slice(0, Math.min(4, boundedLimit))) add(candidate);
+
+  const bestByTier = new Map<string, GearSet>();
+  for (const candidate of sortedCandidates) {
+    const tier = candidate.metrics.gcd.toFixed(2);
+    if (!bestByTier.has(tier)) bestByTier.set(tier, candidate);
+  }
+  const tierWinners = [...bestByTier.values()]
+    .sort((left, right) => left.metrics.gcd - right.metrics.gcd);
+  const remainingSlots = boundedLimit - selected.length;
+  if (remainingSlots > 0 && tierWinners.length > 0) {
+    const sampledIndices = remainingSlots === 1
+      ? [Math.floor((tierWinners.length - 1) / 2)]
+      : Array.from({ length: remainingSlots }, (_, index) =>
+        Math.round(index * (tierWinners.length - 1) / (remainingSlots - 1))
+      );
+    for (const index of sampledIndices) add(tierWinners[index]);
+  }
+  for (const candidate of tierWinners) add(candidate);
+  for (const candidate of sortedCandidates) add(candidate);
+  return selected;
+};
 
 const candidateForSlot = (item: EquipmentItem, slot: GearSlot): boolean =>
   item.slot === slot || (item.slot === 'ring' && (slot === 'ringLeft' || slot === 'ringRight'));
@@ -808,9 +876,18 @@ const toGearSet = (
         status: 'official-validated' as const,
         reasons: ['Official item and acquisition data passed the active access checks.']
       };
+  const identityText = Object.entries(state.items)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([slot, equipped]) => `${slot}:${String(equipped?.itemId)}:${equipped?.materiaIds.join('.') ?? ''}:${JSON.stringify(equipped?.relicStats ?? {})}`)
+    .join('|');
+  let identityHash = 2_166_136_261;
+  for (let index = 0; index < identityText.length; index += 1) {
+    identityHash ^= identityText.charCodeAt(index);
+    identityHash = Math.imul(identityHash, 16_777_619);
+  }
 
   return {
-    id: `generated-${rank}-${foodId}-${Math.round(gcd * 100)}`,
+    id: `generated-${rank}-${foodId ?? 'none'}-${Math.round(gcd * 100)}-${(identityHash >>> 0).toString(36)}`,
     origin: 'generated',
     name: rank === 1 ? (preliminary ? 'Best preliminary official-data result' : 'Best reference-pool result') : `Alternative ${rank}`,
     job,
@@ -878,8 +955,23 @@ const toGearSet = (
   };
 };
 
-export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: OptimizerConstraints, job: CombatJob): OptimizerResult => {
+export const optimizeCombatJob = (
+  snapshot: GearSnapshot,
+  constraints: OptimizerConstraints,
+  job: CombatJob,
+  control?: OptimizerControl
+): OptimizerResult => {
   const started = performance.now();
+  const ensureNotCancelled = () => {
+    if (control?.isCancelled?.()) throw new OptimizerCancelledError();
+  };
+  const reportProgress = (
+    progress: number,
+    phase: OptimizerProgress['phase'],
+    message: string
+  ) => control?.reportProgress?.({ progress: Math.max(0, Math.min(1, progress)), phase, message });
+  ensureNotCancelled();
+  reportProgress(0.01, 'preparing', 'Checking catalogue compatibility and constraints.');
   ensureSnapshotCompatible(snapshot);
   const latestExpansion = snapshot.registry.expansions.at(-1)!;
   const resolved = {
@@ -1072,7 +1164,14 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     300,
     Math.max(96, Math.ceil(Math.sqrt(Math.max(1, resolved.frontierLimit)) * 6))
   );
-  for (const slot of gearSlots) {
+  for (let slotIndex = 0; slotIndex < gearSlots.length; slotIndex += 1) {
+    ensureNotCancelled();
+    const slot = gearSlots[slotIndex]!;
+    reportProgress(
+      0.04 + 0.16 * slotIndex / Math.max(1, gearSlots.length),
+      'slot-variants',
+      `Building legal ${slot} variants.`
+    );
     const lockedItemId = resolved.lockedItemIdsBySlot[slot];
     const requiredForSlot = snapshot.items.filter(
       (item) => candidateForSlot(item, slot) && required.has(String(item.id))
@@ -1176,7 +1275,13 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
   let peakFrontierStates = frontier.length;
 
   for (let planIndex = 0; planIndex < slotPlans.length; planIndex += 1) {
+    ensureNotCancelled();
     const { slot, variants } = slotPlans[planIndex]!;
+    reportProgress(
+      0.2 + 0.58 * planIndex / Math.max(1, slotPlans.length),
+      'gear-frontier',
+      `Combining ${slot} with the retained gear frontier.`
+    );
     const remaining = remainingBounds[planIndex + 1]!;
     const retained = new Map<string, ScoredSearchState>();
     const scoredHeap: ScoredSearchState[] = [];
@@ -1185,6 +1290,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     let insertionOrder = 0;
 
     for (const state of frontier) {
+      ensureNotCancelled();
       for (const variant of variants) {
         if (
           (slot === 'ringRight' || slot === 'ringLeft') &&
@@ -1282,6 +1388,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       ? [resolved.lockedFoodId]
       : [undefined, ...availableFoodIds];
   for (const state of frontier) {
+    ensureNotCancelled();
     const selectedIds = new Set(Object.values(state.items).map((entry) => String(entry?.itemId)));
     if ([...required].some((id) => !selectedIds.has(id))) continue;
 
@@ -1296,6 +1403,7 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
   // Known legal source configurations are warm starts, not trusted answers:
   // they pass through the same local item, meld, food, source and formula checks.
   for (const sourceSet of snapshot.curatedSets) {
+    ensureNotCancelled();
     if (sourceSet.job !== job) continue;
     const equippedIds = Object.values(sourceSet.items).map((entry) => String(entry?.itemId));
     if (equippedIds.length !== gearSlots.length) continue;
@@ -1383,6 +1491,9 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
     };
   }
 
+  ensureNotCancelled();
+  reportProgress(0.96, 'finalizing', 'Selecting the strongest proxy result and speed-diverse finalists.');
+  const finalists = selectSpeedDiverseFinalists(candidates, 12);
   const selected = candidates.slice(0, 4).map((set, index) => ({
     ...set,
     id: `${set.id}-${index + 1}`,
@@ -1402,9 +1513,13 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       ? `No set reaches the minimum ${resolved.minResource} ${profile.resourceLabel}. Lower that minimum or relax equipment, materia, food, or source restrictions.`
       : 'No complete set remains. Relax an equipment, materia, food, custom-item, or acquisition-source restriction.';
 
+  reportProgress(1, 'finalizing', selected.length > 0
+    ? 'Fast proxy search complete.'
+    : 'Fast proxy search complete without a legal result.');
   return {
     best: selected[0],
     alternatives: selected.slice(1),
+    finalists,
     evaluatedStates,
     durationMs: performance.now() - started,
     truncated,

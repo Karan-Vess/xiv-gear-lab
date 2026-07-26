@@ -173,6 +173,31 @@ export const criticalHitMultiplier = (criticalHit: number, constants: LevelFormu
 export const directHitChance = (directHit: number, constants: LevelFormulaConstants = LEVEL_100): number =>
   Math.max(0, Math.floor((550 * (directHit - constants.baseSub)) / constants.levelDiv) / 1000);
 
+export type HitExpectationMode = 'normal' | 'guaranteed' | 'disabled';
+
+export const expectedCriticalHitMultiplier = (
+  criticalHit: number,
+  constants: LevelFormulaConstants = LEVEL_100,
+  mode: HitExpectationMode = 'normal'
+): number => {
+  if (mode === 'disabled') return 1;
+  const multiplier = criticalHitMultiplier(criticalHit, constants);
+  return mode === 'guaranteed'
+    ? multiplier
+    : 1 + criticalHitChance(criticalHit, constants) * (multiplier - 1);
+};
+
+export const expectedDirectHitMultiplier = (
+  directHit: number,
+  constants: LevelFormulaConstants = LEVEL_100,
+  mode: HitExpectationMode = 'normal'
+): number => {
+  if (mode === 'disabled') return 1;
+  return mode === 'guaranteed'
+    ? 1.25
+    : 1 + directHitChance(directHit, constants) * 0.25;
+};
+
 export const gcdFromSpeed = (
   speed: number,
   baseGcdMs = 2500,
@@ -187,25 +212,34 @@ export const gcdFromSpeed = (
 
 export const gcdFromSpellSpeed = gcdFromSpeed;
 
-export const expectedAction100 = (
+export const expectedActionDamage = (
+  potency: number,
   stats: StatBlock,
   weaponDamage: number,
-  profile: CombatEvaluatorProfile
+  profile: CombatEvaluatorProfile,
+  criticalHitMode: HitExpectationMode = 'normal',
+  directHitMode: HitExpectationMode = 'normal',
+  externalMultiplier = 1
 ): number => {
   const constants = levelFormulaConstantsFor(profile);
-  const expectedCrit = 1 + criticalHitChance(stats.criticalHit, constants) * (criticalHitMultiplier(stats.criticalHit, constants) - 1);
-  const expectedDh = 1 + directHitChance(stats.directHit, constants) * 0.25;
   return (
-    100 *
+    potency *
     mainStatMultiplier(stats[profile.mainStat], profile) *
     weaponDamageMultiplier(weaponDamage, profile) *
     determinationMultiplier(stats.determination, constants) *
     (profile.appliesTenacity ? tenacityMultiplier(stats.tenacity, constants) : 1) *
-    expectedCrit *
-    expectedDh *
-    profile.damageTrait
+    expectedCriticalHitMultiplier(stats.criticalHit, constants, criticalHitMode) *
+    expectedDirectHitMultiplier(stats.directHit, constants, directHitMode) *
+    profile.damageTrait *
+    externalMultiplier
   );
 };
+
+export const expectedAction100 = (
+  stats: StatBlock,
+  weaponDamage: number,
+  profile: CombatEvaluatorProfile
+): number => expectedActionDamage(100, stats, weaponDamage, profile);
 
 export const applyFood = (stats: StatBlock, food?: Food): StatBlock => {
   const result = { ...stats };

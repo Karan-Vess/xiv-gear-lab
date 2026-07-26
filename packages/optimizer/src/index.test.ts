@@ -18,10 +18,78 @@ import {
   optimizeGunbreaker,
   optimizePaladin,
   optimizeSage,
+  OptimizerCancelledError,
+  selectSpeedDiverseFinalists,
   optimizeScholar,
   optimizeWarrior,
   optimizeWhm
 } from './index';
+
+describe('M12E finalist integration', () => {
+  it('retains the proxy leaders and representatives across reachable speed tiers', () => {
+    const base = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const candidates = Array.from({ length: 30 }, (_, index) => ({
+      ...structuredClone(base),
+      id: `finalist-${index}`,
+      metrics: {
+        ...structuredClone(base.metrics),
+        gcd: 2.08 + (index % 7) * 0.01,
+        expectedAction100: 10_000 - index
+      }
+    }));
+    const finalists = selectSpeedDiverseFinalists(candidates, 12);
+
+    expect(finalists).toHaveLength(12);
+    expect(finalists.slice(0, 4).map((set) => set.id)).toEqual([
+      'finalist-0',
+      'finalist-1',
+      'finalist-2',
+      'finalist-3'
+    ]);
+    expect(new Set(finalists.map((set) => set.metrics.gcd)).size).toBeGreaterThan(4);
+  });
+
+  it('reports proxy phases and can cancel before search work begins', () => {
+    expect(() => optimizeCombatJob(
+      gearSnapshot,
+      {
+        minResource: 0,
+        minGcd: 2.08,
+        maxGcd: 2.14,
+        allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+        requiredItemIds: [],
+        excludedItemIds: [],
+        frontierLimit: 100
+      },
+      'SAM',
+      { isCancelled: () => true }
+    )).toThrow(OptimizerCancelledError);
+
+    const progress: number[] = [];
+    const result = optimizeCombatJob(
+      gearSnapshot,
+      {
+        minResource: 0,
+        minGcd: 2.08,
+        maxGcd: 2.14,
+        gcdMode: 'range',
+        allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+        requiredItemIds: [],
+        excludedItemIds: [],
+        frontierLimit: 100
+      },
+      'SAM',
+      {
+        isCancelled: () => false,
+        reportProgress: (update) => progress.push(update.progress)
+      }
+    );
+    expect(result.best).toBeDefined();
+    expect(result.finalists?.length).toBeGreaterThan(1);
+    expect(progress[0]).toBeGreaterThan(0);
+    expect(progress.at(-1)).toBe(1);
+  }, 20_000);
+});
 
 describe('WHM optimiser', () => {
   it('builds a preliminary A Realm Reborn level-50 set from the backfilled cap catalogue', () => {

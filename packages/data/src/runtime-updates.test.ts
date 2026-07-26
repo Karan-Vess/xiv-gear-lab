@@ -26,7 +26,8 @@ const runtime: RuntimeCompatibility = {
     'ffxiv-combat-level-60@1',
     'ffxiv-combat-level-50@1'
   ],
-  evaluatorProfileSchemas: ['generic-hit-profile@1']
+  evaluatorProfileSchemas: ['generic-hit-profile@1'],
+  rotationProfileSchemas: ['combat-rotation-profile@1']
 };
 
 const databaseNames: string[] = [];
@@ -221,6 +222,15 @@ describe('signed runtime update download', () => {
     const fixture = await signedFixture(snapshot);
     await expect(downloadSnapshotCandidate(fixture.policy, runtime, fixture.fetcher))
       .rejects.toThrow('unsupported calculation schema future-formula@9');
+  });
+
+  it('rejects malformed optional rotation-profile data at the download boundary', async () => {
+    const snapshot = structuredClone(gearSnapshot) as GearSnapshot & { rotationProfiles: unknown };
+    snapshot.manifest.id = 'malformed-rotation-profiles';
+    snapshot.rotationProfiles = { executable: 'absolutely not' };
+    const fixture = await signedFixture(snapshot as GearSnapshot);
+    await expect(downloadSnapshotCandidate(fixture.policy, runtime, fixture.fetcher))
+      .rejects.toThrow('Downloaded snapshot is malformed');
   });
 
   it('accepts a signed catalogue that activates a dormant level-70 formula schema', async () => {

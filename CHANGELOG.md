@@ -4,8 +4,20 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+### Changed
+
+- Expanded the M13 acceptance checklist with curated-set ablation tests, requiring generated optimisation to demonstrate comparable results without curated warm starts and to disclose any material quality gap.
+
+## 0.10.0-beta.1 - 2026-07-26
+
 ### Added
 
+- Completed M12E with selectable generic-hit, 30-second burst and 300-second dummy modes. Samurai, Dancer, Black Mage and Dark Knight rerank a bounded speed-diverse finalist shortlist in the background; unsupported jobs and incompatible rulesets remain visibly unavailable.
+- Added per-result rotation totals, DPS, action/GCD/oGCD counts, clipping, method confidence, fallback warnings, direct references and compatible-timeline reuse diagnostics to build and comparison views.
+- Added the M12D current-cap pilot evaluators: deterministic Samurai Sen and Iaijutsu priorities, expected-value Dancer procs, Black Mage cast-state and Polyglot timing, and Dark Knight's delayed Living Shadow sequence. All four run generated 30-second and 300-second profiles with direct official, community-consumable, pinned XivGear-oracle and XIV Gear Lab methodology references.
+- Added the M12C hybrid rotation policy: patch- and assumption-matched community openers hand off to ordered generated priorities, while missing, stale, potion-mismatched or party-buff-mismatched openers fall back with an explicit warning. Declarative conditions, safe-weave enforcement, controlled clipping, consumable filtering and per-action decision traces are covered for exact 30-second and 300-second runs.
+- Added the M12B deterministic integer-millisecond combat scheduler with exact action/application cutoffs, casts, locks, weaving checks, sequential charges, cooldown drift, buff and DoT snapshots, global ticks, combos, resources, expected procs, app-owned mechanic state, delayed pet actions, auto-attacks, cancellation and bounded timing-template caching.
+- Started M12 with a safe versioned combat-rotation profile contract, generated-priority/community-opener method states, direct methodology references, timing-cache identities and strict compatibility validation. Executable mechanics remain app-owned while signed data may update compatible actions, priorities and opener sequences.
 - Added the complete level-cap catalogue baseline: 1,202 A Realm Reborn items, Grade I/II materia, five level-50 foods, a level-50 ruleset and ten preliminary cap-job evaluator profiles.
 - Added expansion-appropriate cap foods for all six supported expansions, bringing the catalogue to 5,754 official items, 84 materia and 48 foods without including intermediate levelling gear.
 - Added `Update-Game-Data.cmd`, which detects compatible official patch changes, blocks unknown jobs, levels or schemas, supports an explicit later supporting-source refresh, and preserves owner confirmation before signing or publication.
@@ -40,6 +52,10 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- The optimiser now keeps a speed-diverse twelve-set finalist shortlist after the fast proxy search, then optionally reranks it by rotation total damage. Damage-only stat changes reuse matching timing timelines while recalculating each set's damage.
+- Optimisation and rotation reranking report progress from a Web Worker, can be cancelled without blocking the renderer, and explain when action timing changes the winning set.
+- Extended combat profile and timing support for independent GCD cooldowns, guaranteed or disabled hit expectations, accumulated deterministic proc costs, periodic resources and explicit cast-snapshot versus delayed-application state changes.
+- Hardened signed combat-rotation profiles with validated potion actions, opener assumptions, condition values, clipping policies and a mandatory unconditional GCD fallback for generated rotations.
 - Hardened bounded optimisation before M12: provably dominated official items are removed without excluding stronger lower-item-level alternatives, remaining-slot bounds guide frontier retention, impossible resource branches stop early, and locked equal-stat unique rings remain distinct. The broad all-grade Paladin stress case retains the same result while evaluating about 46% fewer combinations.
 - Historical materia now follows its own expansion-era advanced-melding limits: high-grade even tiers are restricted to the first advanced slot while the applicable lower grades can fill later overmeld slots.
 - Historical acquisition records now require an explicit validated or partial route state. Family-classified preliminary routes remain usable without pretending that an unverified duty, vendor or cost is exact.

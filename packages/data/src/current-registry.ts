@@ -43,6 +43,13 @@ const baseTimingEffect: JobTimingEffect = {
   hastePercent: 0
 };
 
+const rotationPilotProfileIds: Partial<Record<CombatJob, string>> = {
+  SAM: 'sam-dt-generated-rotation@1',
+  DNC: 'dnc-dt-generated-rotation@1',
+  BLM: 'blm-dt-generated-rotation@1',
+  DRK: 'drk-dt-generated-rotation@1'
+};
+
 const job = (
   id: CombatJob,
   name: string,
@@ -54,7 +61,9 @@ const job = (
   profileId: string,
   timingEffects: JobTimingEffect[] = [baseTimingEffect],
   targetTimingEffectId = 'base-gcd'
-): JobDefinition => ({
+): JobDefinition => {
+  const rotationProfileId = rotationPilotProfileIds[id];
+  return {
   id,
   name,
   role,
@@ -70,11 +79,16 @@ const job = (
     introducedIn,
     capabilities: {
       'generic-hit': { status: 'available', profileId },
-      'opener-30': { status: 'pending', reason: 'Planned for the bounded combat evaluator milestone.' },
-      'dummy-300': { status: 'pending', reason: 'Planned for the bounded combat evaluator milestone.' }
+      'opener-30': rotationProfileId
+        ? { status: 'available', profileId: rotationProfileId }
+        : { status: 'pending', reason: 'A job-specific rotation evaluator has not been implemented yet.' },
+      'dummy-300': rotationProfileId
+        ? { status: 'available', profileId: rotationProfileId }
+        : { status: 'pending', reason: 'A job-specific rotation evaluator has not been implemented yet.' }
     }
   }]
-});
+  };
+};
 
 export const CURRENT_REGISTRY: GameRegistry = {
   schemaVersion: REGISTRY_SCHEMA_VERSION,

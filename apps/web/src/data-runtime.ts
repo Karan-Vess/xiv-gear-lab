@@ -19,7 +19,8 @@ export const APP_RUNTIME_COMPATIBILITY: RuntimeCompatibility = {
     'ffxiv-combat-level-60@1',
     'ffxiv-combat-level-50@1'
   ],
-  evaluatorProfileSchemas: ['generic-hit-profile@1']
+  evaluatorProfileSchemas: ['generic-hit-profile@1'],
+  rotationProfileSchemas: ['combat-rotation-profile@1']
 };
 
 export interface DataRuntimeBootstrap {

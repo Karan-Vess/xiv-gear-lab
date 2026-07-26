@@ -98,8 +98,11 @@ select { cursor: pointer; }
 .role-option.role-dps, .role-group.role-dps { background: #58242d; color: #fff1f3; }
 .evaluation-mode-summary { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: rgba(107, 212, 255, .045); }
 .evaluation-mode-summary span { color: #71879a; font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.evaluation-mode-summary > select { width: 100%; margin: 2px 0 4px; }
 .evaluation-mode-summary strong { color: #dcecf7; font-size: 10px; }
 .evaluation-mode-summary small { color: #657c90; font-size: 8px; }
+.rotation-potion-control { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 1.35fr); align-items: center; gap: 7px; margin-top: 5px; color: #8ba2b5; font-size: 8px; }
+.rotation-potion-control select { width: 100%; }
 .gcd-input-wrap { position: relative; }
 .gcd-input-wrap input { padding-right: 62px; }
 .gcd-input-wrap > span { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); color: #6f879a; font-size: 9px; font-weight: 600; pointer-events: none; }

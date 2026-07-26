@@ -5,13 +5,13 @@ This entire project is made by instructing chatgpt 5.6. As of this writing, no h
 > [!WARNING]
 > **Unfinished pre-release project.** This repository and its public data channel exist for active development and testing. The app is not a finished release, has no support or uptime promise, and should not yet be treated as authoritative gearing advice.
 
-XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.9.0-alpha.22 executable bundles level-cap data for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn.
+XIV Gear Lab is a standalone FFXIV gear recommendation and optimisation tool. It is designed as a Windows desktop application with a shared browser-capable core. The v0.10.0-beta.1 executable bundles level-cap data for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn.
 
 The first end-to-end vertical slice began with current-patch White Mage. The combat-job expansion now supports all 21 standard combat jobs: four healers, four tanks, six melee DPS, three physical ranged DPS, and four magical ranged DPS.
 
 ## Try the Windows prototype
 
-Run `release/XIV-Gear-Lab-0.9.0-alpha.22-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
+Run `release/XIV-Gear-Lab-0.10.0-beta.1-portable.exe`. It is an unsigned, unfinished, non-commercial preview, so Windows may show an unknown-publisher warning. It does not require installation, the game client, an FFXIV account, logs, or plugins.
 
 The same renderer builds as a browser application. For local development:
 
@@ -38,7 +38,7 @@ npm run dev:desktop
 - [Product discovery](docs/discovery/product-discovery.md)
 - [Architecture](docs/architecture/architecture.md)
 - [Data and source policy](docs/data/source-policy.md)
-- [Combat proxy formula provenance](docs/data/formula-provenance.md)
+- [Combat formula and evaluator provenance](docs/data/formula-provenance.md)
 - [Runtime data releases](docs/data/runtime-updates.md)
 - [Prototype definition](docs/prototype/vertical-slice.md)
 - [Milestones and acceptance criteria](docs/plan/milestones.md)
@@ -63,8 +63,10 @@ Notable project changes are recorded in [CHANGELOG.md](CHANGELOG.md). It is upda
 - Three independently persistent build workspaces, a selectable-baseline comparison table, role-labelled job colours, named base/effective GCD states and per-result source/methodology details.
 - Final post-materia stats on every equipped item, actual per-slot meld contributions, derived Critical Hit/Direct Hit/Determination outcomes, and direct loadout-copy controls between builds.
 - Named exact or ranged GCD targets; expansion-appropriate Grade VII-XII materia and currently validated food; five-slot overmeld; official-item and locked-meld rules; actionable conflicts; and complete persistent custom equipment with cloning, caps, legal advanced melding and explicit hypothetical-access warnings.
+- App-owned current-cap pilot evaluators for Samurai, Dancer, Black Mage and Dark Knight, using safe declarative generated priorities for deterministic 30-second burst and 300-second dummy traces with explicit source attribution.
+- Selectable burst and dummy evaluation for those four pilots. The optimiser first performs its fast legal-set search, then reranks twelve speed-diverse finalists in a background worker, reusing compatible timing timelines for damage-only stat changes.
 
-All 21 current combat jobs use bounded expected-single-100-potency-hit proxy profiles rather than rotation or encounter simulation, and the UI labels that limitation explicitly. Historical evaluator profiles and acquisition details are explicitly preliminary until independently validated. Historical recommendations currently lack compatible community curation. Final Mandervillous weapons use optimised player-allocated stats, including Paladin's split sword and shield values. The v0.9.0-alpha.22 preview uses the existing public-read HTTPS channel with signed, immutable, compressed snapshots and a pre-trusted recovery key. `Update-Game-Data.cmd` can produce an owner-reviewed preliminary patch candidate from official data and blocks unknown jobs, levels or schemas before publication. Crafting-job optimisation, gathering, intermediate levelling gear, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
+The bounded expected-single-100-potency-hit proxy remains the default for all 21 combat jobs. Samurai, Dancer, Black Mage and Dark Knight additionally expose generated-priority 30-second burst and 300-second dummy modes for current Dawntrail data; other jobs and incompatible historical rulesets remain visibly unavailable until M13 adds their own evaluators. These are personal-damage dummy estimates, not encounter DPS or raid contribution. Historical evaluator profiles and acquisition details are explicitly preliminary until independently validated. Historical recommendations currently lack compatible community curation. Final Mandervillous weapons use optimised player-allocated stats, including Paladin's split sword and shield values. The v0.10.0-beta.1 preview uses the existing public-read HTTPS channel with signed, immutable, compressed snapshots and a pre-trusted recovery key. `Update-Game-Data.cmd` can produce an owner-reviewed preliminary patch candidate from official data and blocks unknown jobs, levels or schemas before publication. Crafting-job optimisation, gathering, intermediate levelling gear, a signed executable installer, commercial use, and any claim that this is a supported public release remain out of scope.
 
 ## Rights and project status
 

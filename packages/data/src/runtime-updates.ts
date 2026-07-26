@@ -276,6 +276,7 @@ const parseSnapshot = (value: unknown): GearSnapshot => {
     !isRecord(value.registry) ||
     !Array.isArray(value.rulesets) ||
     !Array.isArray(value.evaluatorProfiles) ||
+    (value.rotationProfiles !== undefined && !Array.isArray(value.rotationProfiles)) ||
     !Array.isArray(value.items) ||
     !Array.isArray(value.materia) ||
     !Array.isArray(value.foods) ||

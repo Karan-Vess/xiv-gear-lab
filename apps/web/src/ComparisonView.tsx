@@ -48,7 +48,7 @@ const timingFor = (set: GearSet, snapshot: GearSnapshot) => gearSetTimingDisplay
 const contextsMatch = (left: GearSet, right: GearSet) => {
   const a = left.calculationContext;
   const b = right.calculationContext;
-  return Boolean(
+  const calculationMatches = Boolean(
     a && b &&
     left.job === right.job &&
     a.snapshotId === b.snapshotId &&
@@ -56,6 +56,17 @@ const contextsMatch = (left: GearSet, right: GearSet) => {
     a.evaluatorProfileId === b.evaluatorProfileId &&
     a.evaluatorVersion === b.evaluatorVersion &&
     a.calculationSchema === b.calculationSchema
+  );
+  if (!calculationMatches) return false;
+  const leftRotation = left.rotationEvaluation;
+  const rightRotation = right.rotationEvaluation;
+  if (!leftRotation && !rightRotation) return true;
+  return Boolean(
+    leftRotation && rightRotation &&
+    leftRotation.mode === rightRotation.mode &&
+    leftRotation.profileId === rightRotation.profileId &&
+    leftRotation.profileVersion === rightRotation.profileVersion &&
+    leftRotation.engineId === rightRotation.engineId
   );
 };
 
@@ -73,8 +84,25 @@ const compatibilityWarnings = (baseline: GearSet, candidate: GearSet): string[] 
     baseline.calculationContext.evaluatorVersion !== candidate.calculationContext.evaluatorVersion
   ) warnings.push('Different evaluator profiles or versions.');
   if (baseline.calculationContext.calculationSchema !== candidate.calculationContext.calculationSchema) warnings.push('Different calculation schemas.');
+  const baselineRotation = baseline.rotationEvaluation;
+  const candidateRotation = candidate.rotationEvaluation;
+  if (Boolean(baselineRotation) !== Boolean(candidateRotation)) {
+    warnings.push('Different evaluation modes: rotation results and generic-hit proxies are not directly comparable.');
+  } else if (
+    baselineRotation && candidateRotation && (
+      baselineRotation.mode !== candidateRotation.mode ||
+      baselineRotation.profileId !== candidateRotation.profileId ||
+      baselineRotation.profileVersion !== candidateRotation.profileVersion ||
+      baselineRotation.engineId !== candidateRotation.engineId
+    )
+  ) {
+    warnings.push('Different rotation modes, profiles or engine versions.');
+  }
   return warnings;
 };
+
+const selectedEvaluationValue = (set: GearSet) =>
+  set.rotationEvaluation?.totalDamage ?? set.metrics.expectedAction100;
 
 const materiaCount = (set: GearSet) => Object.values(set.items)
   .reduce((total, equipped) => total + (equipped?.materiaIds.length ?? 0), 0);
@@ -143,14 +171,27 @@ export function ComparisonView({
     { label: 'Result', value: (build) => `${build.selectedSet.name} · ${build.selectedSet.origin}` },
     { label: 'Access confidence', value: (build) => build.selectedSet.hypotheticalAccess ? `Hypothetical · ${build.selectedSet.hypotheticalAccess.reason}` : 'Within selected access' },
     { label: 'Evaluation', value: (build) => build.selectedSet.evaluation?.objective ?? 'Calculation version unknown' },
+    { label: 'Selected evaluation mode', value: (build) => build.selectedSet.rotationEvaluation?.label ?? 'Expected single 100-potency hit' },
+    { label: 'Selected evaluation result', value: (build) => formatNumber.format(selectedEvaluationValue(build.selectedSet)) },
+    { label: 'Rotation DPS', value: (build) => build.selectedSet.rotationEvaluation
+      ? formatNumber.format(build.selectedSet.rotationEvaluation.dps)
+      : 'Not evaluated' },
+    { label: 'Rotation actions', value: (build) => build.selectedSet.rotationEvaluation
+      ? `${build.selectedSet.rotationEvaluation.actionCount} actions · ${build.selectedSet.rotationEvaluation.gcdCount} GCD · ${build.selectedSet.rotationEvaluation.ogcdCount} oGCD · ${build.selectedSet.rotationEvaluation.clippedMs} ms clipping`
+      : 'Not evaluated' },
+    { label: 'Rotation method', value: (build) => build.selectedSet.rotationEvaluation
+      ? `${build.selectedSet.rotationEvaluation.method.kind.replaceAll('-', ' ')} · ${build.selectedSet.rotationEvaluation.method.confidence.replaceAll('-', ' ')}`
+      : 'Generic-hit proxy' },
     { label: 'Expected single 100-potency hit', value: (build) => formatNumber.format(build.selectedSet.metrics.expectedAction100) },
     {
       label: `Difference from ${baseline.name}`,
       value: (build) => {
         if (build.id === baseline.id) return 'Baseline';
         if (!contextsMatch(baselineSet, build.selectedSet)) return 'Not directly comparable';
-        const delta = build.selectedSet.metrics.expectedAction100 - baselineSet.metrics.expectedAction100;
-        const percent = baselineSet.metrics.expectedAction100 === 0 ? 0 : delta / baselineSet.metrics.expectedAction100 * 100;
+        const baselineValue = selectedEvaluationValue(baselineSet);
+        const candidateValue = selectedEvaluationValue(build.selectedSet);
+        const delta = candidateValue - baselineValue;
+        const percent = baselineValue === 0 ? 0 : delta / baselineValue * 100;
         return `${delta >= 0 ? '+' : ''}${formatNumber.format(delta)} · ${percent >= 0 ? '+' : ''}${percent.toFixed(3)}%`;
       }
     },

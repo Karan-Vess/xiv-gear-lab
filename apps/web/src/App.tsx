@@ -22,12 +22,14 @@ import {
   type CombatJob,
   type EquipmentItem,
   type EquippedItem,
+  type EvaluationMode,
   type ExpansionId,
   type GearSet,
   type GearSlot,
   type JobRole,
   type Materia,
   type OptimizerConstraints,
+  type RotationEvaluationMode,
   type SourceFamily,
   type StatKey
 } from '@xiv-gear-lab/domain';
@@ -97,6 +99,22 @@ const evaluatorProfileForAccessOrUndefined = (job: CombatJob, expansionId: Expan
   }
 };
 const evaluatorProfileForSet = (set: GearSet) => getCombatEvaluatorProfileForSet(set, gearSnapshot);
+const rotationProfileFor = (
+  job: CombatJob,
+  rulesetId: string,
+  mode: RotationEvaluationMode
+) => gearSnapshot.rotationProfiles?.find((profile) =>
+  profile.job === job &&
+  profile.rulesetId === rulesetId &&
+  profile.supportedModes.includes(mode)
+);
+
+const evaluationModeLabel = (mode: EvaluationMode) =>
+  mode === 'generic-hit'
+    ? 'Expected single 100-potency hit'
+    : mode === 'opener-30'
+      ? '30-second burst'
+      : 'Five-minute dummy rotation';
 
 type View = 'optimize' | 'community' | 'saved' | 'settings' | 'about';
 type CustomDraft = {
@@ -603,6 +621,7 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
     .map((entry) => ({ item, source: entry }))
   );
   const resultKind = resultMethodologyDescription(set, communitySources);
+  const rotationReferences = set.rotationEvaluation?.references.filter((reference) => reference.url) ?? [];
   return (
     <div className="methodology-panel">
       <div className="methodology-summary">
@@ -614,14 +633,35 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
           : role === 'healer'
             ? <SafeExternalLink href="https://www.akhmorning.com/allagan-studies/stats/piety/">Allagan Studies · Piety</SafeExternalLink>
             : 'Not applicable'}</span>
-        <span><strong>Implementation</strong>XIV Gear Lab clean-room proxy</span>
+        <span><strong>Implementation</strong>XIV Gear Lab clean-room {set.rotationEvaluation ? 'rotation evaluator' : 'proxy'}</span>
+        {set.rotationEvaluation && (
+          <span><strong>Rotation method</strong>{set.rotationEvaluation.method.kind.replaceAll('-', ' ')} · {set.rotationEvaluation.method.confidence.replaceAll('-', ' ')}</span>
+        )}
       </div>
       <p>{resultKind}</p>
+      {set.rotationEvaluation && (
+        <>
+          <p>
+            {set.rotationEvaluation.label}: {formatNumber.format(set.rotationEvaluation.totalDamage)} total damage · {formatNumber.format(set.rotationEvaluation.dps)} DPS · {set.rotationEvaluation.actionCount} actions · {set.rotationEvaluation.clippedMs} ms clipping.
+          </p>
+          <p>
+            Reranked {set.rotationEvaluation.rerankedCandidateCount} speed-diverse finalists in {set.rotationEvaluation.rerankDurationMs.toFixed(0)} ms · reused {set.rotationEvaluation.timelineCacheHits} identical timing timeline{set.rotationEvaluation.timelineCacheHits === 1 ? '' : 's'}.
+          </p>
+          <p className="methodology-caveat">{set.rotationEvaluation.method.warning ?? set.rotationEvaluation.limitation}</p>
+          <div className="methodology-links">
+            <strong>Rotation references</strong>
+            {rotationReferences.map((reference) => (
+              <SafeExternalLink href={reference.url} key={reference.id}>{reference.provider} · {reference.title} ↗</SafeExternalLink>
+            ))}
+          </div>
+        </>
+      )}
       <p className="methodology-caveat">Formula structure is cross-checked against XivGear's published maths page; Dawntrail Tenacity and Piety effects use the directly linked Allagan Studies references. This implementation and result ranking are XIV Gear Lab-owned. Remaining level/job profile constants without an exact component citation are labelled internal/unverified rather than attributed to XivGear, Etro or The Balance.</p>
       <div className="methodology-context">
         <code>{set.calculationContext?.snapshotId ?? 'snapshot unknown'}</code>
         <code>{set.calculationContext?.rulesetId ?? 'ruleset unknown'}</code>
         <code>{set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId ?? 'evaluator unknown'}{set.calculationContext?.evaluatorVersion ? ` @ ${set.calculationContext.evaluatorVersion}` : ''}</code>
+        {set.rotationEvaluation && <code>{set.rotationEvaluation.profileId} @ {set.rotationEvaluation.profileVersion} · {set.rotationEvaluation.engineId}</code>}
       </div>
       {communitySources.length > 0 && (
         <div className="methodology-links">
@@ -662,6 +702,7 @@ function SetDetails({
   onUnequipCustom: (item: EquipmentItem) => void;
 }) {
   const food = gearSnapshot.foods.find((entry) => entry.id === set.foodId);
+  const rotation = set.rotationEvaluation;
   const timing = gcdTimingForSet(set);
   const previousFood = gearSnapshot.foods.find((entry) => entry.id === previousSet?.foodId);
   const foodChanged = Boolean(previousSet && previousSet.foodId !== set.foodId);
@@ -684,6 +725,11 @@ function SetDetails({
           {set.evaluation && (
             <span className="evaluation-note" title={`${set.evaluation.objective} ${set.evaluation.limitation}`}>
               {set.evaluation.profileId} · {set.evaluation.confidence === 'reference-validated-proxy' ? 'reference-validated proxy' : 'internal preliminary proxy'}
+            </span>
+          )}
+          {rotation && (
+            <span className="evaluation-note" data-rotation-evaluation>
+              {rotation.label} · {rotation.method.kind.replaceAll('-', ' ')} · {rotation.method.confidence.replaceAll('-', ' ')}
             </span>
           )}
           <span className="gcd-state-note">
@@ -713,9 +759,19 @@ function SetDetails({
           )}
         </div>
         <div className="score-block">
-          <span>Expected single 100-potency hit</span>
-          <strong>{formatNumber.format(set.metrics.expectedAction100)}</strong>
-          <small>Throughput proxy, not encounter DPS</small>
+          {rotation ? (
+            <>
+              <span>{rotation.label} total damage</span>
+              <strong>{formatNumber.format(rotation.totalDamage)}</strong>
+              <small>{formatNumber.format(rotation.dps)} DPS · {rotation.durationMs / 1000}s stationary dummy · personal damage</small>
+            </>
+          ) : (
+            <>
+              <span>Expected single 100-potency hit</span>
+              <strong>{formatNumber.format(set.metrics.expectedAction100)}</strong>
+              <small>Throughput proxy, not encounter DPS</small>
+            </>
+          )}
         </div>
       </div>
 
@@ -919,7 +975,20 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
 
   const activeBuildId = workspaceState.activeBuildId;
   const activeBuild = workspaceState.builds[activeBuildId];
-  const { expansion, level, constraints, gcdTarget, runState, result, message, job, selectedSet, previousOptimizedSet, customFallbacks } = activeBuild;
+  const {
+    expansion,
+    level,
+    constraints,
+    gcdTarget,
+    runState,
+    result,
+    message,
+    job,
+    selectedSet,
+    previousOptimizedSet,
+    customFallbacks,
+    evaluationMode
+  } = activeBuild;
 
   const updateBuildById = (id: BuildId, update: (build: BuildWorkspace) => BuildWorkspace) => {
     setWorkspaceState((current) => {
@@ -966,6 +1035,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           message: `${expansionName} calculation data is not installed in the active catalogue. Use Check data, then try again.`
         };
       }
+      const nextEvaluationMode = build.evaluationMode !== 'generic-hit' &&
+        rotationProfileFor(nextJob, nextProfile.rulesetId, build.evaluationMode)
+        ? build.evaluationMode
+        : 'generic-hit';
       const expansionOrder = new Map(gearSnapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
       const nextOrder = expansionOrder.get(next) ?? -1;
       const supportsAccess = (entry: { expansionId?: ExpansionId; requiredLevel?: number }) =>
@@ -996,14 +1069,18 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         ...build,
         expansion: next,
         job: nextJob,
+        evaluationMode: nextEvaluationMode,
         gcdTarget: nextJob === build.job ? build.gcdTarget : nextJobDefinition.defaultGcdTarget.toFixed(2),
-        selectedSet: nextJob === build.job || !nextReferenceSet ? build.selectedSet : nextReferenceSet,
+        selectedSet: {
+          ...(nextJob === build.job || !nextReferenceSet ? build.selectedSet : nextReferenceSet),
+          rotationEvaluation: undefined
+        },
         constraints: nextConstraints,
         result: undefined,
         previousOptimizedSet: undefined,
         runState: catalogueAvailable ? 'idle' : 'error',
         message: catalogueAvailable
-          ? `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).`
+          ? `${expansionName} selected. Expansion-dependent limits were reset for level ${nextLevel} (${materiaLabel}).${nextEvaluationMode !== build.evaluationMode ? ' Rotation evaluation returned to the generic-hit proxy because this ruleset has no compatible pilot.' : ''}`
           : `${expansionName} calculation support is installed, but its level-${nextLevel} gear catalogue has not been published yet. Use Check data after that catalogue is released.`
       };
     });
@@ -1015,6 +1092,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const setResult = (next: OptimizerResult | undefined) => setBuildField('result', next);
   const setMessage = (next: string) => setBuildField('message', next);
   const setJob = (next: CombatJob) => setBuildField('job', next);
+  const setEvaluationMode = (next: EvaluationMode) => setBuildField('evaluationMode', next);
+  const setRotationPotion = (next: 'none' | 'included') => updateBuildById(activeBuildId, (build) => ({
+    ...build,
+    rotationPotion: next,
+    selectedSet: { ...build.selectedSet, rotationEvaluation: undefined },
+    result: undefined,
+    runState: 'idle',
+    message: `${next === 'included' ? 'Potion-enabled' : 'Potion-free'} rotation assumption selected. Re-run the optimiser to compare finalists under it.`
+  }));
   const setSelectedSet = (next: GearSet) => setBuildField('selectedSet', next);
   const setPreviousOptimizedSet = (next: GearSet | undefined) => setBuildField('previousOptimizedSet', next);
   const setCustomFallbacks = (
@@ -1073,6 +1159,9 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const jobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === job)!;
   const evaluatorProfile = evaluatorProfileFor(job, expansion, activeLevel);
   const evaluatorRuleset = gearSnapshot.rulesets.find((entry) => entry.id === evaluatorProfile.rulesetId);
+  const activeRotationProfile = evaluationMode === 'generic-hit'
+    ? undefined
+    : rotationProfileFor(job, evaluatorProfile.rulesetId, evaluationMode);
   const customEvaluatorProfile = evaluatorProfileFor(customJob);
   const customItemLimits = useMemo(
     () => getCustomItemLimits(customJob, customDraft.slot),
@@ -1120,7 +1209,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     }
     const referenceSet = gearSnapshot.curatedSets.find((set) => set.job === nextJob);
     const nextProfile = evaluatorProfileFor(nextJob, expansion, activeLevel);
+    const nextEvaluationMode = evaluationMode !== 'generic-hit' &&
+      rotationProfileFor(nextJob, nextProfile.rulesetId, evaluationMode)
+      ? evaluationMode
+      : 'generic-hit';
     setJob(nextJob);
+    setEvaluationMode(nextEvaluationMode);
     setGcdTarget(definition.defaultGcdTarget.toFixed(2));
     setConstraints((current) => ({
       ...current,
@@ -1129,8 +1223,31 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     setResult(undefined);
     setRunState('idle');
     setPreviousOptimizedSet(undefined);
-    if (referenceSet) setSelectedSet(referenceSet);
-    setMessage(`${definition.name} selected. The current evaluator is a reference-validated damage proxy, not a rotation simulation.`);
+    if (referenceSet) setSelectedSet({ ...referenceSet, rotationEvaluation: undefined });
+    setMessage(nextEvaluationMode === 'generic-hit'
+      ? `${definition.name} selected. The current evaluator is a reference-validated damage proxy, not a rotation simulation.`
+      : `${definition.name} selected. ${evaluationModeLabel(nextEvaluationMode)} remains available for this current-cap ruleset.`);
+  };
+
+  const selectEvaluationMode = (nextMode: EvaluationMode) => {
+    if (nextMode !== 'generic-hit') {
+      const capability = getEvaluatorCapability(gearSnapshot.registry, job, 'standard', nextMode);
+      const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, nextMode);
+      if (capability?.status !== 'available' || !profile) {
+        setMessage(`${evaluationModeLabel(nextMode)} is not available for ${job} under the selected ${evaluatorProfile.rulesetId} ruleset.`);
+        return;
+      }
+    }
+    updateBuildById(activeBuildId, (build) => ({
+      ...build,
+      evaluationMode: nextMode,
+      selectedSet: { ...build.selectedSet, rotationEvaluation: undefined },
+      result: undefined,
+      runState: 'idle',
+      message: nextMode === 'generic-hit'
+        ? 'Fast generic-hit scoring selected. This remains the default interactive optimiser.'
+        : `${evaluationModeLabel(nextMode)} selected. The fast proxy will shortlist legal sets, then the job evaluator will rerank up to 12 speed-diverse finalists.`
+    }));
   };
 
   const setSourceAllowed = (sources: SourceFamily[], checked: boolean) => {
@@ -1154,6 +1271,11 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       setMessage(evaluatorRuleset
         ? `The ${evaluatorRuleset.id} evaluator supports levels ${evaluatorRuleset.minimumLevel}–${evaluatorRuleset.maximumLevel}; the selected effective level is ${activeLevel}.`
         : `The active profile references missing ruleset ${evaluatorProfile.rulesetId}.`);
+      return;
+    }
+    if (evaluationMode !== 'generic-hit' && !activeRotationProfile) {
+      setRunState('error');
+      setMessage(`${evaluationModeLabel(evaluationMode)} is unavailable for ${job} under ${evaluatorProfile.rulesetId}. Select the generic-hit proxy or a supported current-cap pilot job.`);
       return;
     }
     if (constraints.allowedSources.length === 0) {
@@ -1223,9 +1345,18 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       runState: 'running',
       message: activeCustomItems.length > 0
         ? `Keeping ${activeCustomItems.length} active hypothetical item${activeCustomItems.length === 1 ? '' : 's'} while rebuilding the remaining slots…`
-        : 'Building legal meld frontiers and checking every retained stat state…'
+        : evaluationMode === 'generic-hit'
+          ? 'Building legal meld frontiers and checking every retained stat state...'
+          : `Building the fast proxy shortlist before ${evaluationModeLabel(evaluationMode).toLowerCase()} reranking...`
     }));
     worker.onmessage = (event: MessageEvent) => {
+      if (event.data.type === 'progress') {
+        const progress = Math.max(0, Math.min(100, Math.round(Number(event.data.progress) * 100)));
+        updateBuildById(runBuildId, (build) => ({
+          ...build,
+          message: `${event.data.message} ${progress}%`
+        }));
+      }
       if (event.data.type === 'result') {
         const next = event.data.result as OptimizerResult;
         updateBuildById(runBuildId, (build) => ({
@@ -1235,7 +1366,9 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           previousOptimizedSet: next.best ? comparisonBaseline : undefined,
           selectedSet: next.best ?? build.selectedSet,
           message: next.best
-            ? next.speedFallback
+            ? next.rotationRerank
+              ? `${evaluationModeLabel(next.rotationRerank.mode)} reranked ${next.rotationRerank.candidateCount} finalists in ${next.rotationRerank.durationMs.toFixed(0)} ms${next.rotationRerank.winnerChanged ? ' and changed the winner.' : '; the proxy winner stayed first.'}`
+              : next.speedFallback
               ? `Exact speed unavailable; showing the closest attainable ${next.speedFallback.achievedGcd.toFixed(2)}s set after searching ${next.evaluatedStates.toLocaleString()} states.`
               : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms.`
             : next.explanation[0] ?? 'No legal set was found.'
@@ -1249,7 +1382,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         if (workerRef.current?.worker === worker) workerRef.current = null;
       }
     };
-    worker.postMessage({ type: 'optimize', constraints: optimizerConstraints, job, customItems, snapshot: gearSnapshot });
+    worker.postMessage({
+      type: 'optimize',
+      constraints: optimizerConstraints,
+      job,
+      customItems,
+      snapshot: gearSnapshot,
+      evaluationMode,
+      rotationPotion: activeBuild.rotationPotion ?? 'none'
+    });
   };
 
   const cancelOptimizer = () => {
@@ -2041,7 +2182,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     key={buildId}
                   >
                     <strong>{build.name}</strong>
-                    <span>{build.job} · {(build.constraints.gcdMode ?? 'exact') === 'range' ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s` : `${build.gcdTarget}s`} · {formatNumber.format(build.selectedSet.metrics.expectedAction100)}{build.selectedSet.hypotheticalAccess ? ' · HYPOTHETICAL' : ''}</span>
+                    <span>
+                      {build.job} · {(build.constraints.gcdMode ?? 'exact') === 'range' ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s` : `${build.gcdTarget}s`} · {build.selectedSet.rotationEvaluation
+                        ? `${formatNumber.format(build.selectedSet.rotationEvaluation.dps)} DPS`
+                        : formatNumber.format(build.selectedSet.metrics.expectedAction100)}
+                      {build.selectedSet.hypotheticalAccess ? ' · HYPOTHETICAL' : ''}
+                    </span>
                   </button>
                 );
               })}
@@ -2081,7 +2227,43 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                 <section className="control-panel" aria-label={`${activeBuild.name} optimisation controls`}>
                   <div className="panel-title"><div><p className="eyebrow">{activeBuild.name} constraints</p><h2>Recommendation brief</h2></div><span className="verified-badge">{gearSnapshot.items.length} official items</span></div>
 
-                  <div className="evaluation-mode-summary"><span>Evaluation mode</span><strong>Expected single 100-potency hit</strong><small>{activeBuild.evaluationMode} · opener and dummy evaluators are not available yet</small></div>
+                  <div className="evaluation-mode-summary" data-evaluation-mode-control>
+                    <span>Evaluation mode</span>
+                    <select
+                      aria-label="Evaluation mode"
+                      value={evaluationMode}
+                      onChange={(event) => selectEvaluationMode(event.target.value as EvaluationMode)}
+                    >
+                      <option value="generic-hit">Expected single 100-potency hit · fast proxy</option>
+                      {(['opener-30', 'dummy-300'] as const).map((mode) => {
+                        const capability = getEvaluatorCapability(gearSnapshot.registry, job, 'standard', mode);
+                        const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, mode);
+                        const available = capability?.status === 'available' && Boolean(profile);
+                        return (
+                          <option value={mode} disabled={!available} key={mode}>
+                            {evaluationModeLabel(mode)} · {available ? 'pilot available' : capability?.status ?? 'unsupported'}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <strong>{evaluationModeLabel(evaluationMode)}</strong>
+                    <small>{evaluationMode === 'generic-hit'
+                      ? 'Fast default scoring across the retained legal search frontier.'
+                      : `${activeRotationProfile?.confidence.replaceAll('-', ' ') ?? 'Unavailable'} · fast proxy first, then up to 12 speed-diverse finalists.`}</small>
+                    {evaluationMode !== 'generic-hit' && (
+                      <label className="rotation-potion-control">
+                        Potion assumption
+                        <select
+                          aria-label="Rotation potion assumption"
+                          value={activeBuild.rotationPotion ?? 'none'}
+                          onChange={(event) => setRotationPotion(event.target.value as 'none' | 'included')}
+                        >
+                          <option value="none">No potion</option>
+                          <option value="included">Include Grade 2 Gemdraught</option>
+                        </select>
+                      </label>
+                    )}
+                  </div>
                   <label>Expansion access
                     <select value={expansion} onChange={(event) => setExpansion(event.target.value as ExpansionId)}>
                       {EXPANSIONS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name} · cap {entry.levelCap}</option>)}

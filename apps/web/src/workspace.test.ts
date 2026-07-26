@@ -122,6 +122,8 @@ describe('build workspaces', () => {
   it('copies a loadout independently while retaining destination access and acquisition restrictions', () => {
     const state = createState();
     state.builds['build-1'].job = 'MNK';
+    state.builds['build-1'].evaluationMode = 'dummy-300';
+    state.builds['build-1'].rotationPotion = 'included';
     state.builds['build-1'].gcdTarget = '1.94';
     state.builds['build-1'].selectedSet = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'MNK')!);
     state.builds['build-1'].customFallbacks.custom = { slot: 'body' };
@@ -133,6 +135,8 @@ describe('build workspaces', () => {
     const copied = copyBuildLoadout(state, 'build-1', 'build-2', 0, '2026-07-16T02:00:00.000Z');
 
     expect(copied.builds['build-2'].job).toBe('MNK');
+    expect(copied.builds['build-2'].evaluationMode).toBe('dummy-300');
+    expect(copied.builds['build-2'].rotationPotion).toBe('included');
     expect(copied.builds['build-2'].gcdTarget).toBe('1.94');
     expect(copied.builds['build-2'].selectedSet.name).toBe(state.builds['build-1'].selectedSet.name);
     expect(copied.builds['build-2'].expansion).toBe('endwalker');

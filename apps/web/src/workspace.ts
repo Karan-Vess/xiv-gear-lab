@@ -28,6 +28,7 @@ export interface BuildWorkspace {
   job: CombatJob;
   jobMode: string;
   evaluationMode: EvaluationMode;
+  rotationPotion?: 'none' | 'included';
   constraints: OptimizerConstraints;
   gcdTarget: string;
   selectedSet: GearSet;
@@ -108,6 +109,7 @@ const createBuild = (
   job: options.job,
   jobMode: 'standard',
   evaluationMode: 'generic-hit',
+  rotationPotion: 'none',
   constraints: clone(options.constraints),
   gcdTarget: options.gcdTarget,
   selectedSet: clone(options.selectedSet),
@@ -249,6 +251,7 @@ export const copyBuildLoadout = (
         job: source.job,
         jobMode: source.jobMode,
         evaluationMode: source.evaluationMode,
+        rotationPotion: source.rotationPotion ?? 'none',
         constraints: { ...clone(target.constraints), minResource: minimumResource },
         gcdTarget: source.gcdTarget,
         selectedSet: clone(source.selectedSet),

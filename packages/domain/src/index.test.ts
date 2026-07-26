@@ -7,6 +7,7 @@ import {
   getEvaluatorCapability,
   jobAvailableAtAccess,
   type CombatEvaluatorProfile,
+  type CombatRotationProfile,
   type ContentAccessGraph,
   type EquipmentItem,
   type GameRegistry,
@@ -334,6 +335,87 @@ describe('snapshot compatibility gate', () => {
     unsupported.evaluatorProfiles[0]!.schemaVersion = 'generic-hit-profile@99';
     expect(assessSnapshotCompatibility(unsupported, runtime).errors)
       .toContain('Profile alpha-generic@1 uses unsupported evaluator schema generic-hit-profile@99.');
+  });
+
+  it('validates safe versioned rotation profiles and their capability links', () => {
+    const snapshot = structuredClone(futureSnapshot);
+    const rotationProfile: CombatRotationProfile = {
+      id: 'alpha-rotation@1',
+      schemaVersion: 'combat-rotation-profile@1',
+      rulesetId: 'future-standard@1',
+      job: 'ALP',
+      jobMode: 'standard',
+      version: 'synthetic-rotation@1',
+      gamePatch: '8.0',
+      engineId: 'alpha-standard@1',
+      supportedModes: ['opener-30', 'dummy-300'],
+      confidence: 'generated-preliminary',
+      actions: [{
+        id: 'filler',
+        name: 'Filler',
+        kind: 'gcd',
+        potency: 100,
+        recastMs: 2500,
+        castMs: 0,
+        animationLockMs: 600,
+        applicationDelayMs: 0,
+        charges: 1,
+        speedScaling: 'spell-speed',
+        referenceIds: ['official-action']
+      }],
+      priorityRules: [{
+        id: 'use-filler',
+        actionId: 'filler',
+        conditions: [{ kind: 'always' }],
+        explanation: 'Use filler when nothing else is available.',
+        referenceIds: ['internal-priority']
+      }],
+      openers: [],
+      assumptions: {
+        targetCount: 1,
+        uptimePercent: 100,
+        movement: false,
+        downtime: false,
+        externalPartyBuffs: false,
+        rngMode: 'expected-value',
+        latencyMs: 20,
+        weaveWindowMs: 700,
+        cutoffPolicy: 'strict-application'
+      },
+      references: [{
+        id: 'official-action',
+        kind: 'official',
+        title: 'Official action data',
+        provider: 'Square Enix',
+        url: 'https://example.com/official',
+        gamePatch: '8.0'
+      }, {
+        id: 'internal-priority',
+        kind: 'xiv-gear-lab',
+        title: 'Generated priority',
+        provider: 'XIV Gear Lab',
+        gamePatch: '8.0'
+      }],
+      limitation: 'Synthetic generated priority.'
+    };
+    snapshot.rotationProfiles = [rotationProfile];
+    snapshot.registry.jobs[0]!.modes[0]!.capabilities['opener-30'] = available(rotationProfile.id);
+    snapshot.registry.jobs[0]!.modes[0]!.capabilities['dummy-300'] = available(rotationProfile.id);
+    const compatibleRuntime = {
+      ...runtime,
+      rotationProfileSchemas: ['combat-rotation-profile@1']
+    };
+    expect(assessSnapshotCompatibility(snapshot, compatibleRuntime).compatible).toBe(true);
+
+    const unsafe = structuredClone(snapshot);
+    unsafe.rotationProfiles![0]!.references[0]!.url = undefined;
+    unsafe.rotationProfiles![0]!.priorityRules[0]!.actionId = 'missing-action';
+    const report = assessSnapshotCompatibility(unsafe, compatibleRuntime);
+    expect(report.errors).toContain('Rotation profile alpha-rotation@1 external reference official-action has no direct URL.');
+    expect(report.errors).toContain('Rotation profile alpha-rotation@1 priority rule use-filler references missing action missing-action.');
+
+    expect(assessSnapshotCompatibility(snapshot, runtime).errors)
+      .toContain('Rotation profile alpha-rotation@1 uses unsupported schema combat-rotation-profile@1.');
   });
 
   it('validates signed snapshot provider freshness metadata', () => {

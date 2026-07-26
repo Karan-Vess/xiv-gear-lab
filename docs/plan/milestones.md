@@ -1,10 +1,12 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.9.0-alpha.22 completed pre-M12 optimiser-hardening checkpoint
+Status: revised through the v0.10.0-beta.1 M12E optimiser and UI integration
 Date: 2026-07-26
-Current runnable baseline: Windows/browser-capable v0.9.0-alpha.22 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.10.0-beta.1 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
+
+Version rule: M11 used the `0.9.0` line, M12 uses `0.10.0`, M13 uses `0.11.0`, and each later implementation milestone advances the minor version. Incomplete milestone builds increment `alpha.N`; feature-complete testing moves to `beta.N`; acceptance candidates use `rc.N`; completing the milestone publishes the unsuffixed minor version. Patch numbers remain reserved for fixes and polish to a completed milestone.
 
 This roadmap describes the complete intended product, not merely the current prototype. Every milestone must end in runnable evidence. A feature is not complete because its happy-path UI exists, and later work does not silently erase unfinished acceptance criteria from an earlier milestone.
 
@@ -449,27 +451,34 @@ This is a reliability prerequisite, not the start of M12. The existing fast gene
 
 ### M12 - Bounded combat evaluator framework
 
-Status: **Planned**.
+Status: **Feature-complete in v0.10.0-beta.1 and awaiting owner acceptance testing before the unsuffixed v0.10.0 milestone release**.
 
 Deliver:
 
 - Evaluator contract with three standard modes:
   1. Job-correct generic single 100-potency hit.
-  2. Fixed 30-second opener total and DPS.
-  3. Fixed 300-second single-target dummy total and DPS, including the opener.
+  2. Fixed 30-second burst total and DPS, using a current community opener when available and generated job priorities otherwise.
+  3. Fixed 300-second single-target dummy total and DPS, including the selected community or generated opening.
 - Shared deterministic timing engine for GCDs, casts, animation locks, weaving, cooldowns/charges, buffs, DoTs, gauges, expected-value procs, pets/summons and relevant auto-attacks.
 - Fixed dummy assumptions: one stationary target, 100% uptime, no movement/downtime/phases, expected-value RNG, no external party buffs by default and a versioned latency/weave assumption.
-- Job evaluator supplies action catalogue, opener, ongoing priority rules, state/resource model and version metadata.
+- Executable job evaluator supplies the safe state/resource mechanics. Signed declarative profiles supply versioned action data, generated priority rules and optional community opener sequences without delivering executable code.
+- Community openers are patch-specific optional profiles rather than hardcoded simulator logic. A stale, missing or explicitly bypassed opener falls back to generated priorities and the result is labelled generated preliminary.
+- Capability and result states distinguish community validated, generated preliminary, stale community opener, unsupported and incompatible ruleset outcomes. No job borrows another job's logic.
 - Every externally derived formula, timing assumption and job mechanic carries a named reference, direct source URL, applicable patch/version and accessed/published date where available; internally developed calculations are explicitly attributed to XIV Gear Lab instead.
 - Personal-damage output is not presented as raid contribution; support-job contribution requires a separately defined future metric.
-- Fast proxy searches the full candidate space, then opener/dummy modes rerank a bounded finalist shortlist instead of simulating every frontier state.
-- At least four pilot evaluators representing deterministic melee, proc-heavy physical ranged, caster state/timing and pet/summon behaviour.
+- Fast proxy searches the legal candidate space, then burst/dummy modes rerank a bounded, speed-diverse finalist shortlist instead of simulating every frontier state.
+- Timeline generation is cached by rotation-affecting identity such as evaluator version, speed, weapon delay, haste, latency and opener. Damage-only stat changes reuse a compatible timeline.
+- Four current level-cap pilot evaluators: SAM for deterministic melee, DNC for expected-value proc-heavy physical ranged, BLM for caster state/timing and DRK for delayed autonomous Living Shadow actions.
+- XivGear may be used as an independent reference oracle for overlapping jobs and architecture research, but its unlicensed source is not copied, vendored or distributed.
 
 Accept when:
 
 - The same gear produces deterministic results for a fixed evaluator/ruleset.
 - Speed changes can alter action count, cooldown drift or ranking and the explanation identifies why.
-- Generic-hit, opener and dummy modes never share labels that imply equivalent meaning.
+- Generic-hit, 30-second burst and five-minute dummy modes never share labels that imply equivalent meaning.
+- A pilot can complete both rotation evaluations using generated priorities when no current community opener is installed.
+- A signed declarative update can add or replace a compatible community opener without rebuilding the application.
+- A stale community opener cannot run silently: it falls back to generated priorities with the old patch and fallback status visible.
 - Unsupported jobs/modes remain visibly unavailable rather than falling back to a generic rotation.
 - Encounter mechanics, movement and fight scripting are absent by design and stated clearly.
 - Every evaluator result exposes its formula/methodology references without requiring the application to reproduce or teach the source material.
@@ -477,12 +486,21 @@ Accept when:
 Tests:
 
 - Action timelines, floor/round boundaries, clipping, double-weave legality, charges, buff snapshots, DoT ticks, resource overcap, expected proc values, pets, auto-attacks and cooldown drift.
-- 30.00-second and 300.00-second boundary actions; speed-tier action-count changes; deterministic replay; independent reference traces for pilot jobs.
+- 30.00-second and 300.00-second boundary actions; speed-tier action-count changes; deterministic replay; generated fallback; current, missing and stale opener selection; independent reference traces for pilot jobs.
+- Timeline-cache identity proves that Crit, Direct Hit and Determination changes can reuse timing while speed, haste, weapon delay, latency, evaluator version and opener changes cannot.
 
 Performance:
 
 - Fast proxy remains the default interactive search.
-- A normal opener/dummy shortlist rerank completes within 5 seconds p95, is cancellable and never blocks the renderer.
+- A normal burst/dummy shortlist rerank completes within 5 seconds p95, is cancellable and never blocks the renderer.
+
+Implementation slices:
+
+- **M12A - Contracts and profile safety (complete in v0.10.0-alpha.1):** evaluator plugin contract, declarative rotation profile schema, provenance, versioning, generated/community method resolution and compatibility validation.
+- **M12B - Deterministic timing engine (complete in v0.10.0-alpha.2):** integer-millisecond scheduler, actions, locks, casts, cooldowns, buffs, DoTs, resources, expected-value events, pets and timeline caching.
+- **M12C - Hybrid rotation policy (complete in v0.10.0-alpha.3):** ordered declarative priorities, safe-weave and controlled-clipping rules, optional patch- and assumption-matched community opener execution, explicit fallback warnings, consumable filtering, decision tracing and exact 30/300-second runs.
+- **M12D - Pilot evaluators (complete in v0.10.0-alpha.4):** SAM, DNC, BLM and DRK profiles, mechanics and independent reference traces.
+- **M12E - Optimiser and UI integration (complete in v0.10.0-beta.1):** selectable modes, speed-diverse finalist reranking, damage-only timeline reuse, worker cancellation/progress, comparison display, provenance and measured sub-five-second pilot performance.
 
 ### M13 - Combat evaluator coverage and evolved modes
 
@@ -504,10 +522,12 @@ Accept when:
 - Old and new expansion modes can coexist and reproduce their own saved results.
 - No missing evaluator silently borrows another job's logic.
 - No selectable evaluator lacks either a precise external reference link or an explicit declaration that the relevant method was developed by XIV Gear Lab.
+- Curated-set ablation confirms that generated optimisation can independently produce a comparable gear-and-meld result without curated warm starts. Any material quality gap must be measured and explained rather than hidden by restoring the curated candidate.
 
 Tests:
 
 - Per-job opener and five-minute traces; role-specific mechanic fixtures; evolved-mode boundaries; new-job gear/profile onboarding; old-save migration and cross-ruleset comparison warnings.
+- For every completed evaluator batch, repeat representative searches with `curatedSets` empty and compare equipment, melds, proxy score and rotation score against the normal run and community reference.
 
 ### M14 - Crafter gear and materia optimiser
 

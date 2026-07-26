@@ -9,9 +9,11 @@ import {
   SNAPSHOT_SCHEMA_VERSION
 } from './current-registry';
 import { enrichLegacyCatalogueMetadata } from './catalogue-metadata';
+import { CURRENT_ROTATION_PROFILES } from './rotation-profiles';
 
 export * from './runtime-updates';
 export * from './catalogue-metadata';
+export * from './rotation-profiles';
 
 const legacySnapshot = snapshotJson as unknown as Omit<GearSnapshot, 'registry' | 'rulesets' | 'evaluatorProfiles'>;
 
@@ -27,6 +29,7 @@ const registrySnapshot: GearSnapshot = {
   registry: CURRENT_REGISTRY,
   rulesets: CURRENT_RULESETS,
   evaluatorProfiles: CURRENT_EVALUATOR_PROFILES,
+  rotationProfiles: CURRENT_ROTATION_PROFILES,
   curatedSets: legacySnapshot.curatedSets.map((set) => {
     const profile = CURRENT_EVALUATOR_PROFILES.find((entry) => entry.job === set.job && entry.jobMode === 'standard');
     const ruleset = profile ? CURRENT_RULESETS.find((entry) => entry.id === profile.rulesetId) : undefined;
