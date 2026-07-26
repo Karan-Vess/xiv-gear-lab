@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.9.0-alpha.19 M11/M11B checkpoint
-Date: 2026-07-22
-Current runnable baseline: Windows/browser-capable v0.9.0-alpha.19, Dawntrail level 100 plus preliminary historical level-90, level-80, level-70 and level-60 catalogues. Level-50 formula compatibility remains dormant for the later A Realm Reborn update drill.
+Status: revised through the v0.9.0-alpha.21 completed M11/M11B baseline
+Date: 2026-07-26
+Current runnable baseline: Windows/browser-capable v0.9.0-alpha.21 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -344,30 +344,30 @@ Tests:
 
 ### M11 - Expansion/content eligibility, acquisition routes, and fixed costs
 
-Status: **In progress**.
+Status: **Complete**.
 
 Current checkpoint:
 
 - The versioned content/access contract, complete source taxonomy, alternate-route access checks, HQ-only XIVAPI normalisation, fixed current-tier tomestone and upgrade costs, explicit recommendation confidence, and preliminary-patch readiness gates are implemented.
-- The live current-tier catalogue now contains 618 official items. Crafted and augmented-crafted, normal-raid, Savage, tomestone, augmented-tomestone, dungeon, alliance-raid, Extreme-trial, relic and Ultimate categories have usable acquisition coverage, including fixed raid-token, upgrade-material, certificate, rain, relic-material and totem costs where applicable.
-- The first historical cap is usable end to end: 540 Endwalker level-90 items across 19 then-available jobs, ten source families, Grade IX/X materia, eight foods, a level-90 calculation ruleset and 635 validated historical acquisition routes. Optimiser candidates, locks, food and materia are bounded to the selected expansion and cap.
-- The M11B backfill path has generated the second historical cap: 609 Shadowbringers level-80 items across all 17 then-available jobs and ten source families, Grade VII/VIII materia, a level-80 ruleset and explicit internal-preliminary evaluator profiles. Slot/job coverage is complete and optimisation works; exact acquisition details, food and historical curation remain pending.
-- The signed Stormblood channel release adds 1,731 level-70 items across all 15 then-available jobs, eleven source families, Grade V/VI materia, a level-70 ruleset and 15 internal-preliminary evaluator profiles. Its frozen-client drill succeeded.
-- The owner-run workflow published 1,025 Heavensward level-60 items across all 13 then-available jobs with Grade III/IV materia and 13 internal-preliminary evaluator profiles. The unchanged incomplete alpha.18 client downloaded and activated them successfully.
+- The generated catalogue contains 5,754 official level-cap items: 647 Dawntrail, 540 Endwalker, 609 Shadowbringers, 1,731 Stormblood, 1,025 Heavensward and 1,202 A Realm Reborn records. Every cap/job/slot boundary is covered without admitting intermediate levelling equipment.
+- All six supported caps have legal materia and food: 84 materia records and 48 foods, with cap-specific grades, historical advanced-meld restrictions and required levels.
+- Dawntrail and Endwalker have 1,425 validated acquisition routes. Earlier caps have 4,666 visibly partial routes that classify source families and prerequisites without inventing exact historical vendors or costs.
+- Current Dawntrail coverage includes crafted and augmented-crafted, normal-raid, Savage, tomestone, augmented-tomestone, dungeon, alliance-raid, Extreme-trial, relic, Ultimate and vendor sources. Babyface Champion weapons and Ornate Courtly Lover bodies have validated Cruiserweight Savage and Khloe certificate routes.
+- The signed Stormblood and Heavensward frozen-client drills proved that a previously incomplete executable can download and activate a later signed cap catalogue. A Realm Reborn is now bundled and also has an owner-run publication launcher.
 - All final Mandervillous arms use a versioned configurable-stat model. The optimiser chooses their legal two-large/one-small allocation, handles Paladin's split sword and shield values, displays allocation-only changes and exports compatible relic stats to XivGear.
 - Endwalker results are honestly marked as lacking compatible historical curation even while current Dawntrail curation is loaded.
-- Current-tier acquisition coverage is intentionally partial where a provider does not yet verify the exact exchange requirement. A Realm Reborn catalogues/rules/consumables, Heavensward, Stormblood and Shadowbringers consumables and exact routes, historical curation, and broader route/cost coverage remain before M11 can be marked complete.
+- Acquisition details remain partial wherever the trusted inputs do not verify an exact historical route. Exact route/cost enrichment and later community curation are ongoing data maintenance, not blockers for a safe official-data recommendation.
 - The Lodestone item-link feasibility check found no trustworthy direct mapping from official game item IDs to Lodestone's separate opaque Eorzea Database IDs. Exact item links are therefore deferred under `Do later / explicitly deferred`.
 
 Deliver:
 
-- Historical/lower-level official catalogues, materia, food and curated sets needed for supported expansion/level choices.
+- Historical level-cap official catalogues, materia and food needed for supported expansion choices. Intermediate levelling gear is excluded. Compatible curated sets are used when available but never block an official-data result.
 - HQ-only crafted equipment ingestion; NQ equipment variants are excluded from catalogues, recommendations and optimisation.
 - Versioned content/access graph for expansions, quests, duties, job unlocks, vendors, recipes, nodes and route prerequisites.
 - Full source taxonomy: crafted, normal raid, Savage, tomestone, augmented tomestone, dungeon, trial, alliance raid, relic, ultimate, quest, vendor, custom and explicitly classified additional families.
 - Multiple acquisition routes per item with provenance and access checks.
 - Time-box research into making official item names open their exact Lodestone Eorzea Database pages. Implement it during M11 only if a trustworthy, maintainable identifier mapping is available with a few minutes of work; otherwise record it in a `Maybe later` list with the reason and continue M11 without expanding its scope.
-- Fixed costs: gil vendor prices, tomestones/scrips, raid books/tokens, trial totems, upgrade materials, quest requirements, recipe materials and other deterministic currencies.
+- Fixed costs where a trusted source verifies them: gil vendor prices, tomestones/scrips, raid books/tokens, trial totems, upgrade materials, quest requirements, recipe materials and other deterministic currencies. Otherwise the route remains explicitly partial.
 - Weekly/one-time/recurring classifications and user-entered cost preferences where values are legitimately subjective.
 - No live market-board prices and no invented gil value for non-market rewards.
 - Curated and generated recommendations respect the selected expansion and effective level; later content may be shown only as clearly unavailable reference material.
@@ -380,8 +380,8 @@ Accept when:
 - A lower-expansion user receives only legal jobs, items, food, materia, curated sets and routes.
 - Every crafted equipment candidate uses its HQ stats, and provider-supplied NQ variants are rejected during normalisation.
 - An item with one accessible and one inaccessible route remains usable through the legal route.
-- Recommendations explain how every official item is obtained and distinguish unknown, fixed, weekly and variable requirements.
-- Disabled source categories become functional only when their route coverage is validated.
+- Every official item has a classified acquisition route and distinguishes validated, partial, fixed, weekly and variable requirements. The app never presents a partial historical family classification as an exact vendor or duty.
+- Source categories become functional only when the selected cap has compatible classified route coverage; partial coverage remains visibly labelled.
 - With the curated overlay absent, a compatible new-patch official catalogue still produces clearly labelled preliminary recommendations rather than failing or pretending to be community validated.
 - Incomplete slot coverage, suspicious stat jumps or an incompatible evaluator prevents a normal-confidence recommendation and identifies the precise readiness failure.
 - The Lodestone-link research has a recorded outcome: exact allowlisted links if the mapping proved trivial, or an explicit `Maybe later` deferral if it did not.
@@ -395,21 +395,24 @@ Tests:
 
 ### M11B - Local patch-update assistant
 
-Status: **In progress**.
+Status: **Complete**.
 
 Current checkpoint:
 
 - `npm run catalogue:update` provides a read-only local inspection and JSON report; historical candidates require explicit `--mode backfill --expansion <id> --apply` permission and never sign or publish.
 - Cap profiles, deterministic content fingerprints, job/slot/ruleset/evaluator coverage checks, icon-duplication analysis and separate catalogue/icon/rollback size budgets are implemented.
 - The workflow has produced and validated real Shadowbringers and Stormblood backfills rather than relying only on synthetic fixtures. Stormblood is the first signed release delivered to a frozen client through the hosted channel.
-- Item, food and materia icons are content-addressed for bundled builds: 3,566 catalogue references currently resolve to 1,900 unique physical assets. Provider source-ID copies remain local for repeatable refreshes and are excluded from release builds.
+- Item, food and materia icons are content-addressed for bundled builds: 5,886 catalogue references currently resolve to 3,481 unique physical assets. Provider source-ID copies remain local for repeatable refreshes and are excluded from release builds.
 - Hosted signature/checksum verification passes. The unchanged pre-Stormblood alpha.17 client downloaded Stormblood, and the deliberately incomplete alpha.18 client downloaded Heavensward after the owner ran the local publication launcher. Both snapshots persisted through the signed channel rather than an executable rebuild.
-- Signed snapshots now use bounded gzip delivery, which makes repeated embedded icon payloads practical without weakening checksum or signature validation. The Heavensward launcher includes explicit owner confirmation. Generic current-patch detection, provider-fingerprint no-op decisions and exact acquisition/food enrichment remain.
+- Signed snapshots use bounded gzip delivery, which makes repeated embedded icon payloads practical without weakening checksum or signature validation.
+- The generic patch probe compares the official XIVAPI version/schema, current combat-job roster and discovered equipment levels. It exits without rebuilding when official data is unchanged, and blocks unknown jobs, a new level cap or schema drift.
+- `Update-Game-Data.cmd` runs the complete owner-controlled path. An optional forced supporting-source refresh handles later acquisition or curated overlays because those providers do not expose a stable release fingerprint.
+- A forced compatible Patch 7.51 simulation produced and verified a complete six-cap candidate without signing or publication. A normal Patch 7.51 probe exited as already current.
 
 Deliver:
 
 - One documented local command or launcher that the repository owner runs manually from their own Windows PC after a patch releases.
-- The assistant compares the official current patch and provider fingerprints with the active data-channel snapshot and exits quickly when nothing changed.
+- The assistant compares the official data version/schema and compatibility probes with the active snapshot and exits quickly when nothing changed. Supporting providers can be refreshed explicitly when their later curation or acquisition data is expected.
 - When a patch changed, it refreshes official and supporting providers, then reuses the M11 catalogue, acquisition, HQ-only, schema, formula and evaluator readiness gates.
 - Essential official data can produce a clearly labelled preliminary candidate without waiting for community curation; incomplete optional acquisition or curated overlays remain honest and may be refreshed later.
 - Suspicious count/stat changes, incomplete slot coverage, unknown schemas, incompatible formulas/evaluators, unsupported mechanics and provider drift stop the update and produce an actionable local report.
@@ -428,7 +431,7 @@ Accept when:
 
 Tests:
 
-- Unchanged patch/content fingerprints; compatible patch; gradual pagination; missing slot/job; essential and optional provider outages; later acquisition and curation overlays.
+- Unchanged official version/schema; compatible patch; forced supporting refresh; gradual pagination; missing slot/job; essential and optional provider outages; later acquisition and curation overlays.
 - Unknown schema, formula/evaluator incompatibility, suspicious stat/count jumps, signing-secret absence, declined confirmation, interrupted publication and hosted verification failure.
 - Repeat runs after failure, after successful publication and from a clean machine with no publishing credentials.
 

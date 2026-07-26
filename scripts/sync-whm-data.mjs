@@ -23,6 +23,8 @@ const outputPath = resolve('packages/data/src/generated/whm-snapshot.json');
 const iconOutputDirectory = resolve('apps/web/public/icons/items');
 const acquisitionIconOutputDirectory = resolve('apps/web/public/icons/acquisition');
 const generatedAt = new Date().toISOString();
+const patchUpdateMode = process.env.XIV_GEAR_LAB_PATCH_MODE === '1';
+const targetGamePatch = process.env.XIV_GEAR_LAB_TARGET_PATCH?.trim() || '7.51';
 
 const writeFileWithRetry = async (path, contents, attempts = 5) => {
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -135,7 +137,9 @@ const activeCatalogueProfiles = [...new Set(['dt', 'ew', ...existingBackfills, .
   if (!profile.itemNamePattern || profile.minimumItemsPerJob < 1) {
     throw new Error(`${profile.name} backfill discovery has not been configured yet.`);
   }
-  return profile;
+  return patchUpdateMode && expansionId === 'dt'
+    ? { ...profile, maximumItemLevel: 9999, itemNamePattern: '.+' }
+    : profile;
 });
 const EVALUATOR_PROFILE_ID = {
   WHM: 'whm-healer-damage-proxy@1',
@@ -404,7 +408,9 @@ const equipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async
   const namePattern = new RegExp(profile.itemNamePattern);
   const inConfiguredRange = (id) => profile.itemIdRanges.some(([minimum, maximum]) => id >= minimum && id <= maximum);
   return normalizeEtroEquipmentDiscovery(catalogues, {
-    include: (item) => namePattern.test(item.name) || inConfiguredRange(item.id),
+    include: (item) =>
+      (profile.maximumItemId === undefined || item.id <= profile.maximumItemId) &&
+      (namePattern.test(item.name) || inConfiguredRange(item.id)),
     minimumPerJob: profile.minimumItemsPerJob
   });
 }));
@@ -441,7 +447,7 @@ const normalizedItems = normalizeXivApiEquipmentRows({
   healerJobs: HEALER_JOBS,
   expansionForLevel,
   generatedAt,
-  gamePatch: '7.51'
+  gamePatch: targetGamePatch
 });
 const items = normalizedItems.filter((item) =>
   activeCatalogueProfiles.some((profile) => itemMatchesCatalogueProfile(item, profile))
@@ -489,18 +495,32 @@ for (const [job, minimum] of [
   if (count < minimum) throw new Error(`Etro returned only ${count}/${minimum} expected ${job} reference sets.`);
 }
 
-const ENDWALKER_FOOD_PROVIDER_IDS = [595, 596, 597, 598, 599, 600, 601, 602];
-const foodProviderIds = [...new Set([
-  ...referenceSets.map((set) => set.food).filter(Boolean),
-  ...ENDWALKER_FOOD_PROVIDER_IDS
-])];
-const foodRows = await Promise.all(foodProviderIds.map((id) => etro.food(id)));
+const discoveredFoodRows = (await Promise.all(
+  activeCatalogueProfiles.map((profile) =>
+    etro.foods(profile.foodItemLevel, patchUpdateMode && profile.expansionId === 'dt' ? 9999 : profile.foodItemLevel)
+  )
+)).flat();
+const foodsByProviderId = new Map(discoveredFoodRows.map((food) => [food.id, food]));
+const referencedFoodProviderIds = [...new Set(referenceSets.map((set) => set.food).filter(Boolean))];
+for (const food of await Promise.all(
+  referencedFoodProviderIds.filter((id) => !foodsByProviderId.has(id)).map((id) => etro.food(id))
+)) {
+  foodsByProviderId.set(food.id, food);
+}
+const foodRows = [...foodsByProviderId.values()];
+const foodExpansionForItemLevel = (itemLevel) =>
+  itemLevel <= 110 ? 'arr'
+    : itemLevel <= 250 ? 'hw'
+      : itemLevel <= 370 ? 'sb'
+        : itemLevel <= 510 ? 'shb'
+          : itemLevel <= 640 ? 'ew'
+            : 'dt';
 const foods = normalizeEtroFoods(foodRows, {
   paramToStat: PARAM_TO_STAT,
   generatedAt,
-  expansionForItemLevel: (itemLevel) => itemLevel <= 510 ? 'shb' : itemLevel <= 640 ? 'ew' : 'dt',
-  requiredLevelForItemLevel: (itemLevel) => itemLevel <= 510 ? 80 : itemLevel <= 640 ? 90 : 100,
-  sourcePatchForItemLevel: (itemLevel) => itemLevel <= 510 ? '5.4' : itemLevel <= 640 ? '6.4' : '7.4'
+  expansionForItemLevel: foodExpansionForItemLevel,
+  requiredLevelForItemLevel: (itemLevel) => CAP_CATALOGUE_PROFILES[foodExpansionForItemLevel(itemLevel)].levelCap,
+  sourcePatchForItemLevel: (itemLevel) => CAP_CATALOGUE_PROFILES[foodExpansionForItemLevel(itemLevel)].gamePatch
 });
 const availableFoodIds = new Set(foods.map((food) => food.id));
 for (const reference of balanceReferenceSets) {
@@ -850,25 +870,6 @@ const sortedMateria = materia.sort((a, b) => a.id - b.id);
 const sortedFoods = foods.sort((a, b) => a.id - b.id);
 const sortedCuratedSets = curatedSets.sort((a, b) => a.metrics.gcd - b.metrics.gcd || a.name.localeCompare(b.name));
 const acquisitionRecords = buildAcquisitionRecords(sortedItems, generatedAt);
-const catalogueFingerprint = catalogueContentFingerprint({
-  xivapiVersion: itemResponse.version,
-  profiles: activeCatalogueProfiles,
-  items: [...sortedItems].sort((left, right) => left.id - right.id),
-  materia: sortedMateria,
-  foods: sortedFoods,
-  acquisitions: [...acquisitionRecords].sort((left, right) => left.itemId - right.itemId),
-  curatedSets: [...sortedCuratedSets].sort((left, right) => left.id.localeCompare(right.id))
-});
-const snapshotManifest = {
-  id: `xivapi-${itemResponse.version}-${activeCatalogueProfiles.map((profile) => profile.expansionId).join('-')}-${catalogueFingerprint}`,
-  generatedAt,
-  gamePatch: '7.51',
-  gearTierPatch: '7.4',
-  xivapiVersion: itemResponse.version,
-  xivapiSchema: itemResponse.schema,
-  calculationVersion: 'combat-evaluator-profiles-0.6.0',
-  status: 'online-current'
-};
 const contentProvenance = (sourceUrl, sourcePatch) => [{
   kind: 'official-published',
   provider: 'Square Enix Lodestone',
@@ -903,6 +904,10 @@ const contentProvenance75 = contentProvenance(
 const contentProvenance741 = contentProvenance(
   'https://na.finalfantasyxiv.com/lodestone/topics/detail/0de7befbbcefe67d1af77dcbe1bae937b916b67e/',
   '7.41'
+);
+const contentProvenance72 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/e8dc09ebc782c9c57de6489532ed55804541e0c7',
+  '7.2'
 );
 const contentProvenance751 = contentProvenance(
   'https://na.finalfantasyxiv.com/lodestone/topics/detail/c46881a31a2c90d0965493c921b434eca09113f8/',
@@ -939,6 +944,8 @@ const contentGraph = {
     { id: 'vendor:hhihwi', kind: 'vendor', name: 'Hhihwi', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
     { id: 'duty:aac-heavyweight-normal', kind: 'duty', name: 'AAC Heavyweight Tier', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
     { id: 'duty:aac-heavyweight-savage', kind: 'duty', name: 'AAC Heavyweight Tier (Savage)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
+    { id: 'duty:aac-cruiserweight-m4-savage', kind: 'duty', name: 'AAC Cruiserweight M4 (Savage)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance72 },
+    { id: 'feature:wondrous-tails', kind: 'quest', name: 'Wondrous Tails', expansionId: 'hw', level: 60, prerequisites: ['expansion:hw'], provenance: contentProvenance72 },
     { id: 'recipe:courtly-lover', kind: 'recipe', name: 'Courtly Lover Master Recipes XII', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
     { id: 'vendor:eirene-grade-3', kind: 'vendor', name: 'Eirene grade 3 exchange', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
     { id: 'duty:the-clyteum', kind: 'duty', name: 'The Clyteum', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
@@ -949,6 +956,26 @@ const contentGraph = {
     { id: 'vendor:uahshepya', kind: 'vendor', name: "Uah'shepya", expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
     { id: 'duty:dancing-mad-ultimate', kind: 'duty', name: 'Dancing Mad (Ultimate)', expansionId: 'dt', level: 100, prerequisites: ['duty:aac-heavyweight-savage'], provenance: contentProvenance751 }
   ]
+};
+const catalogueFingerprint = catalogueContentFingerprint({
+  xivapiVersion: itemResponse.version,
+  profiles: activeCatalogueProfiles,
+  items: [...sortedItems].sort((left, right) => left.id - right.id),
+  materia: sortedMateria,
+  foods: sortedFoods,
+  acquisitions: [...acquisitionRecords].sort((left, right) => left.itemId - right.itemId),
+  contentGraph,
+  curatedSets: [...sortedCuratedSets].sort((left, right) => left.id.localeCompare(right.id))
+});
+const snapshotManifest = {
+  id: `xivapi-${itemResponse.version}-${activeCatalogueProfiles.map((profile) => profile.expansionId).join('-')}-${catalogueFingerprint}`,
+  generatedAt,
+  gamePatch: targetGamePatch,
+  gearTierPatch: patchUpdateMode ? targetGamePatch : '7.4',
+  xivapiVersion: itemResponse.version,
+  xivapiSchema: itemResponse.schema,
+  calculationVersion: 'combat-evaluator-profiles-0.6.0',
+  status: 'online-current'
 };
 const acquisitionIsPartial = acquisitionRecords.some((entry) =>
   entry.acquisitionRoutes.some((route) => route.status !== 'validated')

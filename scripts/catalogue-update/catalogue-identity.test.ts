@@ -15,4 +15,18 @@ describe('catalogue content identity', () => {
     expect(catalogueContentFingerprint({ ...base, items: [{ id: 1, stats: { mind: 11 } }] }))
       .not.toBe(catalogueContentFingerprint(base));
   });
+
+  it('changes when the content-access graph changes', () => {
+    const base = {
+      items: [{ id: 1 }],
+      contentGraph: { schemaVersion: 'content-access@1', nodes: [{ id: 'expansion:dt', prerequisites: [] }] }
+    };
+    expect(catalogueContentFingerprint({
+      ...base,
+      contentGraph: {
+        ...base.contentGraph,
+        nodes: [...base.contentGraph.nodes, { id: 'duty:new-raid', prerequisites: ['expansion:dt'] }]
+      }
+    })).not.toBe(catalogueContentFingerprint(base));
+  });
 });

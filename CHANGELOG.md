@@ -6,6 +6,10 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Added
 
+- Added the complete level-cap catalogue baseline: 1,202 A Realm Reborn items, Grade I/II materia, five level-50 foods, a level-50 ruleset and ten preliminary cap-job evaluator profiles.
+- Added expansion-appropriate cap foods for all six supported expansions, bringing the catalogue to 5,754 official items, 84 materia and 48 foods without including intermediate levelling gear.
+- Added `Update-Game-Data.cmd`, which detects compatible official patch changes, blocks unknown jobs, levels or schemas, supports an explicit later supporting-source refresh, and preserves owner confirmation before signing or publication.
+- Added validated AAC Cruiserweight M4 (Savage) routes for Babyface Champion weapons and Khloe certificate exchanges for Ornate Courtly Lover body armour.
 - Added 1,025 preliminary Heavensward level-60 items, Grade III/IV materia and 13 cap-job evaluator profiles through the owner-run signed data channel (xivapi-f8764efd76cdb31a-dt-ew-shb-sb-hw-30515b767b74635d).
 
 - Added an owner-run `Update-Heavensward-Data.cmd` workflow that builds and validates the level-60 candidate locally, shows its coverage, and requires the exact `PUBLISH HEAVENSWARD` confirmation before signing, committing or uploading anything.
@@ -36,6 +40,12 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- Historical materia now follows its own expansion-era advanced-melding limits: high-grade even tiers are restricted to the first advanced slot while the applicable lower grades can fill later overmeld slots.
+- Historical acquisition records now require an explicit validated or partial route state. Family-classified preliminary routes remain usable without pretending that an unverified duty, vendor or cost is exact.
+- Snapshot identities now include the content-access graph, preventing changed duty, vendor or prerequisite data from reusing an immutable catalogue ID.
+- Marked M11 and M11B complete with all six level-cap catalogues populated, while retaining exact historical route enrichment and later community curation as ongoing data maintenance.
+- Advanced-meld searches now compress equivalent materia choices, remove dominated completed meld plans and item outcomes, preserve speed diversity in bounded slot shortlists, and maintain a fixed-size whole-set frontier. Broad all-grade searches no longer overflow the JavaScript call stack and complete without unbounded memory growth.
+- Combat-job regression tests now select an explicit expansion and level cap, preventing historical catalogue growth from making current-tier tank checks search unrelated equipment.
 - Older signed channels that do not yet contain a newly supported expansion now show a clear "compatible data has not been published yet" message while preserving the strict rollback guard. Raw count diagnostics are available under optional technical details.
 - Expansion choices with calculation support but no published gear catalogue now tell users to check again after release instead of instructing them to run the repository owner's local updater.
 - The Heavensward backfill profile now accepts only level-60 items in the i235-i275 cap range, keeps HQ-only crafted gear, adds Grade III/IV materia, and classifies preliminary historical source families.

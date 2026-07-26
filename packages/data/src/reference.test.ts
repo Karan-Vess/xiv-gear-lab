@@ -6,8 +6,8 @@ import { gearSnapshot } from './index';
 describe('live combat-job reference fixtures', () => {
   it('loads the current roster and evaluator profiles from snapshot data', () => {
     expect(gearSnapshot.registry.jobs).toHaveLength(21);
-    expect(gearSnapshot.evaluatorProfiles).toHaveLength(85);
-    expect(new Set(gearSnapshot.evaluatorProfiles.map((profile) => profile.id)).size).toBe(85);
+    expect(gearSnapshot.evaluatorProfiles).toHaveLength(95);
+    expect(new Set(gearSnapshot.evaluatorProfiles.map((profile) => profile.id)).size).toBe(95);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'AST')?.baseStats.vitality).toBe(439);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'MCH')?.damageTrait).toBe(1.2);
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'MNK')?.hastePercent).toBe(20);
@@ -17,12 +17,24 @@ describe('live combat-job reference fixtures', () => {
       .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 292, baseSub: 364, levelDiv: 900 } });
     expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'WHM' && profile.rulesetId.startsWith('hw-')))
       .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 218, baseSub: 354, levelDiv: 600 } });
+    expect(gearSnapshot.evaluatorProfiles.find((profile) => profile.job === 'WHM' && profile.rulesetId.startsWith('arr-')))
+      .toMatchObject({ confidence: 'internal-unverified', levelConstants: { baseMain: 202, baseSub: 341, levelDiv: 341 } });
     const populatedHeavensward = gearSnapshot.items.some((item) => item.expansionId === 'hw');
-    expect(gearSnapshot.materia).toHaveLength(populatedHeavensward ? 70 : 56);
-    const expectedMateriaTiers = populatedHeavensward ? [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [5, 6, 7, 8, 9, 10, 11, 12];
+    const populatedArr = gearSnapshot.items.some((item) => item.expansionId === 'arr');
+    expect(gearSnapshot.materia).toHaveLength(populatedArr ? 84 : populatedHeavensward ? 70 : 56);
+    const expectedMateriaTiers = populatedArr
+      ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+      : populatedHeavensward ? [3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : [5, 6, 7, 8, 9, 10, 11, 12];
     expect(Object.fromEntries(expectedMateriaTiers.map((tier) => [tier, gearSnapshot.materia.filter((entry) => entry.tier === tier).length])))
       .toEqual(Object.fromEntries(expectedMateriaTiers.map((tier) => [tier, 7])));
     expect(gearSnapshot.materia.find((entry) => entry.name === 'Savage Aim Materia XI')).toMatchObject({ value: 18, advancedMeldingLimit: 'unrestricted' });
+    expect(Object.fromEntries(['arr', 'hw', 'sb', 'shb', 'ew', 'dt'].map((expansionId) => [
+      expansionId,
+      gearSnapshot.foods.filter((food) => food.expansionId === expansionId).length
+    ]))).toEqual({ arr: 5, hw: 7, sb: 7, shb: 10, ew: 10, dt: 9 });
+    expect(gearSnapshot.foods.every((food) =>
+      food.requiredLevel === gearSnapshot.registry.expansions.find((expansion) => expansion.id === food.expansionId)?.levelCap
+    )).toBe(true);
   });
 
   it('passes the historical-cap runtime compatibility gate before activation', () => {
@@ -36,7 +48,8 @@ describe('live combat-job reference fixtures', () => {
         'ffxiv-combat-level-90@1',
         'ffxiv-combat-level-80@1',
         'ffxiv-combat-level-70@1',
-        'ffxiv-combat-level-60@1'
+        'ffxiv-combat-level-60@1',
+        'ffxiv-combat-level-50@1'
       ],
       evaluatorProfileSchemas: ['generic-hit-profile@1']
     });
@@ -92,6 +105,8 @@ describe('live combat-job reference fixtures', () => {
       'vendor:uahshepya',
       'duty:dancing-mad-ultimate',
       'duty:aac-heavyweight-normal',
+      'duty:aac-cruiserweight-m4-savage',
+      'feature:wondrous-tails',
       'recipe:courtly-lover',
       'vendor:eirene-grade-3',
       'duty:the-clyteum',
@@ -100,6 +115,9 @@ describe('live combat-job reference fixtures', () => {
     ]));
     expect(gearSnapshot.items.every((item) => item.sourceFamily !== 'crafted' || item.quality === 'hq')).toBe(true);
     expect(gearSnapshot.items.every((item) => item.acquisitionRoutes && item.acquisitionRoutes.length > 0)).toBe(true);
+    expect(gearSnapshot.items.every((item) => item.acquisitionRoutes?.every((route) =>
+      route.status === 'validated' || route.status === 'partial'
+    ))).toBe(true);
     expect(gearSnapshot.items.every((item) => item.iconUrl?.startsWith('./icons/assets/'))).toBe(true);
 
     const shadowbringersItems = gearSnapshot.items.filter((item) => item.expansionId === 'shb');
@@ -131,6 +149,26 @@ describe('live combat-job reference fixtures', () => {
       expect(heavenswardItems.every((item) => item.sourceFamily !== 'crafted' || item.quality === 'hq')).toBe(true);
       expect(heavenswardItems.every((item) => item.acquisitionRoutes?.every((route) =>
         route.status === 'partial' && route.expansionId === 'hw' && route.minimumLevel === 60
+      ))).toBe(true);
+    }
+
+    const aRealmRebornItems = gearSnapshot.items.filter((item) => item.expansionId === 'arr');
+    if (aRealmRebornItems.length > 0) {
+      expect(aRealmRebornItems).toHaveLength(1202);
+      expect(aRealmRebornItems.every((item) =>
+        item.level === 50 &&
+        item.itemLevel >= 90 &&
+        item.itemLevel <= 135 &&
+        Number(item.id) <= 10064
+      )).toBe(true);
+      expect(new Set(aRealmRebornItems.flatMap((item) => item.jobs)).size).toBe(10);
+      expect(new Set(aRealmRebornItems.map((item) => item.sourceFamily))).toEqual(new Set([
+        'crafted', 'normal-raid', 'tomestone', 'tomestone-upgrade',
+        'alliance-raid', 'dungeon', 'trial', 'relic', 'other'
+      ]));
+      expect(aRealmRebornItems.every((item) => item.sourceFamily !== 'crafted' || item.quality === 'hq')).toBe(true);
+      expect(aRealmRebornItems.every((item) => item.acquisitionRoutes?.every((route) =>
+        route.status === 'partial' && route.expansionId === 'arr' && route.minimumLevel === 50
       ))).toBe(true);
     }
 
@@ -204,6 +242,22 @@ describe('live combat-job reference fixtures', () => {
     expect(phantomWeapon?.acquisitionRoutes?.at(-1)?.costs).toContainEqual(expect.objectContaining({
       name: 'Waning Arcanite', amount: 3, itemId: 50058
     }));
+
+    const babyfaceWeapon = gearSnapshot.items.find((item) => item.name === "Babyface Champion's Cane");
+    expect(babyfaceWeapon).toMatchObject({ sourceFamily: 'savage', itemLevel: 765 });
+    expect(babyfaceWeapon?.acquisitionRoutes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ location: { kind: 'duty', name: 'AAC Cruiserweight M4 (Savage)' } }),
+      expect.objectContaining({
+        costs: [expect.objectContaining({ name: 'AAC Illustrated: CW Edition IV', amount: 8 })]
+      })
+    ]));
+
+    const ornateBody = gearSnapshot.items.find((item) => item.name === "Ornate Courtly Lover's Longcoat of Healing");
+    expect(ornateBody).toMatchObject({ sourceFamily: 'vendor', itemLevel: 770, quality: 'hq' });
+    expect(ornateBody?.acquisitionRoutes?.[0]).toMatchObject({
+      location: { kind: 'vendor', name: 'Khloe Aliapoh', area: 'Idyllshire', x: 5.7, y: 6 },
+      costs: [expect.objectContaining({ name: "Khloe's Gold Certificate of Commendation", amount: 1 })]
+    });
   });
 
   it('ships a complete Endwalker level-90 cap with historical rules, consumables, and routes', () => {
@@ -230,7 +284,7 @@ describe('live combat-job reference fixtures', () => {
     expect(profiles).toHaveLength(19);
     expect(profiles.some((profile) => profile.job === 'VPR' || profile.job === 'PCT')).toBe(false);
     expect(profiles.every((profile) => profile.levelConstants?.baseMain === 390 && profile.levelConstants.levelDiv === 1900)).toBe(true);
-    expect(gearSnapshot.foods.filter((food) => food.expansionId === 'ew')).toHaveLength(8);
+    expect(gearSnapshot.foods.filter((food) => food.expansionId === 'ew')).toHaveLength(10);
     expect(gearSnapshot.materia.filter((materia) => materia.expansionId === 'ew')).toHaveLength(14);
 
     expect(gearSnapshot.contentGraph?.nodes.map((node) => node.id)).toEqual(expect.arrayContaining([

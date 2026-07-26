@@ -21,17 +21,20 @@ export const ENDWALKER_CALCULATION_SCHEMA_VERSION = 'ffxiv-combat-level-90@1';
 export const SHADOWBRINGERS_CALCULATION_SCHEMA_VERSION = 'ffxiv-combat-level-80@1';
 export const STORMBLOOD_CALCULATION_SCHEMA_VERSION = 'ffxiv-combat-level-70@1';
 export const HEAVENSWARD_CALCULATION_SCHEMA_VERSION = 'ffxiv-combat-level-60@1';
+export const A_REALM_REBORN_CALCULATION_SCHEMA_VERSION = 'ffxiv-combat-level-50@1';
 export const EVALUATOR_PROFILE_SCHEMA_VERSION = 'generic-hit-profile@1';
 export const CURRENT_RULESET_ID = 'dt-7.51-level-100-standard@1';
 export const ENDWALKER_RULESET_ID = 'ew-6.58-level-90-standard@1';
 export const SHADOWBRINGERS_RULESET_ID = 'shb-5.58-level-80-standard@1';
 export const STORMBLOOD_RULESET_ID = 'sb-4.58-level-70-standard@1';
 export const HEAVENSWARD_RULESET_ID = 'hw-3.58-level-60-standard@1';
+export const A_REALM_REBORN_RULESET_ID = 'arr-2.58-level-50-standard@1';
 export const CURRENT_PROFILE_VERSION = 'combat-evaluator-profiles-0.6.0';
 export const ENDWALKER_PROFILE_VERSION = 'combat-evaluator-profiles-ew-0.9.0';
 export const SHADOWBRINGERS_PROFILE_VERSION = 'combat-evaluator-profiles-shb-0.9.0';
 export const STORMBLOOD_PROFILE_VERSION = 'combat-evaluator-profiles-sb-0.9.0';
 export const HEAVENSWARD_PROFILE_VERSION = 'combat-evaluator-profiles-hw-0.9.0';
+export const A_REALM_REBORN_PROFILE_VERSION = 'combat-evaluator-profiles-arr-0.9.0';
 
 const baseTimingEffect: JobTimingEffect = {
   id: 'base-gcd',
@@ -172,6 +175,16 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '3.58',
     minimumLevel: 60,
     maximumLevel: 60,
+    jobMode: 'standard'
+  },
+  {
+    id: A_REALM_REBORN_RULESET_ID,
+    schemaVersion: RULESET_SCHEMA_VERSION,
+    calculationSchema: A_REALM_REBORN_CALCULATION_SCHEMA_VERSION,
+    expansionId: 'arr',
+    gamePatch: '2.58',
+    minimumLevel: 50,
+    maximumLevel: 50,
     jobMode: 'standard'
   }
 ];
@@ -366,6 +379,12 @@ const LEVEL_60_CONSTANTS: LevelFormulaConstants = {
   levelDiv: 600
 };
 
+const LEVEL_50_CONSTANTS: LevelFormulaConstants = {
+  baseMain: 202,
+  baseSub: 341,
+  levelDiv: 341
+};
+
 const scaleJobBase = (value: number, modifier: number, targetBaseMain = LEVEL_90_CONSTANTS.baseMain) => {
   const level100WithoutRace = Math.floor((440 * modifier) / 100);
   return Math.floor((targetBaseMain * modifier) / 100) + value - level100WithoutRace;
@@ -440,10 +459,24 @@ export const HEAVENSWARD_EVALUATOR_PROFILES: CombatEvaluatorProfile[] = LEVEL_10
     limitation: `${profile.limitation} This historical profile is limited to the level-60 Heavensward cap and remains preliminary until independently validated.`
   }));
 
+export const A_REALM_REBORN_EVALUATOR_PROFILES: CombatEvaluatorProfile[] = LEVEL_100_EVALUATOR_PROFILES
+  .filter((profile) => !['AST', 'DRK', 'MCH', 'SAM', 'RDM', 'GNB', 'DNC', 'SGE', 'RPR', 'VPR', 'PCT'].includes(profile.job))
+  .map((profile) => ({
+    ...profile,
+    id: profile.id.replace(/@1$/, '-arr50@1'),
+    rulesetId: A_REALM_REBORN_RULESET_ID,
+    version: A_REALM_REBORN_PROFILE_VERSION,
+    baseStats: historicalLevelStats(profile, LEVEL_50_CONSTANTS),
+    levelConstants: LEVEL_50_CONSTANTS,
+    confidence: 'internal-unverified',
+    limitation: `${profile.limitation} This historical profile is limited to the level-50 A Realm Reborn cap and remains preliminary until independently validated.`
+  }));
+
 export const CURRENT_EVALUATOR_PROFILES: CombatEvaluatorProfile[] = [
   ...LEVEL_100_EVALUATOR_PROFILES,
   ...ENDWALKER_EVALUATOR_PROFILES,
   ...SHADOWBRINGERS_EVALUATOR_PROFILES,
   ...STORMBLOOD_EVALUATOR_PROFILES,
-  ...HEAVENSWARD_EVALUATOR_PROFILES
+  ...HEAVENSWARD_EVALUATOR_PROFILES,
+  ...A_REALM_REBORN_EVALUATOR_PROFILES
 ];

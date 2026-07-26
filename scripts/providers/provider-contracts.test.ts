@@ -11,6 +11,8 @@ import {
   normalizeEtroMateria,
   validateEtroBis,
   validateEtroFood,
+  validateEtroFoods,
+  validateEtroJobs,
   validateEtroMateria
 } from './etro.mjs';
 import { createXivApiAdapter, normalizeXivApiEquipmentRows, validateXivApiSheet } from './xivapi.mjs';
@@ -36,7 +38,9 @@ describe('pinned provider contracts', () => {
       { id: 9, name: 'Heavyweight Coat of Casting', slot: 'body', jobs: ['BLM'] },
       { id: 10, name: 'Praemagitek Coat of Casting', slot: 'body', jobs: ['BLM'] },
       { id: 49490, name: 'Runaway Rod', slot: 'weapon', jobs: ['BLM'] },
-      { id: 50045, name: 'Phantom Longpole Obscurum', slot: 'weapon', jobs: ['BLM'] }
+      { id: 50045, name: 'Phantom Longpole Obscurum', slot: 'weapon', jobs: ['BLM'] },
+      { id: 50100, name: "Babyface Champion's Rod", slot: 'weapon', jobs: ['BLM'] },
+      { id: 50101, name: "Ornate Courtly Lover's Longcoat of Casting", slot: 'body', jobs: ['BLM'] }
     ], generatedAt);
     expect(records[0].acquisitionRoutes[0].costs).toEqual([expect.objectContaining({
       kind: 'currency', name: 'Allagan Tomestone of Mnemonics', amount: 825, valuation: 'fixed'
@@ -107,6 +111,22 @@ describe('pinned provider contracts', () => {
         ]) })
       ]
     });
+    expect(records[12]).toMatchObject({
+      sourceFamily: 'savage',
+      acquisitionRoutes: [
+        expect.objectContaining({ location: { kind: 'duty', name: 'AAC Cruiserweight M4 (Savage)' } }),
+        expect.objectContaining({
+          costs: [expect.objectContaining({ name: 'AAC Illustrated: CW Edition IV', amount: 8 })]
+        })
+      ]
+    });
+    expect(records[13]).toMatchObject({
+      sourceFamily: 'vendor',
+      acquisitionRoutes: [expect.objectContaining({
+        location: { kind: 'vendor', name: 'Khloe Aliapoh', area: 'Idyllshire', x: 5.7, y: 6 },
+        costs: [expect.objectContaining({ name: "Khloe's Gold Certificate of Commendation", amount: 1 })]
+      })]
+    });
     expect(records.flatMap((record) => record.acquisitionRoutes).flatMap((route) => route.costs).some((cost) => cost.kind === 'gil')).toBe(false);
   });
 
@@ -119,7 +139,9 @@ describe('pinned provider contracts', () => {
       { id: 49482, name: 'Runaway Shamshir', slot: 'weapon', jobs: ['PLD'] },
       { id: 49503, name: 'Runaway Shield', slot: 'offHand', jobs: ['PLD'] },
       { id: 50032, name: 'Phantom Sword Obscurum', slot: 'weapon', jobs: ['PLD'] },
-      { id: 50053, name: 'Phantom Shield Obscurum', slot: 'offHand', jobs: ['PLD'] }
+      { id: 50053, name: 'Phantom Shield Obscurum', slot: 'offHand', jobs: ['PLD'] },
+      { id: 50102, name: "Babyface Champion's Sword", slot: 'weapon', jobs: ['PLD'] },
+      { id: 50103, name: "Babyface Champion's Shield", slot: 'offHand', jobs: ['PLD'] }
     ], '2026-07-18T00:00:00.000Z');
     const exchangeCost = (index) => records[index].acquisitionRoutes.at(-1)?.costs[0];
     expect(exchangeCost(0)?.sharedGroupId).toBe('naught-paladin-arms');
@@ -130,6 +152,8 @@ describe('pinned provider contracts', () => {
     expect(exchangeCost(5)?.sharedGroupId).toBe('runaway-paladin-arms');
     expect(exchangeCost(6)?.sharedGroupId).toBe('phantom-obscurum-paladin-arms');
     expect(exchangeCost(7)?.sharedGroupId).toBe('phantom-obscurum-paladin-arms');
+    expect(exchangeCost(8)?.sharedGroupId).toBe('babyface-paladin-arms');
+    expect(exchangeCost(9)?.sharedGroupId).toBe('babyface-paladin-arms');
   });
 
   it('classifies preliminary Heavensward cap routes without leaking another expansion', () => {
@@ -144,6 +168,37 @@ describe('pinned provider contracts', () => {
     expect(records.every((record) => record.acquisitionRoutes.every((route) =>
       route.expansionId === 'hw' && route.minimumLevel === 60 && route.status === 'partial'
     ))).toBe(true);
+  });
+
+  it('classifies preliminary A Realm Reborn cap routes without leaking another expansion', () => {
+    const records = buildAcquisitionRecords([
+      { id: 70, name: 'Augmented Ironworks Robe of Healing', slot: 'body', jobs: ['WHM'], expansionId: 'arr', itemLevel: 130, quality: 'not-applicable' },
+      { id: 71, name: 'Dreadwyrm Robe of Casting', slot: 'body', jobs: ['BLM'], expansionId: 'arr', itemLevel: 130, quality: 'not-applicable' },
+      { id: 72, name: 'Shiva\'s Diamond Rod', slot: 'weapon', jobs: ['BLM'], expansionId: 'arr', itemLevel: 115, quality: 'not-applicable' },
+      { id: 73, name: 'Yoichi Bow Zeta', slot: 'weapon', jobs: ['BRD'], expansionId: 'arr', itemLevel: 135, quality: 'not-applicable' }
+    ], '2026-07-26T00:00:00.000Z');
+
+    expect(records.map((record) => record.sourceFamily)).toEqual(['tomestone-upgrade', 'normal-raid', 'trial', 'relic']);
+    expect(records.every((record) => record.acquisitionRoutes.every((route) =>
+      route.expansionId === 'arr' && route.minimumLevel === 50 && route.status === 'partial'
+    ))).toBe(true);
+  });
+
+  it('accepts a bounded food catalogue and rejects out-of-range or duplicate records', async () => {
+    const food = await fixture('etro-food.json');
+    expect(validateEtroFoods([food], 790, 790)).toEqual([food]);
+    expect(() => validateEtroFoods([food], 1, 700)).toThrow('outside requested range');
+    expect(() => validateEtroFoods([food, food], 790, 790)).toThrow('duplicate');
+  });
+
+  it('validates the provider job catalogue used for new-job detection', () => {
+    const jobs = [
+      { id: 1, abbrev: 'WHM', name: 'White Mage', isCrafting: false, isGathering: false },
+      { id: 2, abbrev: 'CRP', name: 'Carpenter', isCrafting: true, isGathering: false }
+    ];
+    expect(validateEtroJobs(jobs)).toEqual(jobs);
+    expect(() => validateEtroJobs([jobs[0], { ...jobs[0], id: 3 }])).toThrow('duplicate');
+    expect(() => validateEtroJobs([{ ...jobs[0], isCrafting: undefined }])).toThrow('category flags');
   });
 
   it('accepts the pinned XIVAPI sheet and rejects missing, duplicate, and bad IDs', async () => {

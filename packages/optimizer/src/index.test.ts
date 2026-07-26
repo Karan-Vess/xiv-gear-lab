@@ -14,6 +14,37 @@ import {
 } from './index';
 
 describe('WHM optimiser', () => {
+  it('builds a preliminary A Realm Reborn level-50 set from the backfilled cap catalogue', () => {
+    const result = optimizeWhm(gearSnapshot, {
+      minResource: 202,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources: ['normal-raid', 'tomestone-upgrade'],
+      allowedMateriaTiers: [1, 2],
+      foodMode: 'allowed',
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 400,
+      accessExpansion: 'arr',
+      accessLevel: 50
+    });
+    expect(result.best).toBeDefined();
+    expect(gearSnapshot.foods.find((food) => food.id === result.best?.foodId)?.expansionId).toBe('arr');
+    expect(result.best?.calculationContext).toMatchObject({
+      rulesetId: 'arr-2.58-level-50-standard@1',
+      evaluatorProfileId: 'whm-healer-damage-proxy-arr50@1',
+      calculationSchema: 'ffxiv-combat-level-50@1'
+    });
+    expect(result.best?.evaluation?.confidence).toBe('internal-unverified');
+    for (const equipped of Object.values(result.best!.items)) {
+      const item = gearSnapshot.items.find((candidate) => String(candidate.id) === String(equipped?.itemId));
+      expect(item).toMatchObject({ expansionId: 'arr', level: 50 });
+      for (const materiaId of equipped?.materiaIds ?? []) {
+        expect(gearSnapshot.materia.find((materia) => materia.id === materiaId)?.tier).toBeLessThanOrEqual(2);
+      }
+    }
+  }, 20_000);
+
   it('builds a preliminary Stormblood level-70 set from a data-channel catalogue', () => {
     const result = optimizeWhm(gearSnapshot, {
       minResource: 292,
@@ -65,7 +96,7 @@ describe('WHM optimiser', () => {
       calculationSchema: 'ffxiv-combat-level-80@1'
     });
     expect(result.best?.evaluation?.confidence).toBe('internal-unverified');
-    expect(result.best?.foodId).toBeUndefined();
+    expect(gearSnapshot.foods.find((food) => food.id === result.best?.foodId)?.expansionId).toBe('shb');
     for (const equipped of Object.values(result.best!.items)) {
       const item = gearSnapshot.items.find((candidate) => String(candidate.id) === String(equipped?.itemId));
       expect(item).toMatchObject({ expansionId: 'shb', level: 80 });
@@ -581,9 +612,12 @@ describe('tank optimisers', () => {
       minGcd: targetGcd,
       maxGcd: targetGcd,
       allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+      allowedMateriaTiers: [11, 12],
       requiredItemIds: [],
       excludedItemIds: [],
-      frontierLimit: 1_800
+      frontierLimit: 1_800,
+      accessExpansion: 'dt',
+      accessLevel: 100
     });
     expect(result.best).toBeDefined();
     expect(result.best!.job).toBe(job);
@@ -719,6 +753,36 @@ describe('M10 optimiser restrictions', () => {
     expect(new Set(fullPentameld.best?.items.head?.materiaIds.map((id) => snapshot.materia.find((entry) => entry.id === id)?.tier))).toEqual(new Set([11, 12]));
   }, 20_000);
 
+  it('allows Grade I materia in every advanced-meld slot', () => {
+    const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;
+    const custom: EquipmentItem = {
+      ...source,
+      id: 'custom-grade-one-overmeld-head',
+      origin: 'custom',
+      sourceFamily: 'custom',
+      advancedMelding: true,
+      materiaSlots: 2,
+      stats: { ...source.stats, criticalHit: 0 },
+      statCaps: { ...source.statCaps, criticalHit: 190 },
+      unique: false
+    };
+    const snapshot: GearSnapshot = { ...gearSnapshot, items: [...gearSnapshot.items, custom] };
+    const result = optimizeWhm(snapshot, {
+      ...base,
+      allowedSources: [...base.allowedSources],
+      requiredItemIds: [custom.id],
+      allowedMateriaStats: ['criticalHit'],
+      allowedMateriaTiers: [1],
+      allowOvermelds: true,
+      allowCustomItems: true
+    });
+
+    expect(result.best?.items.head?.materiaIds).toHaveLength(5);
+    expect(result.best?.items.head?.materiaIds.every((id) =>
+      snapshot.materia.find((entry) => entry.id === id)?.tier === 1
+    )).toBe(true);
+  }, 20_000);
+
   it('can produce a five-slot overmeld on official crafted equipment', () => {
     const result = optimizeWhm(gearSnapshot, {
       ...base,
@@ -732,6 +796,44 @@ describe('M10 optimiser restrictions', () => {
     const craftedMeldCounts = Object.values(result.best!.items).map((entry) => entry?.materiaIds.length ?? 0);
     expect(craftedMeldCounts).toContain(5);
   }, 20_000);
+
+  it('handles every accessible materia grade with advanced melding without overflowing', () => {
+    const allowedSources = [...new Set(
+      gearSnapshot.items
+        .filter((item) => item.expansionId === 'dt')
+        .map((item) => item.sourceFamily)
+    )];
+    const result = optimizePaladin(gearSnapshot, {
+      minResource: 0,
+      minGcd: 1.5,
+      maxGcd: 2.5,
+      allowedSources,
+      includeUpgradedTomestoneGear: true,
+      includeAugmentedCraftedGear: true,
+      itemLevelMode: 'any',
+      minItemLevel: 1,
+      maxItemLevel: 9999,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 1_800,
+      lockedItemIdsBySlot: {},
+      lockedMateriaBySlot: {},
+      gcdMode: 'range',
+      foodMode: 'none',
+      allowedMateriaStats: ['directHit', 'criticalHit', 'determination', 'tenacity', 'skillSpeed'],
+      allowedMateriaTiers: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      allowOvermelds: true,
+      allowCustomItems: true,
+      accessExpansion: 'dt',
+      accessLevel: 100,
+      allowExperimentalAccess: false
+    });
+
+    expect(result.best).toBeDefined();
+    expect(result.best?.job).toBe('PLD');
+    expect(result.truncated).toBe(true);
+    expect(result.evaluatedStates).toBeGreaterThan(1_000_000);
+  }, 30_000);
 
   it('requires an explicit override and marks an out-of-access custom result hypothetical', () => {
     const source = gearSnapshot.items.find((entry) => entry.jobs.includes('WHM') && entry.slot === 'head')!;

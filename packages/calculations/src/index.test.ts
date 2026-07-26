@@ -173,6 +173,19 @@ describe('level 100 combat proxy calculations', () => {
     expect(() => applyMateria(item, [1, 1, 1, 1], [materia])).toThrow('advanced meld slot 2');
   });
 
+  it('allows historical low grades throughout overmelding and limits Grade VI to the first advanced slot', () => {
+    const item: EquipmentItem = {
+      id: 'historical-advanced-test', origin: 'custom', name: 'Historical advanced test item', jobs: ['WHM'], slot: 'head', level: 60, itemLevel: 270,
+      stats: emptyStats(), statCaps: { ...emptyStats(), criticalHit: 999 }, weaponDamage: 0, weaponDelayMs: 0,
+      materiaSlots: 2, advancedMelding: true, unique: false, sourceFamily: 'custom', acquisitionNote: 'Test', provenance: []
+    };
+    const lowGrade: Materia = { id: 1, name: 'Grade I test', stat: 'criticalHit', value: 1, tier: 1 };
+    const gradeSix: Materia = { id: 6, name: 'Grade VI test', stat: 'criticalHit', value: 16, tier: 6 };
+    expect(() => applyMateria(item, [1, 1, 1, 1, 1], [lowGrade])).not.toThrow();
+    expect(() => applyMateria(item, [1, 1, 6], [lowGrade, gradeSix])).not.toThrow();
+    expect(() => applyMateria(item, [1, 1, 6, 6], [lowGrade, gradeSix])).toThrow('advanced meld slot 2');
+  });
+
   it('applies and validates the discrete Endwalker relic allocation', () => {
     const item: EquipmentItem = {
       id: 40949, origin: 'official', name: 'Mandervillous Wings', jobs: ['SGE'], slot: 'weapon', level: 90, itemLevel: 665,

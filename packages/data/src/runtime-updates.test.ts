@@ -138,6 +138,39 @@ const candidateFor = (id: string, generatedAt = gearSnapshot.manifest.generatedA
   };
 };
 
+const compactStorageSnapshot = structuredClone(gearSnapshot);
+compactStorageSnapshot.items = [];
+compactStorageSnapshot.materia = [];
+compactStorageSnapshot.foods = [];
+compactStorageSnapshot.curatedSets = [];
+
+const compactCandidateFor = (id: string): DownloadedSnapshotCandidate => {
+  const snapshot = structuredClone(compactStorageSnapshot);
+  snapshot.manifest.id = id;
+  const updateManifest: DataUpdateManifest = {
+    schemaVersion: 'data-update-manifest@1',
+    channel: 'test',
+    publishedAt: '2026-07-15T00:00:00.000Z',
+    keyId: 'test',
+    snapshot: {
+      id,
+      url: 'https://updates.example.test/snapshot.json',
+      sha256: 'a'.repeat(64),
+      byteLength: 1,
+      counts: countsFor(snapshot)
+    },
+    providers: [],
+    signature: 'test'
+  };
+  return {
+    snapshot,
+    sha256: 'a'.repeat(64),
+    downloadedAt: '2026-07-15T00:00:00.000Z',
+    updateManifest,
+    compatibility: assessSnapshotCompatibility(snapshot, runtime)
+  };
+};
+
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(databaseNames.splice(0).map((name) => new Promise<void>((resolve) => {
@@ -354,11 +387,11 @@ describe('atomic snapshot repository', () => {
       retention: { maximumRetainedSnapshots: 3 },
       now: () => new Date(clock)
     });
-    await repository.stageAndActivate(candidateFor('retained-one'));
+    await repository.stageAndActivate(compactCandidateFor('retained-one'));
     await repository.setPinnedSnapshotIds(['retained-one']);
     for (const id of ['retained-two', 'retained-three', 'retained-four', 'retained-five']) {
       clock += 60_000;
-      await repository.stageAndActivate(candidateFor(id));
+      await repository.stageAndActivate(compactCandidateFor(id));
     }
 
     expect((await repository.load(gearSnapshot)).snapshot.manifest.id).toBe('retained-five');

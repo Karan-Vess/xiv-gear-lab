@@ -13,6 +13,7 @@ export const ETRO_BASE_URL = `${ETRO_ORIGIN}/api`;
 export const ETRO_EQUIPMENT_CONTRACT = 'etro-equipment@2026-07';
 export const ETRO_BIS_CONTRACT = 'etro-bis@2026-07';
 export const ETRO_FOOD_CONTRACT = 'etro-food@1';
+export const ETRO_JOBS_CONTRACT = 'etro-jobs@1';
 export const ETRO_MATERIA_CONTRACT = 'etro-materia@1';
 
 const validateEquipment = (value, job) => {
@@ -59,6 +60,38 @@ export const validateEtroFood = (value, id) => {
   return record;
 };
 
+export const validateEtroFoods = (value, minimumItemLevel, maximumItemLevel) => {
+  const records = expectArray(value, 'Etro', ETRO_FOOD_CONTRACT, 'response');
+  for (const record of records) {
+    validateEtroFood(record, record?.id);
+    if (record.itemLevel < minimumItemLevel || record.itemLevel > maximumItemLevel) {
+      throw new ProviderContractError(
+        'Etro',
+        ETRO_FOOD_CONTRACT,
+        `food ${record.id} has item level ${record.itemLevel} outside requested range ${minimumItemLevel}-${maximumItemLevel}.`
+      );
+    }
+  }
+  assertUnique(records, (record) => record.id, 'Etro', ETRO_FOOD_CONTRACT, 'food records');
+  return records;
+};
+
+export const validateEtroJobs = (value) => {
+  const records = expectArray(value, 'Etro', ETRO_JOBS_CONTRACT, 'response');
+  for (const [index, candidate] of records.entries()) {
+    const record = expectRecord(candidate, 'Etro', ETRO_JOBS_CONTRACT, `response[${index}]`);
+    expectSafeInteger(record.id, 'Etro', ETRO_JOBS_CONTRACT, `response[${index}].id`, { minimum: 1 });
+    expectString(record.abbrev, 'Etro', ETRO_JOBS_CONTRACT, `response[${index}].abbrev`);
+    expectString(record.name, 'Etro', ETRO_JOBS_CONTRACT, `response[${index}].name`);
+    if (typeof record.isCrafting !== 'boolean' || typeof record.isGathering !== 'boolean') {
+      throw new ProviderContractError('Etro', ETRO_JOBS_CONTRACT, `response[${index}] is missing job-category flags.`);
+    }
+  }
+  assertUnique(records, (record) => record.id, 'Etro', ETRO_JOBS_CONTRACT, 'job IDs');
+  assertUnique(records, (record) => record.abbrev, 'Etro', ETRO_JOBS_CONTRACT, 'job abbreviations');
+  return records;
+};
+
 export const validateEtroMateria = (value) => {
   const families = expectArray(value, 'Etro', ETRO_MATERIA_CONTRACT, 'response');
   for (const [index, candidate] of families.entries()) {
@@ -94,11 +127,26 @@ export const createEtroAdapter = ({ client, cache }) => ({
       ? cache.validatedJson({ provider: 'etro', key: url, load: () => client.getJson(url), validate: validateEtroBis })
       : validateEtroBis(await client.getJson(url));
   },
+  async jobs() {
+    const url = `${ETRO_BASE_URL}/jobs/`;
+    return cache
+      ? cache.validatedJson({ provider: 'etro', key: url, load: () => client.getJson(url), validate: validateEtroJobs })
+      : validateEtroJobs(await client.getJson(url));
+  },
   async food(id) {
     const url = `${ETRO_BASE_URL}/food/${id}/`;
     const validate = (value) => validateEtroFood(value, id);
     return cache
       ? cache.validatedJson({ provider: 'etro', key: url, load: () => client.getJson(url), validate })
+      : validate(await client.getJson(url));
+  },
+  async foods(minimumItemLevel, maximumItemLevel) {
+    const url = new URL(`${ETRO_BASE_URL}/food/`);
+    url.searchParams.set('minItemLevel', String(minimumItemLevel));
+    url.searchParams.set('maxItemLevel', String(maximumItemLevel));
+    const validate = (value) => validateEtroFoods(value, minimumItemLevel, maximumItemLevel);
+    return cache
+      ? cache.validatedJson({ provider: 'etro', key: url.href, load: () => client.getJson(url), validate })
       : validate(await client.getJson(url));
   },
   async materia() {
@@ -156,9 +204,9 @@ export const normalizeEtroMateria = (catalogue, { referencedIds, paramToStat, in
     for (let tier = 1; tier <= 12; tier += 1) {
       const row = family[`tier${tier}`];
       if (!row || (!referencedIds.has(row.id) && !requiredTiers.has(tier))) continue;
-      const advancedMeldingLimit = [8, 10, 12].includes(tier)
+      const advancedMeldingLimit = [6, 8, 10, 12].includes(tier)
         ? 'first-slot-only'
-        : [7, 9, 11].includes(tier) ? 'unrestricted' : undefined;
+        : tier >= 1 && tier <= 12 ? 'unrestricted' : undefined;
       materia.push({
         id: row.id,
         name: row.name,

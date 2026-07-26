@@ -22,6 +22,7 @@ export const parseCatalogueUpdateArgs = (arguments_) => {
     const argument = arguments_[index];
     if (argument === '--mode') options.mode = valueAfter(arguments_, index++, '--mode');
     else if (argument === '--expansion') options.expansionId = valueAfter(arguments_, index++, '--expansion').toLowerCase();
+    else if (argument === '--patch') options.patch = valueAfter(arguments_, index++, '--patch');
     else if (argument === '--report') options.reportPath = valueAfter(arguments_, index++, '--report');
     else if (argument === '--apply') options.apply = true;
     else if (argument === '--force') options.force = true;
@@ -33,8 +34,46 @@ export const parseCatalogueUpdateArgs = (arguments_) => {
   if (options.mode === 'backfill' && !options.expansionId) throw new Error('Backfill mode requires --expansion.');
   if (options.expansionId) catalogueProfile(options.expansionId);
   if (options.mode !== 'backfill' && options.expansionId) throw new Error('--expansion is only valid in backfill mode.');
+  if (options.patch && options.mode !== 'patch') throw new Error('--patch is only valid in patch mode.');
+  if (options.mode === 'patch' && options.apply && !options.patch) throw new Error('Patch apply mode requires --patch.');
   if (options.force && !options.apply) throw new Error('--force requires --apply.');
   return options;
+};
+
+export const assessPatchProbe = ({
+  activeVersion,
+  activeSchema,
+  probedVersion,
+  probedSchema,
+  supportedJobs,
+  providerJobs,
+  maximumSupportedLevel,
+  discoveredEquipmentLevels
+}) => {
+  const limitedJobs = new Set(['BLU', 'BST']);
+  const unknownJobs = providerJobs
+    .filter((job) => !job.isCrafting && !job.isGathering && !limitedJobs.has(job.abbrev))
+    .map((job) => job.abbrev)
+    .filter((job) => !supportedJobs.includes(job))
+    .sort();
+  const unsupportedLevels = [...new Set(discoveredEquipmentLevels)]
+    .filter((level) => level > maximumSupportedLevel)
+    .sort((left, right) => left - right);
+  const blockers = [
+    ...(unknownJobs.length > 0 ? [`unsupported combat jobs: ${unknownJobs.join(', ')}`] : []),
+    ...(unsupportedLevels.length > 0 ? [`unsupported equipment levels: ${unsupportedLevels.join(', ')}`] : []),
+    ...(activeSchema !== probedSchema ? [`official schema changed from ${activeSchema} to ${probedSchema}`] : [])
+  ];
+  const officialChanged = activeVersion !== probedVersion || activeSchema !== probedSchema;
+  return {
+    officialChanged,
+    unknownJobs,
+    unsupportedLevels,
+    blockers,
+    outcome: blockers.length > 0 ? 'blocked-incompatible'
+      : officialChanged ? 'compatible-change-detected'
+        : 'already-current'
+  };
 };
 
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');

@@ -5,6 +5,9 @@ const PATCH_75_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/deta
 const PATCH_741_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/0de7befbbcefe67d1af77dcbe1bae937b916b67e/';
 const HEAVYWEIGHT_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/AAC_Heavyweight_Tier_(Savage)';
 const HEAVYWEIGHT_NORMAL_REFERENCE_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/06944d892fd98cc00b2a28ff77edbafa4f7eef54';
+const CRUISERWEIGHT_REFERENCE_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/e8dc09ebc782c9c57de6489532ed55804541e0c7';
+const BABYFACE_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Babyface_Champion%27s_Weapons';
+const KHLOE_GOLD_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Khloe%27s_Gold_Certificate_of_Commendation';
 const CLYTEUM_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/The_Clyteum';
 const RUNAWAY_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Runaway_Weapons';
 const PHANTOM_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Phantom_Weapons';
@@ -24,6 +27,7 @@ const MANDERVILLE_WEAPONS_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wi
 const SHADOWBRINGERS_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_80_Gear_Guide';
 const STORMBLOOD_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_70_Gear_Guide';
 const HEAVENSWARD_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_60_Gear_Guide';
+const A_REALM_REBORN_GEAR_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/Level_50_Gear_Guide';
 
 const patchForSource = (sourceUrl) => {
   if ([ENDWALKER_GEAR_REFERENCE_URL, ANABASEIOS_REFERENCE_URL, ANABASEIOS_SAVAGE_REFERENCE_URL].includes(sourceUrl)) return '6.4';
@@ -33,6 +37,8 @@ const patchForSource = (sourceUrl) => {
   if (sourceUrl === SHADOWBRINGERS_GEAR_REFERENCE_URL) return '5.5';
   if (sourceUrl === STORMBLOOD_GEAR_REFERENCE_URL) return '4.5';
   if (sourceUrl === HEAVENSWARD_GEAR_REFERENCE_URL) return '3.5';
+  if (sourceUrl === A_REALM_REBORN_GEAR_REFERENCE_URL) return '2.5';
+  if ([CRUISERWEIGHT_REFERENCE_URL, BABYFACE_REFERENCE_URL, KHLOE_GOLD_REFERENCE_URL].includes(sourceUrl)) return '7.2';
   if (sourceUrl === PATCH_741_NOTES_URL || sourceUrl === PHANTOM_REFERENCE_URL) return '7.41';
   if (sourceUrl === PATCH_75_NOTES_URL || sourceUrl === UNMAKING_REFERENCE_URL || sourceUrl === CLYTEUM_REFERENCE_URL || sourceUrl === AUGMENTED_COURTLY_REFERENCE_URL) return '7.5';
   if (sourceUrl === PALAZZO_REFERENCE_URL) return '7.51';
@@ -175,6 +181,7 @@ const acquisitionForItem = (item, generatedAt) => {
   const shadowbringersRoute = (details) => route({ ...details, expansionId: 'shb', minimumLevel: 80 });
   const stormbloodRoute = (details) => route({ ...details, expansionId: 'sb', minimumLevel: 70 });
   const heavenswardRoute = (details) => route({ ...details, expansionId: 'hw', minimumLevel: 60 });
+  const aRealmRebornRoute = (details) => route({ ...details, expansionId: 'arr', minimumLevel: 50 });
   if (item.name.startsWith('Mandervillous')) {
     const sharedGroupId = item.jobs.includes('PLD') ? 'mandervillous-paladin-arms' : undefined;
     return {
@@ -443,6 +450,61 @@ const acquisitionForItem = (item, generatedAt) => {
         requirements: [{ kind: 'content', contentId: 'duty:the-clyteum', description: 'Unlock and complete The Clyteum.' }],
         generatedAt,
         sourceUrl: CLYTEUM_REFERENCE_URL
+      })]
+    };
+  }
+  if (item.name.startsWith("Babyface Champion's")) {
+    const sharedGroupId = item.jobs.includes('PLD') ? 'babyface-paladin-arms' : undefined;
+    return {
+      sourceFamily: 'savage',
+      acquisitionNote: 'AAC Cruiserweight M4 (Savage) weapon coffer or illustrated-book exchange.',
+      routes: [
+        route({
+          id: `savage-cruiserweight-coffer:${item.id}`,
+          name: 'AAC Cruiserweight M4 (Savage) weapon coffer',
+          sourceFamily: 'savage',
+          status: 'current',
+          location: { kind: 'duty', name: 'AAC Cruiserweight M4 (Savage)' },
+          note: "Obtained from a Babyface Champion's Weapon Coffer.",
+          requirements: [{ kind: 'content', contentId: 'duty:aac-cruiserweight-m4-savage', description: 'Clear AAC Cruiserweight M4 (Savage).' }],
+          frequency: 'weekly',
+          generatedAt,
+          sourceUrl: CRUISERWEIGHT_REFERENCE_URL
+        }),
+        route({
+          id: `savage-cruiserweight-book:${item.id}`,
+          name: 'AAC Illustrated: CW Edition IV exchange',
+          sourceFamily: 'savage',
+          status: 'current',
+          location: { kind: 'vendor', name: 'Hhihwi', area: 'Solution Nine', x: 8.7, y: 13.4 },
+          note: 'Exchange eight AAC Illustrated: CW Edition IV with Hhihwi.',
+          requirements: [
+            { kind: 'content', contentId: 'duty:aac-cruiserweight-m4-savage', description: 'Clear AAC Cruiserweight M4 (Savage).' },
+            { kind: 'content', contentId: 'vendor:hhihwi', description: 'Unlock Hhihwi in Solution Nine.' }
+          ],
+          costs: [fixedItemCost('AAC Illustrated: CW Edition IV', 8, undefined, 'weekly', sharedGroupId)],
+          frequency: 'weekly',
+          generatedAt,
+          sourceUrl: BABYFACE_REFERENCE_URL
+        })
+      ]
+    };
+  }
+  if (item.name.startsWith('Ornate Courtly Lover\'s')) {
+    return {
+      sourceFamily: 'vendor',
+      acquisitionNote: "Exchange one Khloe's Gold Certificate of Commendation with Khloe Aliapoh.",
+      routes: [route({
+        id: `khloe-gold-ornate-courtly:${item.id}`,
+        name: "Khloe's Gold Certificate exchange",
+        sourceFamily: 'vendor',
+        status: 'current',
+        location: { kind: 'vendor', name: 'Khloe Aliapoh', area: 'Idyllshire', x: 5.7, y: 6.0 },
+        note: "Exchange one Khloe's Gold Certificate of Commendation.",
+        requirements: [{ kind: 'content', contentId: 'feature:wondrous-tails', description: 'Unlock Wondrous Tails.' }],
+        costs: [fixedItemCost("Khloe's Gold Certificate of Commendation", 1)],
+        generatedAt,
+        sourceUrl: KHLOE_GOLD_REFERENCE_URL
       })]
     };
   }
@@ -859,6 +921,40 @@ const acquisitionForItem = (item, generatedAt) => {
         requirements: [{ kind: 'content', contentId: 'expansion:hw', description: 'Own Heavensward and reach level 60.' }],
         generatedAt,
         sourceUrl: HEAVENSWARD_GEAR_REFERENCE_URL
+      })]
+    };
+  }
+  const aRealmRebornSource = (() => {
+    if (item.quality === 'hq') return ['crafted', 'High quality level-50 crafted equipment'];
+    if (/^Augmented Ironworks/.test(item.name)) return ['tomestone-upgrade', 'Augmented Ironworks equipment exchange'];
+    if (/^Ironworks/.test(item.name)) return ['tomestone', 'Ironworks tomestone exchange'];
+    if (/^Weathered /.test(item.name)) return ['tomestone', 'Weathered tomestone equipment exchange'];
+    if (/^(Noct|Gloam|Auroral|Daystar|Evenstar) /.test(item.name)) return ['tomestone-upgrade', 'Upgraded tomestone equipment exchange'];
+    if (/^(Allagan|High Allagan|Dreadwyrm) /.test(item.name)) return ['normal-raid', 'Binding Coil raid drop'];
+    if (/^(Demon|Scylla's|Amon's|Phlegethon's) /.test(item.name)) return ['alliance-raid', 'Crystal Tower alliance-raid drop'];
+    if (/^(Bogatyr's|Picaroon's|Varlet's|Darklight )/.test(item.name)) return ['dungeon', 'Level-50 dungeon drop'];
+    if (
+      /^(Curtana|Holy Shield|Sphairai|Bravura|Gae Bolg|Artemis Bow|Thyrus|Stardust Rod|Omnilex|Yoshimitsu|Excalibur|Aegis Shield|Kaiser Knuckles|Ragnarok|Longinus|Yoichi Bow|Nirvana|Lilith Rod|Apocalypse|Last Resort|Sasuke's Blades)( |$)/.test(item.name)
+    ) return ['relic', 'Zodiac weapon progression'];
+    if (/^(Inferno|Vortex|Tremor|Tidal|Wave|True Ice|Shiva's|Holy Lance)/.test(item.name)) {
+      return ['trial', 'A Realm Reborn trial drop or exchange'];
+    }
+    return ['other', 'Other level-50 equipment source'];
+  })();
+  if (item.expansionId === 'arr') {
+    const [sourceFamily, name] = aRealmRebornSource;
+    return {
+      sourceFamily,
+      acquisitionNote: `${name}. Exact duty, vendor and cost validation is pending.`,
+      routes: [aRealmRebornRoute({
+        id: `a-realm-reborn-preliminary:${sourceFamily}:${item.id}`,
+        name,
+        sourceFamily,
+        status: 'partial',
+        note: 'The source family is classified from the official item family. Exact historical route, location and cost details remain to be validated.',
+        requirements: [{ kind: 'content', contentId: 'expansion:arr', description: 'Reach level 50 and complete the applicable A Realm Reborn content.' }],
+        generatedAt,
+        sourceUrl: A_REALM_REBORN_GEAR_REFERENCE_URL
       })]
     };
   }

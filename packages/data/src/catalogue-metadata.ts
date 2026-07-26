@@ -15,7 +15,7 @@ const expansionForLevel = (registry: GameRegistry, level: number): ExpansionId =
 
 const expansionForItemLevel = (registry: GameRegistry, itemLevel: number): ExpansionId => {
   const caps = [
-    { maximum: 130, expansionId: 'arr' },
+    { maximum: 135, expansionId: 'arr' },
     { maximum: 270, expansionId: 'hw' },
     { maximum: 400, expansionId: 'sb' },
     { maximum: 530, expansionId: 'shb' },

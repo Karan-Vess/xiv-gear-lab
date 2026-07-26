@@ -277,7 +277,9 @@ export const applyMateria = (
     if (!meld) throw new Error(`Unknown materia ID ${id}.`);
     if (index >= item.materiaSlots) {
       const advancedLimit = meld.advancedMeldingLimit
-        ?? ([8, 10, 12].includes(meld.tier) ? 'first-slot-only' : [7, 9, 11].includes(meld.tier) ? 'unrestricted' : 'forbidden');
+        ?? ([6, 8, 10, 12].includes(meld.tier)
+          ? 'first-slot-only'
+          : meld.tier >= 1 && meld.tier <= 12 ? 'unrestricted' : 'forbidden');
       if (advancedLimit === 'forbidden' || (advancedLimit === 'first-slot-only' && index > item.materiaSlots)) {
         throw new Error(`${meld.name} cannot be used in advanced meld slot ${index - item.materiaSlots + 1} on ${item.name}.`);
       }

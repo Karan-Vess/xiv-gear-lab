@@ -90,8 +90,8 @@ const candidateForSlot = (item: EquipmentItem, slot: GearSlot): boolean =>
 
 const materiaAdvancedMeldingLimit = (tier: number, explicit?: 'forbidden' | 'first-slot-only' | 'unrestricted') => {
   if (explicit) return explicit;
-  if ([8, 10, 12].includes(tier)) return 'first-slot-only' as const;
-  if ([7, 9, 11].includes(tier)) return 'unrestricted' as const;
+  if ([6, 8, 10, 12].includes(tier)) return 'first-slot-only' as const;
+  if (tier >= 1 && tier <= 12) return 'unrestricted' as const;
   return 'forbidden' as const;
 };
 
@@ -147,53 +147,251 @@ const variantsForItem = (
     const melded = applyMateria(item, materiaIds, snapshot.materia, relicStats);
     return { item, materiaIds, relicStats, stats: melded.stats, waste: melded.waste };
   };
+  const extend = (variant: Variant, materia: GearSnapshot['materia'][number]): Variant => {
+    const room = Math.max(0, item.statCaps[materia.stat] - variant.stats[materia.stat]);
+    const applied = Math.min(room, materia.value);
+    return {
+      ...variant,
+      materiaIds: [...variant.materiaIds, materia.id],
+      stats: { ...variant.stats, [materia.stat]: variant.stats[materia.stat] + applied },
+      waste: variant.waste + materia.value - applied
+    };
+  };
+  const preferredChoicesForVariant = (
+    variant: Variant,
+    legalChoices: GearSnapshot['materia']
+  ): GearSnapshot['materia'] => {
+    const retained = new Map<string, GearSnapshot['materia'][number]>();
+    for (const materia of legalChoices) {
+      const room = Math.max(0, item.statCaps[materia.stat] - variant.stats[materia.stat]);
+      const applied = Math.min(room, materia.value);
+      const resultingValue = variant.stats[materia.stat] + applied;
+      const waste = materia.value - applied;
+      const key = materia.stat === profile.speedStat
+        ? `${materia.stat}:${resultingValue}`
+        : materia.stat;
+      const existing = retained.get(key);
+      if (!existing) {
+        retained.set(key, materia);
+        continue;
+      }
+      const existingRoom = Math.max(0, item.statCaps[existing.stat] - variant.stats[existing.stat]);
+      const existingApplied = Math.min(existingRoom, existing.value);
+      const existingResultingValue = variant.stats[existing.stat] + existingApplied;
+      const existingWaste = existing.value - existingApplied;
+      if (
+        resultingValue > existingResultingValue ||
+        (resultingValue === existingResultingValue && waste < existingWaste) ||
+        (
+          resultingValue === existingResultingValue &&
+          waste === existingWaste &&
+          materia.id < existing.id
+        )
+      ) {
+        retained.set(key, materia);
+      }
+    }
+    return [...retained.values()];
+  };
   const variantKey = (variant: Variant) => STAT_KEYS.map((stat) => variant.stats[stat]).join(':');
   const preferVariant = (left: Variant, right: Variant) => {
     if (left.waste !== right.waste) return left.waste < right.waste ? left : right;
     if (left.materiaIds.length !== right.materiaIds.length) return left.materiaIds.length < right.materiaIds.length ? left : right;
     return left.materiaIds.join(':').localeCompare(right.materiaIds.join(':')) <= 0 ? left : right;
   };
-  const deduplicate = (variants: Variant[]) => {
+  const retainVariant = (retained: Map<string, Variant>, variant: Variant) => {
+    const key = variantKey(variant);
+    const existing = retained.get(key);
+    retained.set(key, existing ? preferVariant(existing, variant) : variant);
+  };
+  const deduplicate = (variants: Iterable<Variant>) => {
     const retained = new Map<string, Variant>();
     for (const variant of variants) {
-      const key = variantKey(variant);
-      const existing = retained.get(key);
-      retained.set(key, existing ? preferVariant(existing, variant) : variant);
+      retainVariant(retained, variant);
     }
     return [...retained.values()];
   };
+  const pruneDominatedCompletedVariants = (variants: Variant[]) => {
+    const comparisonStats = profile.meldStats.filter((stat) => stat !== profile.speedStat);
+    const bySpeed = new Map<number, Variant[]>();
+    for (const variant of variants) {
+      const speed = variant.stats[profile.speedStat];
+      const speedVariants = bySpeed.get(speed);
+      if (speedVariants) speedVariants.push(variant);
+      else bySpeed.set(speed, [variant]);
+    }
+
+    const retained: Variant[] = [];
+    for (const speedVariants of bySpeed.values()) {
+      speedVariants.sort((left, right) => {
+        const statTotalDifference = comparisonStats.reduce(
+          (total, stat) => total + right.stats[stat] - left.stats[stat],
+          0
+        );
+        if (statTotalDifference !== 0) return statTotalDifference;
+        if (left.waste !== right.waste) return left.waste - right.waste;
+        return left.materiaIds.join(':').localeCompare(right.materiaIds.join(':'));
+      });
+      const skyline: Variant[] = [];
+      for (const candidate of speedVariants) {
+        const dominated = skyline.some((other) => {
+          const atLeastAsMuchOfEveryRelevantStat = comparisonStats.every(
+            (stat) => other.stats[stat] >= candidate.stats[stat]
+          );
+          if (!atLeastAsMuchOfEveryRelevantStat) return false;
+          const strictlyMoreUsefulStats = comparisonStats.some(
+            (stat) => other.stats[stat] > candidate.stats[stat]
+          );
+          return strictlyMoreUsefulStats || other.waste < candidate.waste;
+        });
+        if (!dominated) skyline.push(candidate);
+      }
+      for (const variant of skyline) retained.push(variant);
+    }
+    return retained;
+  };
 
   let active = relicAllocations.map((allocation) => evaluate([...lockedMateria], allocation));
-  const completed: Variant[] = [];
+  const completed = new Map<string, Variant>();
   for (let absoluteIndex = lockedMateria.length; absoluteIndex < capacity; absoluteIndex += 1) {
     // Advanced slots are optional. Retaining the current path lets the optimiser
     // stop when every further legal meld would contribute no stats.
-    if (absoluteIndex >= item.materiaSlots) completed.push(...active);
+    if (absoluteIndex >= item.materiaSlots) {
+      for (const variant of active) retainVariant(completed, variant);
+    }
     const legalChoices = relevantMateria.filter((materia) => materiaAllowedAtItemIndex(item, absoluteIndex, materia));
     if (legalChoices.length === 0) {
-      completed.push(...active);
+      for (const variant of active) retainVariant(completed, variant);
       active = [];
       break;
     }
-    const expanded = active.flatMap((variant) => legalChoices.map((materia) =>
-      evaluate([...variant.materiaIds, materia.id], variant.relicStats)
-    ));
-    active = deduplicate(expanded);
+    const expanded = new Map<string, Variant>();
+    for (const variant of active) {
+      for (const materia of preferredChoicesForVariant(variant, legalChoices)) {
+        retainVariant(expanded, extend(variant, materia));
+      }
+    }
+    active = [...expanded.values()];
   }
-  completed.push(...active);
-  const variants = deduplicate(completed);
-  return variants.filter((candidate, candidateIndex) => !variants.some((other, otherIndex) => {
-    if (candidateIndex === otherIndex || other.stats[profile.speedStat] !== candidate.stats[profile.speedStat]) return false;
-    const atLeastAsMuchOfEveryRelevantStat = profile.meldStats.every((stat) => other.stats[stat] >= candidate.stats[stat]);
-    if (!atLeastAsMuchOfEveryRelevantStat) return false;
-    const strictlyMoreUsefulStats = profile.meldStats.some((stat) => other.stats[stat] > candidate.stats[stat]);
-    return strictlyMoreUsefulStats || other.waste < candidate.waste;
-  }));
+  for (const variant of active) retainVariant(completed, variant);
+  return pruneDominatedCompletedVariants(deduplicate(completed.values()));
+};
+
+const pruneDominatedSlotVariants = (
+  variants: Variant[],
+  slot: GearSlot,
+  profile: CombatEvaluatorProfile
+): Variant[] => {
+  if (slot === 'ringLeft' || slot === 'ringRight') return variants;
+
+  const comparisonStats = STAT_KEYS.filter((stat) => stat !== profile.speedStat);
+  const bySpeed = new Map<number, Variant[]>();
+  for (const variant of variants) {
+    const speed = variant.stats[profile.speedStat];
+    const speedVariants = bySpeed.get(speed);
+    if (speedVariants) speedVariants.push(variant);
+    else bySpeed.set(speed, [variant]);
+  }
+
+  const retained: Variant[] = [];
+  for (const speedVariants of bySpeed.values()) {
+    speedVariants.sort((left, right) => {
+      if (left.item.weaponDamage !== right.item.weaponDamage) {
+        return right.item.weaponDamage - left.item.weaponDamage;
+      }
+      const statTotalDifference = comparisonStats.reduce(
+        (total, stat) => total + right.stats[stat] - left.stats[stat],
+        0
+      );
+      if (statTotalDifference !== 0) return statTotalDifference;
+      if (left.waste !== right.waste) return left.waste - right.waste;
+      if (left.item.itemLevel !== right.item.itemLevel) return right.item.itemLevel - left.item.itemLevel;
+      return String(left.item.id).localeCompare(String(right.item.id));
+    });
+
+    const skyline: Variant[] = [];
+    for (const candidate of speedVariants) {
+      const dominated = skyline.some((other) => {
+        if (other.item.weaponDamage < candidate.item.weaponDamage) return false;
+        if (comparisonStats.some((stat) => other.stats[stat] < candidate.stats[stat])) return false;
+        const strictlyMoreUsefulStats = comparisonStats.some(
+          (stat) => other.stats[stat] > candidate.stats[stat]
+        );
+        return (
+          other.item.weaponDamage > candidate.item.weaponDamage ||
+          strictlyMoreUsefulStats ||
+          other.waste < candidate.waste ||
+          (
+            other.waste === candidate.waste &&
+            other.item.itemLevel > candidate.item.itemLevel
+          )
+        );
+      });
+      if (!dominated) skyline.push(candidate);
+    }
+    for (const variant of skyline) retained.push(variant);
+  }
+  return retained;
+};
+
+const keepBoundedSlotVariants = (
+  variants: Variant[],
+  limit: number,
+  profile: CombatEvaluatorProfile
+): { variants: Variant[]; truncated: boolean } => {
+  if (variants.length <= limit) return { variants, truncated: false };
+
+  const score = (variant: Variant) => expectedAction100(
+    addStats(profile.baseStats, variant.stats),
+    Math.max(100, variant.item.weaponDamage),
+    profile
+  );
+  const compare = (left: Variant, right: Variant) => {
+    const scoreDifference = score(right) - score(left);
+    if (scoreDifference !== 0) return scoreDifference;
+    if (left.waste !== right.waste) return left.waste - right.waste;
+    if (left.item.itemLevel !== right.item.itemLevel) return right.item.itemLevel - left.item.itemLevel;
+    const itemDifference = String(left.item.id).localeCompare(String(right.item.id));
+    return itemDifference !== 0
+      ? itemDifference
+      : left.materiaIds.join(':').localeCompare(right.materiaIds.join(':'));
+  };
+
+  const bySpeed = new Map<number, Variant[]>();
+  for (const variant of variants) {
+    const speed = variant.stats[profile.speedStat];
+    const speedVariants = bySpeed.get(speed);
+    if (speedVariants) speedVariants.push(variant);
+    else bySpeed.set(speed, [variant]);
+  }
+  for (const speedVariants of bySpeed.values()) speedVariants.sort(compare);
+
+  const retained: Variant[] = [];
+  const speedGroups = [...bySpeed.entries()].sort(([left], [right]) => left - right);
+  if (speedGroups.length <= limit) {
+    for (const [, speedVariants] of speedGroups) retained.push(speedVariants[0]!);
+  } else {
+    const step = speedGroups.length / limit;
+    for (let index = 0; index < limit; index += 1) {
+      retained.push(speedGroups[Math.floor(index * step)]![1][0]!);
+    }
+  }
+
+  if (retained.length < limit) {
+    const retainedSet = new Set(retained);
+    const remaining = variants.filter((variant) => !retainedSet.has(variant)).sort(compare);
+    retained.push(...remaining.slice(0, limit - retained.length));
+  }
+  return { variants: retained, truncated: true };
 };
 
 const statsKey = (state: SearchState, constraints: OptimizerConstraints): string => {
-  const selectedIds = new Set(Object.values(state.items).map((entry) => String(entry?.itemId)));
-  const requiredMask = constraints.requiredItemIds.map((id) => (selectedIds.has(String(id)) ? '1' : '0')).join('');
+  const requiredMask = constraints.requiredItemIds.length === 0
+    ? ''
+    : (() => {
+        const selectedIds = new Set(Object.values(state.items).map((entry) => String(entry?.itemId)));
+        return constraints.requiredItemIds.map((id) => (selectedIds.has(String(id)) ? '1' : '0')).join('');
+      })();
   return `${STAT_KEYS.map((key) => state.stats[key]).join(':')}:${state.weaponDamage}:${requiredMask}`;
 };
 
@@ -214,29 +412,42 @@ const stateHeuristic = (
   return expectedAction100(withBase, state.weaponDamage, profile) - gcdPenalty;
 };
 
-const keepBoundedFrontier = (
-  states: Iterable<SearchState>,
-  limit: number,
-  constraints: OptimizerConstraints,
-  profile: CombatEvaluatorProfile
-): { states: SearchState[]; truncated: boolean } => {
-  const deduplicated = new Map<string, SearchState>();
-  for (const state of states) {
-    const key = statsKey(state, constraints);
-    const existing = deduplicated.get(key);
-    if (
-      !existing ||
-      state.waste < existing.waste ||
-      (state.waste === existing.waste && state.itemLevelTotal > existing.itemLevelTotal)
-    ) {
-      deduplicated.set(key, state);
-    }
-  }
+interface ScoredSearchState {
+  key: string;
+  state: SearchState;
+  score: number;
+  order: number;
+}
 
-  const values = [...deduplicated.values()];
-  if (values.length <= limit) return { states: values, truncated: false };
-  values.sort((a, b) => stateHeuristic(b, constraints, profile) - stateHeuristic(a, constraints, profile));
-  return { states: values.slice(0, limit), truncated: true };
+const isWorseScoredState = (left: ScoredSearchState, right: ScoredSearchState): boolean =>
+  left.score < right.score || (left.score === right.score && left.order > right.order);
+
+const pushScoredState = (heap: ScoredSearchState[], entry: ScoredSearchState) => {
+  heap.push(entry);
+  let index = heap.length - 1;
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (!isWorseScoredState(heap[index]!, heap[parent]!)) break;
+    [heap[index], heap[parent]] = [heap[parent]!, heap[index]!];
+    index = parent;
+  }
+};
+
+const replaceWorstScoredState = (heap: ScoredSearchState[], entry: ScoredSearchState): ScoredSearchState => {
+  const removed = heap[0]!;
+  heap[0] = entry;
+  let index = 0;
+  while (true) {
+    const left = index * 2 + 1;
+    const right = left + 1;
+    let worst = index;
+    if (left < heap.length && isWorseScoredState(heap[left]!, heap[worst]!)) worst = left;
+    if (right < heap.length && isWorseScoredState(heap[right]!, heap[worst]!)) worst = right;
+    if (worst === index) break;
+    [heap[index], heap[worst]] = [heap[worst]!, heap[index]!];
+    index = worst;
+  }
+  return removed;
 };
 
 const customItemIsWithinAccess = (
@@ -782,7 +993,17 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
       };
     }
 
-    const variants = candidates.flatMap((item) => variantsForItem(item, slot, snapshot, profile, resolved));
+    const slotVariantFrontier = keepBoundedSlotVariants(
+      pruneDominatedSlotVariants(
+        candidates.flatMap((item) => variantsForItem(item, slot, snapshot, profile, resolved)),
+        slot,
+        profile
+      ),
+      Math.max(300, Math.ceil(resolved.frontierLimit / 4)),
+      profile
+    );
+    const variants = slotVariantFrontier.variants;
+    truncated ||= slotVariantFrontier.truncated;
     if (variants.length === 0) {
       return {
         alternatives: [],
@@ -792,7 +1013,11 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
         explanation: [`No ${slot} item can accept the locked melds under the selected materia and overmelding rules.`]
       };
     }
-    const expanded: SearchState[] = [];
+    const retained = new Map<string, ScoredSearchState>();
+    const scoredHeap: ScoredSearchState[] = [];
+    const boundedLimit = Math.max(1, resolved.frontierLimit);
+    let slotTruncated = false;
+    let insertionOrder = 0;
 
     for (const state of frontier) {
       for (const variant of variants) {
@@ -804,21 +1029,57 @@ export const optimizeCombatJob = (snapshot: GearSnapshot, constraints: Optimizer
           continue;
         }
 
-        expanded.push({
+        const nextState: SearchState = {
           items: { ...state.items, [slot]: { itemId: variant.item.id, materiaIds: variant.materiaIds, ...(variant.relicStats ? { relicStats: variant.relicStats } : {}) } },
           stats: addStats(state.stats, variant.stats),
           weaponDamage: Math.max(state.weaponDamage, variant.item.weaponDamage),
           itemLevelTotal: state.itemLevelTotal + variant.item.itemLevel * gearSlotItemLevelWeight(job, slot),
           waste: state.waste + variant.waste,
-          sources: new Set([...state.sources, variant.item.sourceFamily])
-        });
+          sources: state.sources.has(variant.item.sourceFamily)
+            ? state.sources
+            : new Set([...state.sources, variant.item.sourceFamily])
+        };
+        const key = statsKey(nextState, resolved);
+        const existing = retained.get(key);
         evaluatedStates += 1;
+        if (existing) {
+          if (
+            nextState.waste < existing.state.waste ||
+            (
+              nextState.waste === existing.state.waste &&
+              nextState.itemLevelTotal > existing.state.itemLevelTotal
+            )
+          ) {
+            existing.state = nextState;
+          }
+          continue;
+        }
+
+        const entry: ScoredSearchState = {
+          key,
+          state: nextState,
+          score: stateHeuristic(nextState, resolved, profile),
+          order: insertionOrder
+        };
+        insertionOrder += 1;
+        if (scoredHeap.length < boundedLimit) {
+          retained.set(key, entry);
+          pushScoredState(scoredHeap, entry);
+          continue;
+        }
+
+        slotTruncated = true;
+        const worst = scoredHeap[0]!;
+        if (entry.score > worst.score) {
+          const removed = replaceWorstScoredState(scoredHeap, entry);
+          retained.delete(removed.key);
+          retained.set(key, entry);
+        }
       }
     }
 
-    const bounded = keepBoundedFrontier(expanded, resolved.frontierLimit, resolved, profile);
-    frontier = bounded.states;
-    truncated ||= bounded.truncated;
+    frontier = scoredHeap.map((entry) => entry.state);
+    truncated ||= slotTruncated;
   }
 
   const feasible: GearSet[] = [];

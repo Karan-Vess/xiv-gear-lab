@@ -12,6 +12,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     minimumItemsPerJob: 20,
     excludedJobs: [],
     materiaTiers: [11, 12],
+    foodItemLevel: 770,
+    foodItemLevel: 770,
     itemNamePattern: "^(Grand Champion's|Augmented Bygone Brass|Bygone Brass|Vana'dielian|Palazzo Diamond|Praemagitek|Augmented Courtly Lover's|Courtly Lover's|Heavyweight)|of Naught$",
     itemIdRanges: [[49482, 49503], [50032, 50053]]
   }),
@@ -26,6 +28,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     minimumItemsPerJob: 35,
     excludedJobs: ['VPR', 'PCT'],
     materiaTiers: [9, 10],
+    foodItemLevel: 640,
+    foodItemLevel: 640,
     itemNamePattern: '^(Voidmoon|Diadochos|Augmented Diadochos|Anabaseios|Credendum|Augmented Credendum|Theogonic|Ultimate Omega|Mandervillous)|Ascension|^Voidvessel',
     itemIdRanges: []
   }),
@@ -40,6 +44,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     minimumItemsPerJob: 50,
     excludedJobs: ['SGE', 'RPR', 'VPR', 'PCT'],
     materiaTiers: [7, 8],
+    foodItemLevel: 510,
+    foodItemLevel: 510,
     itemNamePattern: "^(Augmented Exarchic|Exarchic|Edenmete|Edenmorn|Cryptlurker's|Augmented Cryptlurker's|YoRHa Type-5[135]|Paglth'an|Diamond Zeta|Blade's|Ultimate)",
     itemIdRanges: []
   }),
@@ -54,6 +60,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     minimumItemsPerJob: 50,
     excludedJobs: ['GNB', 'DNC', 'SGE', 'RPR', 'VPR', 'PCT'],
     materiaTiers: [5, 6],
+    foodItemLevel: 370,
+    foodItemLevel: 370,
     itemNamePattern: '.+',
     itemIdRanges: []
   }),
@@ -68,6 +76,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     minimumItemsPerJob: 50,
     excludedJobs: ['SAM', 'RDM', 'GNB', 'DNC', 'SGE', 'RPR', 'VPR', 'PCT'],
     materiaTiers: [3, 4],
+    foodItemLevel: 250,
+    foodItemLevel: 250,
     itemNamePattern: '.+',
     itemIdRanges: []
   }),
@@ -79,11 +89,14 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     gamePatch: '2.58',
     minimumItemLevel: 90,
     maximumItemLevel: 135,
-    minimumItemsPerJob: 0,
+    minimumItemsPerJob: 50,
     excludedJobs: ['AST', 'DRK', 'MCH', 'SAM', 'RDM', 'GNB', 'DNC', 'SGE', 'RPR', 'VPR', 'PCT'],
     materiaTiers: [1, 2],
-    itemNamePattern: '',
-    itemIdRanges: []
+    foodItemLevel: 110,
+    foodItemLevel: 110,
+    itemNamePattern: '.+',
+    itemIdRanges: [],
+    maximumItemId: 10064
   })
 });
 
@@ -97,7 +110,8 @@ export const itemMatchesCatalogueProfile = (item, profile) =>
   item.expansionId === profile.expansionId &&
   item.level === profile.levelCap &&
   item.itemLevel >= profile.minimumItemLevel &&
-  item.itemLevel <= profile.maximumItemLevel;
+  item.itemLevel <= profile.maximumItemLevel &&
+  (profile.maximumItemId === undefined || Number(item.id) <= profile.maximumItemId);
 
 export const supportedBackfillProfiles = () => Object.values(CAP_CATALOGUE_PROFILES)
   .filter((profile) => profile.expansionId !== 'dt');

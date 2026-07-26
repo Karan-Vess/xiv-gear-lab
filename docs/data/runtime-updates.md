@@ -1,7 +1,7 @@
 # Runtime data releases
 
-Status: v0.9.0-alpha.19 production channel and owner-run historical backfill configured
-Date: 2026-07-22
+Status: v0.9.0-alpha.21 production channel, historical backfill and generic patch update configured
+Date: 2026-07-26
 
 ## Trust boundary
 
@@ -97,6 +97,20 @@ The output contains the complete snapshot and `manifest.json`. Publishing/upload
 `Update-Heavensward-Data.cmd` is the manual Windows launcher for the level-60 backfill acceptance test. It requires a clean `main` branch and the local signing key, verifies the currently hosted channel, downloads only level-60 i235-i275 Heavensward candidates, validates cap-job/slot coverage, runs type checks, focused tests and a production build, then prints the candidate summary.
 
 Nothing is signed, committed or uploaded unless the owner types the exact phrase `PUBLISH HEAVENSWARD`. After confirmation it stages and locally verifies the signed gzip snapshot, commits only the generated catalogue, content-addressed icons, channel files and changelog, pushes `main`, then waits for hosted verification. The frozen alpha.18 client deliberately contains the calculation rules but no Heavensward items, allowing a real incomplete-client to live-channel download test.
+
+## Owner-run A Realm Reborn backfill
+
+`Update-A-Realm-Reborn-Data.cmd` uses the same protected owner workflow for the level-50 cap. It downloads only level-50 i90-i135 records with official item IDs no later than the A Realm Reborn catalogue boundary, retains HQ-only crafted equipment, adds Grade I/II materia and level-50 foods, and validates all ten cap jobs before the `PUBLISH A REALM REBORN` confirmation.
+
+## Owner-run current-patch update
+
+`Update-Game-Data.cmd` is the normal launcher after a game patch. Enter the patch label that should be written into the candidate. The read-only probe compares the installed snapshot with the current XIVAPI version/schema, Etro combat-job roster and equipment levels. It stops immediately when official data is unchanged. Unknown jobs, equipment above the installed level cap or a schema change block publication and name the missing compatibility work.
+
+When a compatible official change exists, the launcher refreshes all official and supporting providers, regenerates every supported cap, verifies job/slot coverage, HQ-only crafting, formula/evaluator compatibility, acquisition confidence, icon and snapshot budgets, then runs type checks, tests and the production build. Community curation is optional and its absence never prevents a clearly labelled preliminary official-data recommendation.
+
+Etro, The Balance and XivGear do not expose one stable cross-provider release fingerprint. When their acquisition or curated data arrives after the official item release, answer `y` to the launcher's supporting-source refresh question. This performs a full validated refresh even when XIVAPI itself is unchanged. If the content fingerprint remains identical, nothing is signed or uploaded.
+
+No patch candidate is published until the owner types the exact `PUBLISH PATCH <version>` phrase. The script then uses the same local signing, staged-channel verification, narrow Git commit, push and hosted verification gates as the proven historical backfill workflow.
 
 ## Installed and hosted update/offline drills
 
