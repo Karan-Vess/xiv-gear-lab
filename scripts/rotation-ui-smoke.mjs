@@ -139,6 +139,7 @@ app.whenReady().then(async () => {
       return {
         job: document.querySelector('#job-select')?.value ?? '',
         mode: document.querySelector('[aria-label="Evaluation mode"]')?.value ?? '',
+        searchMode: document.querySelector('[aria-label="Search effort"]')?.value ?? '',
         potionControlVisible: Boolean(document.querySelector('[aria-label="Rotation potion assumption"]')),
         sawProgress: Boolean(window.__m12eProgress),
         resultFinished: Boolean(document.querySelector('.run-message.done')),
@@ -149,6 +150,7 @@ app.whenReady().then(async () => {
         resultHeading: document.querySelector('#set-heading')?.textContent ?? '',
         rotationBadgeVisible: Boolean(document.querySelector('[data-rotation-evaluation]')),
         rotationScoreVisible: document.querySelector('.score-block span')?.textContent?.includes('Five-minute dummy rotation total damage') ?? false,
+        optimalityVisible: text.includes('Best found') && text.includes('not proven'),
         activeTabSummary: document.querySelector('[data-workspace-tab="build-1"] span')?.textContent ?? '',
         message
       };
@@ -191,6 +193,7 @@ app.whenReady().then(async () => {
     pilotAudit.dummyDisabled ||
     audit.job !== 'SAM' ||
     audit.mode !== 'dummy-300' ||
+    audit.searchMode !== 'thorough' ||
     !audit.potionControlVisible ||
     !audit.sawProgress ||
     !audit.resultFinished ||
@@ -198,9 +201,10 @@ app.whenReady().then(async () => {
     !audit.rotationMethodVisible ||
     !audit.totalDamageVisible ||
     !audit.cacheReuseVisible ||
-    audit.resultHeading !== 'Best five-minute dummy rotation result' ||
+    audit.resultHeading !== 'Best five-minute dummy rotation result found (thorough)' ||
     !audit.rotationBadgeVisible ||
     !audit.rotationScoreVisible ||
+    !audit.optimalityVisible ||
     !audit.activeTabSummary.includes('100p') ||
     !audit.activeTabSummary.includes('DPS') ||
     !equippedAudit.resultVisible ||

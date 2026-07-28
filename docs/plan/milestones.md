@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.10.0-beta.2 M12 owner-testing UX follow-up
+Status: revised through the v0.10.0-beta.5 pre-M13 quality-first search preparation
 Date: 2026-07-26
-Current runnable baseline: Windows/browser-capable v0.10.0-beta.2 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.10.0-beta.5 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -503,6 +503,36 @@ Implementation slices:
 - **M12D - Pilot evaluators (complete in v0.10.0-alpha.4):** SAM, DNC, BLM and DRK profiles, mechanics and independent reference traces.
 - **M12E - Optimiser and UI integration (complete in v0.10.0-beta.1):** selectable modes, speed-diverse finalist reranking, damage-only timeline reuse, worker cancellation/progress, comparison display, provenance and measured sub-five-second pilot performance.
 - **M12 owner-testing follow-up (complete in v0.10.0-beta.2):** one-click 30-second and 300-second evaluation of the exact active loadout, independent of gear optimisation, with potion-aware stale-result handling.
+
+### Pre-M13 quality-first optimiser preparation
+
+Status: **Complete in v0.10.0-beta.5**.
+
+Deliver:
+
+- Make Quality First the desktop default while retaining Quick Preview for rapid restriction and custom-item iteration.
+- Give Quality First a materially larger whole-set frontier, a larger speed-diverse simulator finalist budget and legal single-slot refinement around the leading candidates.
+- Preserve weapon delay as part of candidate timing identity so equal-stat weapons with different auto-attack timing cannot erase one another before simulation.
+- Stop partial strict-range branches when their remaining maximum and minimum speed cannot reach the requested GCD range.
+- Report optimality separately from recommendation confidence. A result may say optimality is proven only when the legal search completed without frontier or slot-variant truncation. A bounded rotation shortlist is always labelled as the strongest result found, not a global proof.
+- Keep broad search bounded. A measured literal-exhaustive prototype exceeded two million distinct partial states by the hands slot alone in the broad Dawntrail Samurai case, before the remaining armour, accessories, food or simulator work. The client must not trade renderer stability for a dishonest proof claim.
+
+Accept when:
+
+- Quality First explores more retained states and evaluates more simulator finalists than Quick Preview under the same legal restrictions.
+- Both modes remain cancellable in the background worker and never freeze the renderer.
+- Search mode and proof status are visible in the controls, run summary and generated result.
+- The app never labels a truncated proxy result or bounded simulator rerank as proven optimal.
+- Weapon candidates with different delays remain independently eligible for simulator scoring.
+- Existing broad-range and exact-GCD Samurai regressions continue to show that the broad run does not lose its stronger legal 2.14-second result.
+- An external XivGear comparison shows the exact 2.14-second Quality First result within 0.06 simulated DPS of a community set. Its unrestricted result remains approximately 0.30% behind because job-specific rotational alignment is not yet perfectly represented; this is documented and carried into M13 validation rather than blocking the bounded-search preparation.
+
+Tests:
+
+- Quick-versus-quality frontier, evaluated-state and finalist-count comparison.
+- Distinct GCD-tier retention, lower-hit throughput-tier retention and exact 2.14-second broad-range regression.
+- Relic allocation versus same-tier Savage weapon regression.
+- Type, cancellation, packaged-worker and result-labelling coverage.
 
 ### M13 - Combat evaluator coverage and evolved modes
 

@@ -73,6 +73,7 @@ export const gearSlotWeightTotal = (job: CombatJob): number =>
 
 export type JobRole = 'healer' | 'tank' | 'dps';
 export type EvaluationMode = 'generic-hit' | 'opener-30' | 'dummy-300';
+export type OptimizerSearchMode = 'thorough' | 'quick';
 export type CapabilityStatus = 'available' | 'pending' | 'unsupported';
 export type JobModeId = string;
 
@@ -722,6 +723,8 @@ export interface OptimizerConstraints {
   maxItemLevel?: number;
   requiredItemIds: Array<number | string>;
   excludedItemIds: Array<number | string>;
+  /** The desktop UI defaults to thorough. Legacy callers without this field retain quick behaviour. */
+  searchMode?: OptimizerSearchMode;
   frontierLimit: number;
   /** Optional on legacy persisted workspaces; consumers must apply safe defaults. */
   lockedItemIdsBySlot?: Partial<Record<GearSlot, number | string>>;
@@ -742,6 +745,7 @@ export interface OptimizerConstraints {
 }
 
 export interface ResolvedOptimizerConstraints extends OptimizerConstraints {
+  searchMode: OptimizerSearchMode;
   lockedItemIdsBySlot: Partial<Record<GearSlot, number | string>>;
   lockedMateriaBySlot: Partial<Record<GearSlot, number[]>>;
   gcdMode: 'exact' | 'range';
@@ -764,6 +768,7 @@ export const resolveOptimizerConstraints = (
   availableMateria: readonly Materia[] = []
 ): ResolvedOptimizerConstraints => ({
   ...constraints,
+  searchMode: constraints.searchMode ?? 'quick',
   lockedItemIdsBySlot: constraints.lockedItemIdsBySlot ?? {},
   lockedMateriaBySlot: constraints.lockedMateriaBySlot ?? {},
   gcdMode: constraints.gcdMode ?? (constraints.minGcd === constraints.maxGcd ? 'exact' : 'range'),

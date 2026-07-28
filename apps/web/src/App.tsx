@@ -29,6 +29,7 @@ import {
   type JobRole,
   type Materia,
   type OptimizerConstraints,
+  type OptimizerSearchMode,
   type RotationEvaluationMode,
   type SourceFamily,
   type StatKey
@@ -357,6 +358,7 @@ const defaultConstraints: OptimizerConstraints = {
   maxItemLevel: 795,
   requiredItemIds: [],
   excludedItemIds: [],
+  searchMode: 'thorough',
   frontierLimit: 1_800,
   lockedItemIdsBySlot: {},
   lockedMateriaBySlot: {},
@@ -778,12 +780,14 @@ function EquippedSetEvaluationPanel({
 function SetDetails({
   set,
   previousSet,
+  optimality,
   customItems,
   onEditCustom,
   onUnequipCustom
 }: {
   set: GearSet;
   previousSet?: GearSet;
+  optimality?: OptimizerResult['optimality'];
   customItems: EquipmentItem[];
   onEditCustom: (item: EquipmentItem) => void;
   onUnequipCustom: (item: EquipmentItem) => void;
@@ -837,6 +841,13 @@ function SetDetails({
           {set.recommendationConfidence && (
             <span className={`confidence-badge ${set.recommendationConfidence.status}`} data-recommendation-confidence>
               {set.recommendationConfidence.status.replaceAll('-', ' ')}
+            </span>
+          )}
+          {optimality && (
+            <span className={`optimality-badge ${optimality.status}`} data-search-optimality title={optimality.reason}>
+              {optimality.status === 'proven'
+                ? 'Optimality proven'
+                : `Best found · ${optimality.searchMode} search · not proven`}
             </span>
           )}
           {previousSet && (
@@ -1336,8 +1347,20 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       result: undefined,
       runState: 'idle',
       message: nextMode === 'generic-hit'
-        ? 'Fast generic-hit scoring selected. This remains the default interactive optimiser.'
-        : `${evaluationModeLabel(nextMode)} selected. The fast proxy will shortlist legal sets, then the job evaluator will rerank up to 12 speed-diverse finalists.`
+        ? 'Generic-hit scoring selected. Search effort determines how much of the legal pool is retained.'
+        : `${evaluationModeLabel(nextMode)} selected. The proxy search will build a speed-diverse shortlist before simulation.`
+    }));
+  };
+
+  const selectSearchMode = (nextMode: OptimizerSearchMode) => {
+    updateBuildById(activeBuildId, (build) => ({
+      ...build,
+      constraints: { ...build.constraints, searchMode: nextMode },
+      result: undefined,
+      runState: 'idle',
+      message: nextMode === 'thorough'
+        ? 'Quality-first search selected. It explores a much larger frontier and simulates up to 48 finalists.'
+        : 'Quick preview selected. It uses the smaller interactive frontier and simulates up to 12 finalists.'
     }));
   };
 
@@ -1405,6 +1428,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     const activeCustomItems = customItems.filter((item) => equippedIds.has(String(item.id)) && item.jobs.includes(job));
     const optimizerConstraints = {
       ...constraints,
+      searchMode: constraints.searchMode ?? 'thorough',
       minGcd: requestedMinGcd,
       maxGcd: requestedMaxGcd,
       gcdMode,
@@ -1437,8 +1461,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       message: activeCustomItems.length > 0
         ? `Keeping ${activeCustomItems.length} active hypothetical item${activeCustomItems.length === 1 ? '' : 's'} while rebuilding the remaining slots…`
         : evaluationMode === 'generic-hit'
-          ? 'Building legal meld frontiers and checking every retained stat state...'
-          : `Building the fast proxy shortlist before ${evaluationModeLabel(evaluationMode).toLowerCase()} reranking...`
+          ? `Running the ${constraints.searchMode ?? 'thorough'} legal meld search...`
+          : `Building the ${constraints.searchMode ?? 'thorough'} proxy shortlist before ${evaluationModeLabel(evaluationMode).toLowerCase()} reranking...`
     }));
     worker.onmessage = (event: MessageEvent) => {
       if (event.data.type === 'progress') {
@@ -1458,10 +1482,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           selectedSet: next.best ?? build.selectedSet,
           message: next.best
             ? next.rotationRerank
-              ? `${evaluationModeLabel(next.rotationRerank.mode)} reranked ${next.rotationRerank.candidateCount} finalists in ${next.rotationRerank.durationMs.toFixed(0)} ms${next.rotationRerank.winnerChanged ? ' and changed the winner.' : '; the proxy winner stayed first.'}`
+              ? `${evaluationModeLabel(next.rotationRerank.mode)} reranked ${next.rotationRerank.candidateCount} finalists in ${next.rotationRerank.durationMs.toFixed(0)} ms${next.rotationRerank.winnerChanged ? ' and changed the winner.' : '; the proxy winner stayed first.'} Optimality was not proven.`
               : next.speedFallback
               ? `Exact speed unavailable; showing the closest attainable ${next.speedFallback.achievedGcd.toFixed(2)}s set after searching ${next.evaluatedStates.toLocaleString()} states.`
-              : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms.`
+              : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms. ${next.optimality?.status === 'proven' ? 'Optimality proven.' : 'Best result found; optimality not proven.'}`
             : next.explanation[0] ?? 'No legal set was found.'
         }));
         worker.terminate();
@@ -2409,8 +2433,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     </select>
                     <strong>{evaluationModeLabel(evaluationMode)}</strong>
                     <small>{evaluationMode === 'generic-hit'
-                      ? 'Fast default scoring across the retained legal search frontier.'
-                      : `${activeRotationProfile?.confidence.replaceAll('-', ' ') ?? 'Unavailable'} · fast proxy first, then up to 12 speed-diverse finalists.`}</small>
+                      ? 'Scores the legal search frontier with the generic damage proxy.'
+                      : `${activeRotationProfile?.confidence.replaceAll('-', ' ') ?? 'Unavailable'} · proxy search first, then speed-diverse simulator finalists.`}</small>
                     {evaluationMode !== 'generic-hit' && (
                       <label className="rotation-potion-control">
                         Potion assumption
@@ -2425,6 +2449,20 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                       </label>
                     )}
                   </div>
+                  <label className="search-mode-control">
+                    Search effort
+                    <select
+                      aria-label="Search effort"
+                      value={constraints.searchMode ?? 'thorough'}
+                      onChange={(event) => selectSearchMode(event.target.value as OptimizerSearchMode)}
+                    >
+                      <option value="thorough">Quality first · recommended</option>
+                      <option value="quick">Quick preview</option>
+                    </select>
+                    <small>{(constraints.searchMode ?? 'thorough') === 'thorough'
+                      ? 'Explores up to six times the normal frontier and simulates up to 48 finalists. Slower, but less likely to miss a stronger set.'
+                      : 'Uses the smaller frontier and up to 12 simulator finalists. Useful for rapidly adjusting restrictions.'}</small>
+                  </label>
                   <label>Expansion access
                     <select value={expansion} onChange={(event) => setExpansion(event.target.value as ExpansionId)}>
                       {EXPANSIONS.map((entry) => <option value={entry.id} key={entry.id}>{entry.name} · cap {entry.levelCap}</option>)}
@@ -2614,6 +2652,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                   <SetDetails
                     set={selectedSet}
                     previousSet={previousOptimizedSet}
+                    optimality={result?.best ? result.optimality : undefined}
                     customItems={customItems}
                     onEditCustom={startCustomEdit}
                     onUnequipCustom={unequipCustomItem}

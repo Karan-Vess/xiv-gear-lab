@@ -20,9 +20,11 @@ import {
   type GearSet,
   type GearSlot,
   type OptimizerConstraints,
+  type OptimizerSearchMode,
   type RotationEvaluationMode,
   type ResolvedOptimizerConstraints,
   type SourceFamily,
+  type StatKey,
   type StatBlock,
   type GearSnapshot
 } from '@xiv-gear-lab/domain';
@@ -68,6 +70,7 @@ interface SearchState {
   items: Partial<Record<GearSlot, EquippedItem>>;
   stats: StatBlock;
   weaponDamage: number;
+  weaponDelayMs: number;
   itemLevelTotal: number;
   waste: number;
   sources: Set<SourceFamily>;
@@ -82,6 +85,12 @@ export interface OptimizerResult {
   evaluatedStates: number;
   durationMs: number;
   truncated: boolean;
+  optimality?: {
+    status: 'proven' | 'not-proven';
+    objective: 'generic-hit' | RotationEvaluationMode;
+    searchMode: OptimizerSearchMode;
+    reason: string;
+  };
   explanation: string[];
   speedFallback?: {
     requestedMinGcd: number;
@@ -140,7 +149,6 @@ export const selectSpeedDiverseFinalists = (
   };
 
   for (const candidate of sortedCandidates.slice(0, Math.min(4, boundedLimit))) add(candidate);
-
   const bestByTier = new Map<string, GearSet>();
   for (const candidate of sortedCandidates) {
     const tier = candidate.metrics.gcd.toFixed(2);
@@ -148,6 +156,44 @@ export const selectSpeedDiverseFinalists = (
   }
   const tierWinners = [...bestByTier.values()]
     .sort((left, right) => left.metrics.gcd - right.metrics.gcd);
+  const proxyTierLeaders = [...tierWinners].sort((left, right) => {
+    const difference = right.metrics.expectedAction100 - left.metrics.expectedAction100;
+    return difference !== 0 ? difference : right.metrics.gcd - left.metrics.gcd;
+  });
+  const proxyTierSlots = Math.min(4, Math.max(0, boundedLimit - selected.length));
+  const proxyTierTarget = selected.length + proxyTierSlots;
+  for (const candidate of proxyTierLeaders) {
+    if (selected.length >= proxyTierTarget) break;
+    add(candidate);
+  }
+
+  const throughputSlots = Math.min(2, Math.max(0, boundedLimit - selected.length));
+  const throughputBestByTier = new Map<string, GearSet>();
+  for (const candidate of sortedCandidates) {
+    const tier = candidate.metrics.gcd.toFixed(2);
+    const existing = throughputBestByTier.get(tier);
+    if (
+      !existing ||
+      candidate.metrics.expectedAction100 / candidate.metrics.gcd >
+        existing.metrics.expectedAction100 / existing.metrics.gcd
+    ) {
+      throughputBestByTier.set(tier, candidate);
+    }
+  }
+  const throughputLeaders = [...throughputBestByTier.values()].sort((left, right) => {
+    const leftThroughput = left.metrics.expectedAction100 / left.metrics.gcd;
+    const rightThroughput = right.metrics.expectedAction100 / right.metrics.gcd;
+    const difference = rightThroughput - leftThroughput;
+    return difference !== 0
+      ? difference
+      : right.metrics.expectedAction100 - left.metrics.expectedAction100;
+  });
+  const throughputTarget = selected.length + throughputSlots;
+  for (const candidate of throughputLeaders) {
+    if (selected.length >= throughputTarget) break;
+    add(candidate);
+  }
+
   const remainingSlots = boundedLimit - selected.length;
   if (remainingSlots > 0 && tierWinners.length > 0) {
     const sampledIndices = remainingSlots === 1
@@ -238,6 +284,7 @@ const pruneDominatedEquipmentCandidates = (
         protectedItemIds.has(String(other.id)) ||
         other.origin === 'custom' ||
         other.relicStatModel ||
+        (slot === 'weapon' && other.weaponDelayMs !== candidate.weaponDelayMs) ||
         other.itemLevel < candidate.itemLevel ||
         other.weaponDamage < candidate.weaponDamage ||
         STAT_KEYS.some((stat) => other.stats[stat] < candidate.stats[stat]) ||
@@ -432,17 +479,17 @@ const pruneDominatedSlotVariants = (
   if (slot === 'ringLeft' || slot === 'ringRight') return variants;
 
   const comparisonStats = STAT_KEYS.filter((stat) => stat !== profile.speedStat);
-  const bySpeed = new Map<number, Variant[]>();
+  const byTiming = new Map<string, Variant[]>();
   for (const variant of variants) {
-    const speed = variant.stats[profile.speedStat];
-    const speedVariants = bySpeed.get(speed);
-    if (speedVariants) speedVariants.push(variant);
-    else bySpeed.set(speed, [variant]);
+    const timingKey = `${variant.stats[profile.speedStat]}:${slot === 'weapon' ? variant.item.weaponDelayMs : 0}`;
+    const timingVariants = byTiming.get(timingKey);
+    if (timingVariants) timingVariants.push(variant);
+    else byTiming.set(timingKey, [variant]);
   }
 
   const retained: Variant[] = [];
-  for (const speedVariants of bySpeed.values()) {
-    speedVariants.sort((left, right) => {
+  for (const timingVariants of byTiming.values()) {
+    timingVariants.sort((left, right) => {
       if (left.item.weaponDamage !== right.item.weaponDamage) {
         return right.item.weaponDamage - left.item.weaponDamage;
       }
@@ -457,7 +504,7 @@ const pruneDominatedSlotVariants = (
     });
 
     const skyline: Variant[] = [];
-    for (const candidate of speedVariants) {
+    for (const candidate of timingVariants) {
       const dominated = skyline.some((other) => {
         if (other.item.weaponDamage < candidate.item.weaponDamage) return false;
         if (comparisonStats.some((stat) => other.stats[stat] < candidate.stats[stat])) return false;
@@ -540,8 +587,19 @@ const statsKey = (state: SearchState, constraints: OptimizerConstraints): string
         return constraints.requiredItemIds.map((id) => (selectedIds.has(String(id)) ? '1' : '0')).join('');
       })();
   const uniqueItemIdentity = [...state.uniqueRingItemIds].sort().join(',');
-  return `${STAT_KEYS.map((key) => state.stats[key]).join(':')}:${state.weaponDamage}:${requiredMask}:${uniqueItemIdentity}`;
+  return `${STAT_KEYS.map((key) => state.stats[key]).join(':')}:${state.weaponDamage}:${state.weaponDelayMs}:${requiredMask}:${uniqueItemIdentity}`;
 };
+
+const objectiveStatsFor = (profile: CombatEvaluatorProfile): StatKey[] => [
+  ...new Set([
+    profile.mainStat,
+    'criticalHit' as const,
+    'determination' as const,
+    'directHit' as const,
+    ...(profile.appliesTenacity ? ['tenacity' as const] : []),
+    ...(profile.resourceStat ? [profile.resourceStat] : [])
+  ])
+].filter((stat) => stat !== profile.speedStat);
 
 interface RemainingSlotBounds {
   maxStats: StatBlock;
@@ -630,6 +688,105 @@ const replaceWorstScoredState = (heap: ScoredSearchState[], entry: ScoredSearchS
     index = worst;
   }
   return removed;
+};
+
+const compareScoredSearchStates = (left: ScoredSearchState, right: ScoredSearchState): number => {
+  const score = right.score - left.score;
+  if (score !== 0) return score;
+  if (left.state.waste !== right.state.waste) return left.state.waste - right.state.waste;
+  if (left.state.itemLevelTotal !== right.state.itemLevelTotal) {
+    return right.state.itemLevelTotal - left.state.itemLevelTotal;
+  }
+  return left.order - right.order;
+};
+
+const retainSpeedLaneCandidate = (
+  lanes: Map<number, ScoredSearchState[]>,
+  entry: ScoredSearchState,
+  speedStat: CombatEvaluatorProfile['speedStat'],
+  perLaneLimit = 2
+) => {
+  const speed = entry.state.stats[speedStat];
+  const lane = lanes.get(speed) ?? [];
+  const existing = lane.find((candidate) => candidate.key === entry.key);
+  if (existing) {
+    if (compareScoredSearchStates(entry, existing) < 0) {
+      existing.state = entry.state;
+      existing.score = entry.score;
+      existing.order = entry.order;
+    }
+    return;
+  }
+  lane.push(entry);
+  lane.sort(compareScoredSearchStates);
+  if (lane.length > perLaneLimit) lane.length = perLaneLimit;
+  lanes.set(speed, lane);
+};
+
+const evenlySampledIndices = (length: number, count: number): number[] => {
+  if (length <= 0 || count <= 0) return [];
+  if (count >= length) return Array.from({ length }, (_, index) => index);
+  if (count === 1) return [Math.floor((length - 1) / 2)];
+  return Array.from({ length: count }, (_, index) =>
+    Math.round(index * (length - 1) / (count - 1))
+  );
+};
+
+const mergeSpeedAwareFrontier = (
+  globalHeap: ScoredSearchState[],
+  speedLanes: Map<number, ScoredSearchState[]>,
+  limit: number
+): SearchState[] => {
+  const boundedLimit = Math.max(1, Math.floor(limit));
+  const laneBudget = Math.min(
+    boundedLimit,
+    Math.max(1, Math.floor(boundedLimit * 0.35))
+  );
+  const laneGroups = [...speedLanes.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, entries]) => [...entries].sort(compareScoredSearchStates));
+  const reserved: ScoredSearchState[] = [];
+
+  if (laneGroups.length <= laneBudget) {
+    for (const lane of laneGroups) {
+      if (lane[0]) reserved.push(lane[0]);
+    }
+    let depth = 1;
+    while (reserved.length < laneBudget) {
+      let added = false;
+      for (const lane of laneGroups) {
+        if (reserved.length >= laneBudget) break;
+        if (lane[depth]) {
+          reserved.push(lane[depth]!);
+          added = true;
+        }
+      }
+      if (!added) break;
+      depth += 1;
+    }
+  } else {
+    for (const index of evenlySampledIndices(laneGroups.length, laneBudget)) {
+      if (laneGroups[index]?.[0]) reserved.push(laneGroups[index]![0]!);
+    }
+  }
+
+  const selected = new Map<string, ScoredSearchState>();
+  const add = (entry: ScoredSearchState) => {
+    const existing = selected.get(entry.key);
+    if (!existing || compareScoredSearchStates(entry, existing) < 0) {
+      selected.set(entry.key, entry);
+    }
+  };
+  for (const entry of reserved) add(entry);
+  for (const entry of [...globalHeap].sort(compareScoredSearchStates)) {
+    if (selected.size >= boundedLimit && !selected.has(entry.key)) break;
+    add(entry);
+  }
+
+  return [...selected.values()]
+    .sort(compareScoredSearchStates)
+    .slice(0, boundedLimit)
+    .map((entry) => entry.state);
 };
 
 const customItemIsWithinAccess = (
@@ -985,6 +1142,12 @@ export const optimizeCombatJob = (
     evaluatedStates: 0,
     durationMs: performance.now() - started,
     truncated: false,
+    optimality: {
+      status: 'not-proven',
+      objective: 'generic-hit',
+      searchMode: resolved.searchMode,
+      reason: 'No legal result was produced.'
+    },
     explanation: [message]
   });
   const capability = getEvaluatorCapability(snapshot.registry, job, 'standard', 'generic-hit');
@@ -1190,13 +1353,7 @@ export const optimizeCombatJob = (
     );
 
     if (legalCandidates.length === 0) {
-      return {
-        alternatives: [],
-        evaluatedStates: 0,
-        durationMs: performance.now() - started,
-        truncated: false,
-        explanation: [`No legal ${slot} candidate remains after the selected source and exclusion filters.`]
-      };
+      return fail(`No legal ${slot} candidate remains after the selected source and exclusion filters.`);
     }
 
     const retainedCandidates = pruneDominatedEquipmentCandidates(
@@ -1210,24 +1367,19 @@ export const optimizeCombatJob = (
     const generatedVariants = retainedCandidates.flatMap((item) =>
       variantsForItem(item, slot, snapshot, profile, resolved)
     );
+    const safelyPrunedVariants = pruneDominatedSlotVariants(
+      generatedVariants,
+      slot,
+      profile
+    );
     const slotVariantFrontier = keepBoundedSlotVariants(
-      pruneDominatedSlotVariants(
-        generatedVariants,
-        slot,
-        profile
-      ),
-      slotVariantLimit,
+      safelyPrunedVariants,
+      resolved.searchMode === 'thorough' ? slotVariantLimit * 2 : slotVariantLimit,
       profile
     );
     const variants = slotVariantFrontier.variants;
     if (variants.length === 0) {
-      return {
-        alternatives: [],
-        evaluatedStates: 0,
-        durationMs: performance.now() - started,
-        truncated: slotVariantFrontier.truncated,
-        explanation: [`No ${slot} item can accept the locked melds under the selected materia and overmelding rules.`]
-      };
+      return fail(`No ${slot} item can accept the locked melds under the selected materia and overmelding rules.`);
     }
     slotPlans.push({
       slot,
@@ -1259,11 +1411,57 @@ export const optimizeCombatJob = (
     };
   }
 
+  const speedFoods = snapshot.foods.filter((food) =>
+    supportingRecordIsWithinAccess(food, snapshot, resolved) &&
+    (
+      resolved.foodMode === 'allowed' ||
+      (resolved.foodMode === 'locked' && food.id === resolved.lockedFoodId)
+    )
+  );
+  const speedWithFood = (speed: number, food: GearSnapshot['foods'][number]) => {
+    const bonus = food.bonuses.find((entry) => entry.stat === profile.speedStat);
+    return bonus
+      ? speed + Math.min(Math.floor(speed * bonus.percent / 100), bonus.cap)
+      : speed;
+  };
+  const reachableGcdBand = (state: SearchState, remaining: RemainingSlotBounds) => {
+    const minimumRawSpeed =
+      profile.baseStats[profile.speedStat] +
+      state.stats[profile.speedStat] +
+      remaining.minSpeed;
+    const maximumRawSpeed =
+      profile.baseStats[profile.speedStat] +
+      state.stats[profile.speedStat] +
+      remaining.maxStats[profile.speedStat];
+    const minimumFinalSpeed = resolved.foodMode === 'locked' && speedFoods[0]
+      ? speedWithFood(minimumRawSpeed, speedFoods[0])
+      : minimumRawSpeed;
+    const maximumFinalSpeed = speedFoods.reduce(
+      (maximum, food) => Math.max(maximum, speedWithFood(maximumRawSpeed, food)),
+      maximumRawSpeed
+    );
+    return {
+      fastest: gcdFromSpeed(
+        maximumFinalSpeed,
+        profile.baseGcdMs,
+        profile.hastePercent,
+        levelFormulaConstantsFor(profile)
+      ),
+      slowest: gcdFromSpeed(
+        minimumFinalSpeed,
+        profile.baseGcdMs,
+        profile.hastePercent,
+        levelFormulaConstantsFor(profile)
+      )
+    };
+  };
+
   let frontier: SearchState[] = [
     {
       items: {},
       stats: emptyStats(),
       weaponDamage: 0,
+      weaponDelayMs: 0,
       itemLevelTotal: 0,
       waste: 0,
       sources: new Set(),
@@ -1273,6 +1471,9 @@ export const optimizeCombatJob = (
   let evaluatedStates = 0;
   let truncated = slotPlans.some((plan) => plan.truncated);
   let peakFrontierStates = frontier.length;
+  const searchFrontierLimit = resolved.searchMode === 'thorough'
+    ? Math.min(20_000, Math.max(resolved.frontierLimit, resolved.frontierLimit * 6))
+    : Math.max(1, resolved.frontierLimit);
 
   for (let planIndex = 0; planIndex < slotPlans.length; planIndex += 1) {
     ensureNotCancelled();
@@ -1285,7 +1486,8 @@ export const optimizeCombatJob = (
     const remaining = remainingBounds[planIndex + 1]!;
     const retained = new Map<string, ScoredSearchState>();
     const scoredHeap: ScoredSearchState[] = [];
-    const boundedLimit = Math.max(1, resolved.frontierLimit);
+    const speedLaneCandidates = new Map<number, ScoredSearchState[]>();
+    const boundedLimit = searchFrontierLimit;
     let slotTruncated = false;
     let insertionOrder = 0;
 
@@ -1304,6 +1506,7 @@ export const optimizeCombatJob = (
           items: { ...state.items, [slot]: { itemId: variant.item.id, materiaIds: variant.materiaIds, ...(variant.relicStats ? { relicStats: variant.relicStats } : {}) } },
           stats: addStats(state.stats, variant.stats),
           weaponDamage: Math.max(state.weaponDamage, variant.item.weaponDamage),
+          weaponDelayMs: slot === 'weapon' ? variant.item.weaponDelayMs : state.weaponDelayMs,
           itemLevelTotal: state.itemLevelTotal + variant.item.itemLevel * gearSlotItemLevelWeight(job, slot),
           waste: state.waste + variant.waste,
           sources: state.sources.has(variant.item.sourceFamily)
@@ -1323,7 +1526,25 @@ export const optimizeCombatJob = (
         ) {
           continue;
         }
+        const reachableGcd = reachableGcdBand(nextState, remaining);
+        if (
+          resolved.gcdMode === 'range' &&
+          (
+            reachableGcd.fastest > resolved.maxGcd ||
+            reachableGcd.slowest < resolved.minGcd
+          )
+        ) {
+          continue;
+        }
         const key = statsKey(nextState, resolved);
+        const entry: ScoredSearchState = {
+          key,
+          state: nextState,
+          score: optimisticStateHeuristic(nextState, remaining, resolved, profile),
+          order: insertionOrder
+        };
+        insertionOrder += 1;
+        retainSpeedLaneCandidate(speedLaneCandidates, entry, profile.speedStat);
         const existing = retained.get(key);
         if (existing) {
           if (
@@ -1338,13 +1559,6 @@ export const optimizeCombatJob = (
           continue;
         }
 
-        const entry: ScoredSearchState = {
-          key,
-          state: nextState,
-          score: optimisticStateHeuristic(nextState, remaining, resolved, profile),
-          order: insertionOrder
-        };
-        insertionOrder += 1;
         if (scoredHeap.length < boundedLimit) {
           retained.set(key, entry);
           pushScoredState(scoredHeap, entry);
@@ -1361,7 +1575,7 @@ export const optimizeCombatJob = (
       }
     }
 
-    frontier = scoredHeap.map((entry) => entry.state);
+    frontier = mergeSpeedAwareFrontier(scoredHeap, speedLaneCandidates, boundedLimit);
     peakFrontierStates = Math.max(peakFrontierStates, frontier.length);
     truncated ||= slotTruncated;
   }
@@ -1400,6 +1614,7 @@ export const optimizeCombatJob = (
     }
   }
 
+  const warmStartCandidates: GearSet[] = [];
   // Known legal source configurations are warm starts, not trusted answers:
   // they pass through the same local item, meld, food, source and formula checks.
   for (const sourceSet of snapshot.curatedSets) {
@@ -1454,6 +1669,7 @@ export const optimizeCombatJob = (
       resourceFeasible.push(verifiedWarmStart);
       if (calculated.metrics.gcd >= resolved.minGcd && calculated.metrics.gcd <= resolved.maxGcd) {
         feasible.push(verifiedWarmStart);
+        warmStartCandidates.push(verifiedWarmStart);
       }
     }
   }
@@ -1466,6 +1682,158 @@ export const optimizeCombatJob = (
     }
     return left.id.localeCompare(right.id);
   };
+
+  const searchStateForItems = (
+    equippedItems: GearSet['items']
+  ): SearchState | undefined => {
+    const state: SearchState = {
+      items: equippedItems,
+      stats: emptyStats(),
+      weaponDamage: 0,
+      weaponDelayMs: 0,
+      itemLevelTotal: 0,
+      waste: 0,
+      sources: new Set(),
+      uniqueRingItemIds: new Set()
+    };
+    for (const slot of gearSlots) {
+      const equipped = equippedItems[slot];
+      const item = equipped ? itemsById.get(String(equipped.itemId)) : undefined;
+      if (!equipped || !item) return undefined;
+      const applied = applyMateria(
+        item,
+        equipped.materiaIds,
+        snapshot.materia,
+        equipped.relicStats
+      );
+      state.stats = addStats(state.stats, applied.stats);
+      state.weaponDamage = Math.max(state.weaponDamage, item.weaponDamage);
+      if (slot === 'weapon') state.weaponDelayMs = item.weaponDelayMs;
+      state.itemLevelTotal += item.itemLevel * gearSlotItemLevelWeight(job, slot);
+      state.waste += applied.waste;
+      state.sources.add(item.sourceFamily);
+      if (item.slot === 'ring' && item.unique) state.uniqueRingItemIds.add(String(item.id));
+    }
+    return state;
+  };
+
+  const expandFinalistNeighbors = (
+    seeds: readonly GearSet[],
+    mode: 'strictly-dominating' | 'all-single-slot'
+  ): GearSet[] => {
+    const expanded: GearSet[] = [];
+    const seen = new Set<string>();
+    for (const seed of seeds) {
+      ensureNotCancelled();
+      for (const plan of slotPlans) {
+        const currentEquipped = seed.items[plan.slot];
+        const currentItem = currentEquipped
+          ? itemsById.get(String(currentEquipped.itemId))
+          : undefined;
+        if (!currentEquipped || !currentItem) continue;
+        const currentApplied = applyMateria(
+          currentItem,
+          currentEquipped.materiaIds,
+          snapshot.materia,
+          currentEquipped.relicStats
+        );
+
+        for (const variant of plan.variants) {
+          const sameIdentity =
+            String(variant.item.id) === String(currentItem.id) &&
+            variant.materiaIds.join(':') === currentEquipped.materiaIds.join(':') &&
+            JSON.stringify(variant.relicStats ?? {}) === JSON.stringify(currentEquipped.relicStats ?? {});
+          if (sameIdentity) continue;
+          if (mode === 'strictly-dominating') {
+            if (
+              plan.slot === 'weapon' &&
+              variant.item.weaponDelayMs !== currentItem.weaponDelayMs
+            ) continue;
+            if (variant.item.weaponDamage < currentItem.weaponDamage) continue;
+            if (variant.stats[profile.speedStat] !== currentApplied.stats[profile.speedStat]) continue;
+            if (STAT_KEYS.some((stat) => variant.stats[stat] < currentApplied.stats[stat])) continue;
+            const strictlyBetter =
+              variant.item.weaponDamage > currentItem.weaponDamage ||
+              STAT_KEYS.some((stat) => variant.stats[stat] > currentApplied.stats[stat]);
+            if (!strictlyBetter) continue;
+          }
+
+          const nextItems: GearSet['items'] = {
+            ...seed.items,
+            [plan.slot]: {
+              itemId: variant.item.id,
+              materiaIds: variant.materiaIds,
+              ...(variant.relicStats ? { relicStats: variant.relicStats } : {})
+            }
+          };
+          if (plan.slot === 'ringLeft' || plan.slot === 'ringRight') {
+            const otherSlot = plan.slot === 'ringLeft' ? 'ringRight' : 'ringLeft';
+            const otherItem = nextItems[otherSlot]
+              ? itemsById.get(String(nextItems[otherSlot]!.itemId))
+              : undefined;
+            if (
+              variant.item.unique &&
+              otherItem?.unique &&
+              String(otherItem.id) === String(variant.item.id)
+            ) continue;
+          }
+          const selectedIds = new Set(Object.values(nextItems).map((entry) => String(entry?.itemId)));
+          if ([...required].some((id) => !selectedIds.has(id))) continue;
+
+          const state = searchStateForItems(nextItems);
+          if (!state) continue;
+          const candidate = toGearSet(
+            state,
+            snapshot,
+            itemsById,
+            seed.foodId,
+            expanded.length + 1,
+            job,
+            resolved
+          );
+          if (profile.resourceStat && candidate.metrics.stats[profile.resourceStat] < resolved.minResource) continue;
+          if (candidate.metrics.gcd < resolved.minGcd || candidate.metrics.gcd > resolved.maxGcd) continue;
+          const identity = `${candidate.metrics.gcd.toFixed(2)}:${STAT_KEYS.map((stat) => candidate.metrics.stats[stat]).join(':')}:${candidate.metrics.weaponDamage}:${String(candidate.items.weapon?.itemId)}:${candidate.items.weapon?.materiaIds.join('.') ?? ''}:${JSON.stringify(candidate.items.weapon?.relicStats ?? {})}`;
+          if (seen.has(identity)) continue;
+          seen.add(identity);
+          expanded.push(candidate);
+        }
+      }
+    }
+    return expanded;
+  };
+
+  const retainRotationParetoCandidates = (sets: readonly GearSet[]): GearSet[] => {
+    const comparisonStats = objectiveStatsFor(profile);
+    const groups = new Map<string, GearSet[]>();
+    const dominates = (left: GearSet, right: GearSet) => {
+      if (left.metrics.weaponDamage < right.metrics.weaponDamage) return false;
+      if (comparisonStats.some((stat) => left.metrics.stats[stat] < right.metrics.stats[stat])) return false;
+      const strictlyStronger =
+        left.metrics.weaponDamage > right.metrics.weaponDamage ||
+        comparisonStats.some((stat) => left.metrics.stats[stat] > right.metrics.stats[stat]);
+      if (strictlyStronger) return true;
+      if (left.metrics.materiaWaste !== right.metrics.materiaWaste) {
+        return left.metrics.materiaWaste < right.metrics.materiaWaste;
+      }
+      return left.metrics.averageItemLevel >= right.metrics.averageItemLevel;
+    };
+
+    for (const candidate of sets) {
+      const weapon = candidate.items.weapon
+        ? itemsById.get(String(candidate.items.weapon.itemId))
+        : undefined;
+      const key = `${candidate.metrics.stats[profile.speedStat]}:${weapon?.weaponDelayMs ?? 0}`;
+      const skyline = groups.get(key) ?? [];
+      if (skyline.some((other) => dominates(other, candidate))) continue;
+      groups.set(key, [
+        ...skyline.filter((other) => !dominates(candidate, other)),
+        candidate
+      ]);
+    }
+    return [...groups.values()].flat().sort(compareSetQuality);
+  };
+
   feasible.sort(compareSetQuality);
 
   const distanceFromRequestedBand = (set: GearSet) => {
@@ -1492,13 +1860,43 @@ export const optimizeCombatJob = (
   }
 
   ensureNotCancelled();
-  reportProgress(0.96, 'finalizing', 'Selecting the strongest proxy result and speed-diverse finalists.');
-  const finalists = selectSpeedDiverseFinalists(candidates, 12);
+  reportProgress(
+    0.96,
+    'finalizing',
+    resolved.searchMode === 'thorough'
+      ? 'Refining the larger quality-first simulator candidate pool.'
+      : 'Selecting the strongest proxy result and speed-diverse finalists.'
+  );
+  const finalistLimit = resolved.searchMode === 'thorough' ? 48 : 12;
+  const preliminaryFinalists = selectSpeedDiverseFinalists(candidates, finalistLimit);
+  const dominatingNeighbors = expandFinalistNeighbors(
+    [...preliminaryFinalists, ...warmStartCandidates],
+    'strictly-dominating'
+  );
+  const localNeighbors = resolved.searchMode === 'thorough'
+    ? expandFinalistNeighbors(preliminaryFinalists.slice(0, 12), 'all-single-slot')
+    : [];
+  const finalistPool = resolved.searchMode === 'thorough'
+    ? retainRotationParetoCandidates(
+      selectSpeedDiverseFinalists(
+        [...preliminaryFinalists, ...dominatingNeighbors, ...localNeighbors]
+          .sort(compareSetQuality),
+        192
+      )
+    )
+    : [...preliminaryFinalists, ...dominatingNeighbors].sort(compareSetQuality);
+  const finalists = selectSpeedDiverseFinalists(finalistPool, finalistLimit);
   const selected = candidates.slice(0, 4).map((set, index) => ({
     ...set,
     id: `${set.id}-${index + 1}`,
     name: index === 0
-      ? speedFallback ? 'Closest attainable result' : 'Best reference-pool result'
+      ? speedFallback
+        ? 'Closest attainable result'
+        : !truncated
+          ? 'Optimal reference-pool result'
+          : resolved.searchMode === 'thorough'
+            ? 'Best reference-pool result found (thorough)'
+            : 'Best reference-pool result found (quick)'
       : `Alternative ${index + 1}`
   }));
   const requestedGcdLabel = resolved.minGcd === resolved.maxGcd
@@ -1513,9 +1911,21 @@ export const optimizeCombatJob = (
       ? `No set reaches the minimum ${resolved.minResource} ${profile.resourceLabel}. Lower that minimum or relax equipment, materia, food, or source restrictions.`
       : 'No complete set remains. Relax an equipment, materia, food, custom-item, or acquisition-source restriction.';
 
+  const optimality = {
+    status: !truncated
+      ? 'proven' as const
+      : 'not-proven' as const,
+    objective: 'generic-hit' as const,
+    searchMode: resolved.searchMode,
+    reason: !truncated
+      ? 'Every remaining legal stat state was retained or removed only by exact equivalence or mathematical dominance.'
+      : `${resolved.searchMode === 'thorough' ? 'Thorough search' : 'Quick preview'} retained a bounded ${searchFrontierLimit.toLocaleString()}-state frontier and cannot prove global optimality.`
+  };
   reportProgress(1, 'finalizing', selected.length > 0
-    ? 'Fast proxy search complete.'
-    : 'Fast proxy search complete without a legal result.');
+    ? optimality.status === 'proven'
+      ? 'Thorough proxy search complete with an optimality proof.'
+      : 'Quick proxy preview complete.'
+    : 'Search complete without a legal result.');
   return {
     best: selected[0],
     alternatives: selected.slice(1),
@@ -1523,6 +1933,7 @@ export const optimizeCombatJob = (
     evaluatedStates,
     durationMs: performance.now() - started,
     truncated,
+    optimality,
     speedFallback,
     searchDiagnostics,
     explanation:
@@ -1531,14 +1942,14 @@ export const optimizeCombatJob = (
           ? [
             `No set in the selected acquisition pool can reach ${resolved.gcdTargetName} at ${requestedGcdLabel}. Showing the closest attainable ${speedFallback.achievedGcd.toFixed(2)}s result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''}, then optimising its melds for the expected single 100-potency hit.`,
             truncated
-              ? `The search retained a bounded ${resolved.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
-              : 'Every distinct stat state in the current reference pool was evaluated.'
+              ? `The ${resolved.searchMode} search retained a bounded ${searchFrontierLimit.toLocaleString()}-state frontier; this is the strongest result found, not a proof of global optimality.`
+              : 'Every remaining legal stat state was retained or removed only when another state was mathematically at least as strong under the same timing.'
           ]
           : [
             `Selected the highest expected single 100-potency hit result${resourceRequirement ? ` satisfying ${resourceRequirement}` : ''} at ${resolved.gcdTargetName} (${requestedGcdLabel}).`,
             truncated
-              ? `The search retained a bounded ${resolved.frontierLimit.toLocaleString()}-state frontier; the result is a high-confidence prototype result, not a proof of global optimality.`
-              : 'Every distinct stat state in the current reference pool was evaluated.'
+              ? `The ${resolved.searchMode} search retained a bounded ${searchFrontierLimit.toLocaleString()}-state frontier; this is the strongest result found, not a proof of global optimality.`
+              : 'Every remaining legal stat state was retained or removed only when another state was mathematically at least as strong under the same timing.'
           ]
         : [unattainableExplanation]
   };

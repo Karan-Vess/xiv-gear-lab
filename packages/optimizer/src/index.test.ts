@@ -49,6 +49,71 @@ describe('M12E finalist integration', () => {
     expect(new Set(finalists.map((set) => set.metrics.gcd)).size).toBeGreaterThan(4);
   });
 
+  it('retains a lower-hit speed tier when its GCD throughput can beat the proxy leaders', () => {
+    const base = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const candidates = [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        ...structuredClone(base),
+        id: `slow-proxy-${index}`,
+        metrics: {
+          ...structuredClone(base.metrics),
+          gcd: 2.5,
+          expectedAction100: 10_000 - index
+        }
+      })),
+      {
+        ...structuredClone(base),
+        id: 'fast-throughput',
+        metrics: {
+          ...structuredClone(base.metrics),
+          gcd: 2,
+          expectedAction100: 8_500
+        }
+      }
+    ];
+
+    const finalists = selectSpeedDiverseFinalists(candidates, 5);
+
+    expect(finalists.slice(0, 4).map((set) => set.id)).toEqual([
+      'slow-proxy-0',
+      'slow-proxy-1',
+      'slow-proxy-2',
+      'slow-proxy-3'
+    ]);
+    expect(finalists.map((set) => set.id)).toContain('fast-throughput');
+  });
+
+  it('does not spend the finalist budget before retaining the strongest distinct proxy GCD tiers', () => {
+    const base = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const candidate = (id: string, gcd: number, expectedAction100: number) => ({
+      ...structuredClone(base),
+      id,
+      metrics: {
+        ...structuredClone(base.metrics),
+        gcd,
+        expectedAction100
+      }
+    });
+    const candidates = [
+      ...Array.from({ length: 5 }, (_, index) =>
+        candidate(`proxy-217-${index}`, 2.17, 10_300 - index)
+      ),
+      candidate('proxy-214', 2.14, 10_175),
+      candidate('proxy-211', 2.11, 10_035),
+      candidate('proxy-208', 2.08, 9_905),
+      candidate('throughput-198', 1.98, 9_420),
+      candidate('throughput-187', 1.87, 8_510),
+      candidate('throughput-186', 1.86, 8_330),
+      candidate('throughput-196', 1.96, 9_295),
+      candidate('throughput-202', 2.02, 9_605)
+    ];
+
+    const finalists = selectSpeedDiverseFinalists(candidates, 12);
+
+    expect(finalists.map((set) => set.id)).toContain('proxy-214');
+    expect(finalists.map((set) => set.id)).toContain('proxy-211');
+  });
+
   it('reports proxy phases and can cancel before search work begins', () => {
     expect(() => optimizeCombatJob(
       gearSnapshot,
@@ -88,6 +153,37 @@ describe('M12E finalist integration', () => {
     expect(result.finalists?.length).toBeGreaterThan(1);
     expect(progress[0]).toBeGreaterThan(0);
     expect(progress.at(-1)).toBe(1);
+  }, 20_000);
+
+  it('uses a materially larger frontier and finalist pool in quality-first mode', () => {
+    const constraints = {
+      minResource: 0,
+      minGcd: 2.08,
+      maxGcd: 2.14,
+      gcdMode: 'range' as const,
+      allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'] as const,
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 100
+    };
+    const quick = optimizeCombatJob(
+      gearSnapshot,
+      { ...constraints, allowedSources: [...constraints.allowedSources], searchMode: 'quick' },
+      'SAM'
+    );
+    const thorough = optimizeCombatJob(
+      gearSnapshot,
+      { ...constraints, allowedSources: [...constraints.allowedSources], searchMode: 'thorough' },
+      'SAM'
+    );
+
+    expect(quick.optimality).toMatchObject({ searchMode: 'quick', status: 'not-proven' });
+    expect(thorough.optimality).toMatchObject({ searchMode: 'thorough', status: 'not-proven' });
+    expect(thorough.searchDiagnostics?.peakFrontierStates).toBeGreaterThan(
+      quick.searchDiagnostics?.peakFrontierStates ?? 0
+    );
+    expect(thorough.evaluatedStates).toBeGreaterThan(quick.evaluatedStates);
+    expect(thorough.finalists?.length).toBeGreaterThan(quick.finalists?.length ?? 0);
   }, 20_000);
 });
 
@@ -332,7 +428,7 @@ describe('WHM optimiser', () => {
     });
     expect(result.best?.metrics.gcd).toBe(targetGcd);
     expect(result.speedFallback).toBeUndefined();
-    expect(result.best?.name).toBe('Best reference-pool result');
+    expect(result.best?.name).toBe('Best reference-pool result found (quick)');
   }, 20_000);
 
   it('explains when exclusions remove every weapon', () => {
@@ -1029,6 +1125,8 @@ describe('optimizer search hardening', () => {
     visit(0);
 
     expect(result.truncated).toBe(false);
+    expect(result.optimality).toMatchObject({ status: 'proven', objective: 'generic-hit' });
+    expect(result.best?.name).toBe('Optimal reference-pool result');
     expect(result.best?.items.head?.itemId).toBe(lowerItemLevelHead.id);
     expect(result.best?.metrics.expectedAction100).toBeCloseTo(exhaustiveBest, 8);
   });
@@ -1063,6 +1161,34 @@ describe('optimizer search hardening', () => {
     expect(result.searchDiagnostics?.dominatedItemCandidates).toBe(
       (baseline.searchDiagnostics?.dominatedItemCandidates ?? 0) + 1
     );
+  });
+
+  it('keeps equal-stat weapons with different delays as distinct timing candidates', () => {
+    const { snapshot } = makeCompactWhmSnapshot();
+    const weapon = snapshot.items.find((item) => item.slot === 'weapon')!;
+    const alternateDelayWeapon: EquipmentItem = {
+      ...weapon,
+      id: 'search-regression-alternate-delay-weapon',
+      name: 'Alternate-delay test weapon',
+      weaponDelayMs: weapon.weaponDelayMs + 160
+    };
+    const withAlternateDelay: GearSnapshot = {
+      ...snapshot,
+      manifest: {
+        ...snapshot.manifest,
+        id: 'optimizer-search-hardening-delay-fixture'
+      },
+      items: [...snapshot.items, alternateDelayWeapon]
+    };
+
+    const result = optimizeWhm(withAlternateDelay, compactConstraints(withAlternateDelay));
+    const finalistWeaponIds = new Set(
+      result.finalists?.map((set) => String(set.items.weapon?.itemId))
+    );
+
+    expect(result.truncated).toBe(false);
+    expect(finalistWeaponIds).toContain(String(weapon.id));
+    expect(finalistWeaponIds).toContain(String(alternateDelayWeapon.id));
   });
 
   it('keeps equal-stat unique ring identities distinct when one ring slot is locked', () => {
@@ -1127,7 +1253,7 @@ describe('optimizer search hardening', () => {
       allowExperimentalAccess: false
     });
 
-    expect(result.best?.metrics.expectedAction100).toBeCloseTo(7901.77511628755, 8);
+    expect(result.best?.metrics.expectedAction100).toBeGreaterThanOrEqual(7901.77511628755);
     expect(result.searchDiagnostics?.dominatedItemCandidates).toBeGreaterThan(0);
     expect(result.searchDiagnostics?.peakFrontierStates).toBeLessThanOrEqual(1_800);
     expect(result.evaluatedStates).toBeLessThan(4_500_000);

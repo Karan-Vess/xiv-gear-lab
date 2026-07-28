@@ -4,6 +4,27 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+## 0.10.0-beta.5 - 2026-07-28
+
+### Added
+
+- Added per-build search effort controls. Quality First is the desktop default, while Quick Preview retains the earlier interactive search size.
+- Added explicit result optimality status. The app only says optimality is proven when no legal frontier was truncated; bounded simulator results are labelled as the strongest result found instead.
+
+### Changed
+
+- Quality-first searches retain up to six times the normal gear frontier, simulate up to 48 speed-diverse finalists and inspect legal single-slot neighbours around the leading sets.
+- Preserved weapon-delay identity during candidate pruning and whole-set deduplication, and safely rejects partial branches that cannot reach a strict ranged GCD constraint.
+- Documented that unrestricted GCD searches can still favour a mathematically strong but rotationally inferior speed; recommended or explicit GCD targets remain the reliable path for rotation-sensitive jobs.
+
+## 0.10.0-beta.4 - 2026-07-28
+
+### Changed
+
+- Rotation-mode range searches now reserve simulator finalists for the strongest distinct GCD tiers before spending the remaining shortlist on raw throughput and broad speed samples. A broad Samurai search using only Grade XI and XII materia no longer skips its stronger legal 2.14-second result.
+
+## 0.10.0-beta.3 - 2026-07-28
+
 ### Added
 
 - Published the owner-verified Patch 7.55 official-data catalogue through the signed data channel with 831 level-100 items (xivapi-7583112015aaef5d-dt-ew-shb-sb-hw-arr-1dfe5fad937bbf1e).
@@ -14,6 +35,7 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- Rotation-mode optimisation now preserves competitive speed lanes during bounded gear search, retains high-throughput GCD tiers and gives curated warm starts the same legal strictly dominating item and Relic-allocation improvements as generated sets. Inferior Savage weapons can no longer reach the simulator while a same-timing Ultimate or configurable Relic upgrade is available.
 - Fixed patch updates silently omitting new official equipment when a supporting provider lagged behind XIVAPI. Official sheet search now discovers the candidate pool directly, and Phantom Weapon allocations are derived from the official enhancement data.
 - Added Patch 7.55 Phantom Weapon Occultum acquisition metadata and raised the default item-level ceiling to 795.
 - Made long-running owner publications accept an exact explicit confirmation argument so Windows cannot close a piped approval before validation finishes.

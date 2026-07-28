@@ -96,13 +96,16 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         }
       );
       const proxyWinner = finalists.find((set) => set.id === reranked.proxyBestSetId);
-      const rotationWinner = reranked.best;
+      const rotationWinner = {
+        ...reranked.best,
+        name: `Best ${reranked.best.rotationEvaluation?.label.toLowerCase() ?? 'rotation'} result found (${result.optimality?.searchMode ?? 'quick'})`
+      };
       const rankingExplanation = reranked.winnerChanged
         ? `The rotation evaluator changed the winner from ${proxyWinner?.metrics.gcd.toFixed(2) ?? 'unknown'}s GCD to ${rotationWinner.metrics.gcd.toFixed(2)}s GCD. It scores action count, cooldown drift, gauges, DoTs, auto-attacks and pets rather than treating every set as one generic hit.`
         : `The fast generic-hit proxy winner remained first. Rotation scoring still checked action count, cooldown drift, gauges, DoTs, auto-attacks and pets across the shortlist.`;
       result = {
         ...result,
-        best: reranked.best,
+        best: rotationWinner,
         alternatives: reranked.alternatives,
         rotationRerank: {
           mode: event.data.evaluationMode,
@@ -112,10 +115,17 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
           winnerChanged: reranked.winnerChanged,
           timelineCacheHits: reranked.timelineCacheHits
         },
+        optimality: {
+          status: 'not-proven',
+          objective: event.data.evaluationMode,
+          searchMode: result.optimality?.searchMode ?? 'quick',
+          reason: `The simulator reranked ${reranked.evaluatedCandidates} retained finalists; unevaluated legal combinations may still exist.`
+        },
         explanation: [
           ...result.explanation,
           `Reranked ${reranked.evaluatedCandidates} speed-diverse finalists by ${reranked.best.rotationEvaluation?.label.toLowerCase()} in ${reranked.durationMs.toFixed(0)} ms.`,
-          `${rankingExplanation} Reused ${reranked.timelineCacheHits} identical timing timeline${reranked.timelineCacheHits === 1 ? '' : 's'} for damage-only stat changes.`
+          `${rankingExplanation} Reused ${reranked.timelineCacheHits} identical timing timeline${reranked.timelineCacheHits === 1 ? '' : 's'} for damage-only stat changes.`,
+          'This is the strongest simulated finalist found, not a mathematical proof that no unevaluated legal set can score higher.'
         ]
       };
     }

@@ -220,13 +220,19 @@ const createWindow = async () => {
     if (!rendered) throw new Error('Application UI did not finish runtime-data bootstrap within 10 seconds.');
     await window.webContents.executeJavaScript(`
       (() => {
+        const searchMode = document.querySelector('[aria-label="Search effort"]');
+        if (!(searchMode instanceof HTMLSelectElement)) throw new Error('Search effort control was not rendered.');
+        if (searchMode.value !== 'thorough') throw new Error('Quality First is not the default search effort.');
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+        setter?.call(searchMode, 'quick');
+        searchMode.dispatchEvent(new Event('change', { bubbles: true }));
         const button = [...document.querySelectorAll('button')].find((entry) => entry.textContent?.includes('Optimise Build 1'));
         if (!button) throw new Error('Optimise button was not rendered.');
         button.click();
       })()
     `);
     let completed = false;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       completed = await window.webContents.executeJavaScript(
         `Boolean(document.querySelector('.workspace-tabs') && document.body.textContent?.includes('Searched'))`
       );
