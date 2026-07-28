@@ -4,6 +4,10 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+### Added
+
+- Added `Check-Game-Data.cmd`, a generic read-only owner tool that reports whether the configured providers expose no change, a compatible official change or data requiring application compatibility work.
+
 ### Changed
 
 - Expanded the M13 acceptance checklist with curated-set ablation tests, requiring generated optimisation to demonstrate comparable results without curated warm starts and to disclose any material quality gap.

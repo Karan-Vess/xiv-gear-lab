@@ -6,6 +6,7 @@ import { gearSnapshot } from '@xiv-gear-lab/data';
 import {
   UPDATE_REPORT_SCHEMA,
   assessPatchProbe,
+  describePatchAvailability,
   inspectIconDirectory,
   inspectSnapshot,
   parseCatalogueUpdateArgs,
@@ -191,6 +192,9 @@ else {
   process.stdout.write(`Snapshot: ${before.id} · ${before.counts.items} items · ${(before.bytes / 1024 / 1024).toFixed(2)} MiB\n`);
   process.stdout.write(`Icons: ${icons.files} files · ${icons.uniquePayloads} unique · ${(icons.avoidableBytes / 1024 / 1024).toFixed(2)} MiB avoidable duplication\n`);
   process.stdout.write(`Outcome: ${report.outcome}\n`);
+  if (options.mode === 'patch' && !options.apply) {
+    process.stdout.write(`${describePatchAvailability(patchProbe)}\n`);
+  }
   if (patchProbe?.blockers?.length) process.stdout.write(`Blocked: ${patchProbe.blockers.join('; ')}\n`);
   process.stdout.write('No signing or publication was performed.\n');
 }

@@ -15,6 +15,7 @@
     "sync:data": "node scripts/sync-whm-data.mjs",
     "sync:whm": "npm run sync:data",
     "catalogue:update": "tsx scripts/catalogue-update-assistant.mjs",
+    "data:check": "tsx scripts/catalogue-update-assistant.mjs --mode patch --report artifacts/data-availability-check.json",
     "data:update:heavensward": "node scripts/run-owner-data-update.mjs --expansion hw",
     "data:update:arr": "node scripts/run-owner-data-update.mjs --expansion arr",
     "data:update:patch": "node scripts/run-owner-data-update.mjs",

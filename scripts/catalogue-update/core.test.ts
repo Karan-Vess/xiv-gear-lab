@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assessPatchProbe,
+  describePatchAvailability,
   inspectExpansionCoverage,
   parseCatalogueUpdateArgs,
   sizeBudgetReport
@@ -57,6 +58,19 @@ describe('local catalogue-update assistant', () => {
       unknownJobs: ['NEW'],
       unsupportedLevels: [110]
     });
+  });
+
+  it('turns patch probe outcomes into safe owner-facing availability messages', () => {
+    expect(describePatchAvailability({ outcome: 'already-current' })).toContain('No newer official catalogue version');
+    expect(describePatchAvailability({ outcome: 'compatible-change-detected' })).toContain('Run Update-Game-Data.cmd');
+    expect(describePatchAvailability({
+      outcome: 'blocked-incompatible',
+      blockers: ['unsupported equipment levels: 110']
+    })).toContain('unsupported equipment levels: 110');
+    expect(describePatchAvailability({
+      outcome: 'blocked-provider-error',
+      blockers: ['provider unavailable']
+    })).toContain('provider unavailable');
   });
 
   it('reports missing cap coverage, rulesets and evaluator profiles without pretending readiness', () => {

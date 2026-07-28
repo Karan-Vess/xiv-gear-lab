@@ -76,6 +76,24 @@ export const assessPatchProbe = ({
   };
 };
 
+export const describePatchAvailability = (probe) => {
+  if (probe?.outcome === 'already-current') {
+    return 'Availability: No newer official catalogue version was detected.';
+  }
+  if (probe?.outcome === 'compatible-change-detected') {
+    return 'Availability: A compatible official data change was detected. Run Update-Game-Data.cmd to prepare and validate it.';
+  }
+  if (probe?.outcome === 'blocked-incompatible') {
+    const blockers = probe.blockers?.length ? ` ${probe.blockers.join('; ')}` : '';
+    return `Availability: Official data changed, but application compatibility work is required before an update can be prepared.${blockers}`;
+  }
+  if (probe?.outcome === 'blocked-provider-error') {
+    const blockers = probe.blockers?.length ? ` ${probe.blockers.join('; ')}` : '';
+    return `Availability: The providers could not be checked.${blockers}`;
+  }
+  return `Availability: The check returned an unrecognised outcome${probe?.outcome ? ` (${probe.outcome})` : ''}.`;
+};
+
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 const walkFiles = async (directory) => {

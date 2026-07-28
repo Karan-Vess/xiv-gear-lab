@@ -104,6 +104,8 @@ Nothing is signed, committed or uploaded unless the owner types the exact phrase
 
 ## Owner-run current-patch update
 
+`Check-Game-Data.cmd` is the generic read-only availability check. It compares the bundled snapshot with the current XIVAPI version/schema, Etro combat-job roster and equipment levels, writes `artifacts/data-availability-check.json`, and prints whether no change, a compatible change or an incompatible change was detected. It does not require a target patch label and cannot generate, sign, commit or upload a candidate.
+
 `Update-Game-Data.cmd` is the normal launcher after a game patch. Enter the patch label that should be written into the candidate. The read-only probe compares the installed snapshot with the current XIVAPI version/schema, Etro combat-job roster and equipment levels. It stops immediately when official data is unchanged. Unknown jobs, equipment above the installed level cap or a schema change block publication and name the missing compatibility work.
 
 When a compatible official change exists, the launcher refreshes all official and supporting providers, regenerates every supported cap, verifies job/slot coverage, HQ-only crafting, formula/evaluator compatibility, acquisition confidence, icon and snapshot budgets, then runs type checks, tests and the production build. Community curation is optional and its absence never prevents a clearly labelled preliminary official-data recommendation.
