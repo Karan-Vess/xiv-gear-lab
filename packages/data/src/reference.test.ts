@@ -112,7 +112,8 @@ describe('live combat-job reference fixtures', () => {
       'vendor:eirene-grade-3',
       'duty:the-clyteum',
       'duty:hell-on-rails-extreme',
-      'quest:phantom-obscurum'
+      'quest:phantom-obscurum',
+      'quest:phantom-occultum'
     ]));
     expect(gearSnapshot.items.every((item) => item.sourceFamily !== 'crafted' || item.quality === 'hq')).toBe(true);
     expect(gearSnapshot.items.every((item) => item.acquisitionRoutes && item.acquisitionRoutes.length > 0)).toBe(true);
@@ -122,11 +123,11 @@ describe('live combat-job reference fixtures', () => {
     expect(gearSnapshot.items.every((item) => item.iconUrl?.startsWith('./icons/assets/'))).toBe(true);
 
     const shadowbringersItems = gearSnapshot.items.filter((item) => item.expansionId === 'shb');
-    expect(shadowbringersItems).toHaveLength(609);
+    expect(shadowbringersItems).toHaveLength(1638);
     expect(new Set(shadowbringersItems.flatMap((item) => item.jobs)).size).toBe(17);
     expect(new Set(shadowbringersItems.map((item) => item.sourceFamily))).toEqual(new Set([
       'crafted', 'normal-raid', 'savage', 'tomestone', 'tomestone-upgrade',
-      'alliance-raid', 'dungeon', 'trial', 'relic', 'ultimate'
+      'alliance-raid', 'dungeon', 'trial', 'relic', 'ultimate', 'other'
     ]));
     expect(shadowbringersItems.every((item) => item.acquisitionRoutes?.some((route) => route.status === 'partial'))).toBe(true);
 
@@ -244,6 +245,25 @@ describe('live combat-job reference fixtures', () => {
       name: 'Waning Arcanite', amount: 3, itemId: 50058
     }));
 
+    const occultumWeapon = gearSnapshot.items.find((item) => item.name === 'Phantom Blade Occultum');
+    expect(occultumWeapon).toMatchObject({
+      id: 51013,
+      sourceFamily: 'relic',
+      itemLevel: 795,
+      jobs: expect.arrayContaining(['SAM']),
+      relicStatModel: expect.objectContaining({
+        largeValue: 447,
+        largeStatCount: 2,
+        smallValue: 108,
+        smallStatCount: 1,
+        allowedStats: expect.arrayContaining(['criticalHit', 'directHit', 'determination', 'skillSpeed'])
+      })
+    });
+    expect(occultumWeapon?.acquisitionRoutes?.[0]).toMatchObject({
+      status: 'validated',
+      location: { kind: 'quest', name: 'Under No Illusion', area: 'Phantom Village', x: 6.6, y: 7.1 }
+    });
+
     const babyfaceWeapon = gearSnapshot.items.find((item) => item.name === "Babyface Champion's Cane");
     expect(babyfaceWeapon).toMatchObject({ sourceFamily: 'savage', itemLevel: 765 });
     expect(babyfaceWeapon?.acquisitionRoutes).toEqual(expect.arrayContaining([
@@ -263,11 +283,13 @@ describe('live combat-job reference fixtures', () => {
 
   it('ships a complete Endwalker level-90 cap with historical rules, consumables, and routes', () => {
     const endwalkerItems = gearSnapshot.items.filter((item) => item.expansionId === 'ew');
-    expect(endwalkerItems).toHaveLength(540);
+    expect(endwalkerItems).toHaveLength(742);
     expect(endwalkerItems.every((item) =>
       item.level === 90 &&
       item.acquisitionRoutes?.length &&
-      item.acquisitionRoutes.every((route) => route.expansionId === 'ew' && route.status === 'validated')
+      item.acquisitionRoutes.every((route) =>
+        route.expansionId === 'ew' && (route.status === 'validated' || route.status === 'partial')
+      )
     )).toBe(true);
     const mandervillous = endwalkerItems.filter((item) => item.name.startsWith('Mandervillous'));
     expect(mandervillous).toHaveLength(20);
@@ -278,7 +300,7 @@ describe('live combat-job reference fixtures', () => {
       .toMatchObject({ largeValue: 87, smallValue: 21 });
     expect(new Set(endwalkerItems.map((item) => item.sourceFamily))).toEqual(new Set([
       'crafted', 'normal-raid', 'savage', 'tomestone', 'tomestone-upgrade',
-      'dungeon', 'trial', 'alliance-raid', 'ultimate', 'relic'
+      'dungeon', 'trial', 'alliance-raid', 'ultimate', 'relic', 'other'
     ]));
 
     const profiles = gearSnapshot.evaluatorProfiles.filter((profile) => profile.rulesetId === 'ew-6.58-level-90-standard@1');

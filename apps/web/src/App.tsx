@@ -354,7 +354,7 @@ const defaultConstraints: OptimizerConstraints = {
   includeAugmentedCraftedGear: true,
   itemLevelMode: 'any',
   minItemLevel: 780,
-  maxItemLevel: 790,
+  maxItemLevel: 795,
   requiredItemIds: [],
   excludedItemIds: [],
   frontierLimit: 1_800,
@@ -2523,7 +2523,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                             <input data-item-level-min type="number" min="1" max="9999" step="1" value={constraints.minItemLevel ?? 780} onChange={(event) => setConstraints((current) => ({ ...current, minItemLevel: Number(event.target.value) }))} />
                           </label>
                           <label>Maximum
-                            <input data-item-level-max type="number" min="1" max="9999" step="1" value={constraints.maxItemLevel ?? 790} onChange={(event) => setConstraints((current) => ({ ...current, maxItemLevel: Number(event.target.value) }))} />
+                            <input data-item-level-max type="number" min="1" max="9999" step="1" value={constraints.maxItemLevel ?? 795} onChange={(event) => setConstraints((current) => ({ ...current, maxItemLevel: Number(event.target.value) }))} />
                           </label>
                         </div>
                       )}

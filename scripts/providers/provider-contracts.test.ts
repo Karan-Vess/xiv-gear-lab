@@ -15,7 +15,13 @@ import {
   validateEtroJobs,
   validateEtroMateria
 } from './etro.mjs';
-import { createXivApiAdapter, normalizeXivApiEquipmentRows, validateXivApiSheet } from './xivapi.mjs';
+import {
+  createXivApiAdapter,
+  normalizeXivApiEquipmentRows,
+  normalizeXivApiRelicStatModels,
+  validateXivApiSearch,
+  validateXivApiSheet
+} from './xivapi.mjs';
 import { normalizeXivGearEquippedItems, validateXivGearRecord } from './xivgear.mjs';
 
 const fixture = async (name: string) => JSON.parse(await readFile(
@@ -40,7 +46,8 @@ describe('pinned provider contracts', () => {
       { id: 49490, name: 'Runaway Rod', slot: 'weapon', jobs: ['BLM'] },
       { id: 50045, name: 'Phantom Longpole Obscurum', slot: 'weapon', jobs: ['BLM'] },
       { id: 50100, name: "Babyface Champion's Rod", slot: 'weapon', jobs: ['BLM'] },
-      { id: 50101, name: "Ornate Courtly Lover's Longcoat of Casting", slot: 'body', jobs: ['BLM'] }
+      { id: 50101, name: "Ornate Courtly Lover's Longcoat of Casting", slot: 'body', jobs: ['BLM'] },
+      { id: 51013, name: 'Phantom Blade Occultum', slot: 'weapon', jobs: ['SAM'] }
     ], generatedAt);
     expect(records[0].acquisitionRoutes[0].costs).toEqual([expect.objectContaining({
       kind: 'currency', name: 'Allagan Tomestone of Mnemonics', amount: 825, valuation: 'fixed'
@@ -127,6 +134,14 @@ describe('pinned provider contracts', () => {
         costs: [expect.objectContaining({ name: "Khloe's Gold Certificate of Commendation", amount: 1 })]
       })]
     });
+    expect(records[14]).toMatchObject({
+      sourceFamily: 'relic',
+      acquisitionRoutes: [expect.objectContaining({
+        status: 'validated',
+        name: 'Final Phantom Weapon enhancement',
+        location: { kind: 'quest', name: 'Under No Illusion', area: 'Phantom Village', x: 6.6, y: 7.1 }
+      })]
+    });
     expect(records.flatMap((record) => record.acquisitionRoutes).flatMap((route) => route.costs).some((cost) => cost.kind === 'gil')).toBe(false);
   });
 
@@ -141,7 +156,9 @@ describe('pinned provider contracts', () => {
       { id: 50032, name: 'Phantom Sword Obscurum', slot: 'weapon', jobs: ['PLD'] },
       { id: 50053, name: 'Phantom Shield Obscurum', slot: 'offHand', jobs: ['PLD'] },
       { id: 50102, name: "Babyface Champion's Sword", slot: 'weapon', jobs: ['PLD'] },
-      { id: 50103, name: "Babyface Champion's Shield", slot: 'offHand', jobs: ['PLD'] }
+      { id: 50103, name: "Babyface Champion's Shield", slot: 'offHand', jobs: ['PLD'] },
+      { id: 51000, name: 'Phantom Sword Occultum', slot: 'weapon', jobs: ['PLD'] },
+      { id: 51021, name: 'Phantom Shield Occultum', slot: 'offHand', jobs: ['PLD'] }
     ], '2026-07-18T00:00:00.000Z');
     const exchangeCost = (index) => records[index].acquisitionRoutes.at(-1)?.costs[0];
     expect(exchangeCost(0)?.sharedGroupId).toBe('naught-paladin-arms');
@@ -154,6 +171,8 @@ describe('pinned provider contracts', () => {
     expect(exchangeCost(7)?.sharedGroupId).toBe('phantom-obscurum-paladin-arms');
     expect(exchangeCost(8)?.sharedGroupId).toBe('babyface-paladin-arms');
     expect(exchangeCost(9)?.sharedGroupId).toBe('babyface-paladin-arms');
+    expect(records[10].sourceFamily).toBe('relic');
+    expect(records[11].sourceFamily).toBe('relic');
   });
 
   it('classifies preliminary Heavensward cap routes without leaking another expansion', () => {
@@ -218,6 +237,59 @@ describe('pinned provider contracts', () => {
     };
     const adapter = createXivApiAdapter({ client });
     await expect(adapter.sheetRows('Item', [1001, 1002], 'Name', { batchSize: 1 })).rejects.toThrow('changed version or schema');
+  });
+
+  it('discovers official XIVAPI rows across validated search pages', async () => {
+    const first = {
+      version: 'fixture-version',
+      schema: 'fixture-schema',
+      next: 'page-two',
+      results: [{ sheet: 'Item', row_id: 51013, fields: { Name: 'Phantom Blade Occultum' } }]
+    };
+    const second = {
+      version: 'fixture-version',
+      schema: 'fixture-schema',
+      results: [{ sheet: 'Item', row_id: 52312, fields: { Name: 'Palazzo Diamond Katana' } }]
+    };
+    expect(validateXivApiSearch(first, 'Item', 'fixture').results).toHaveLength(1);
+    const client = { getJson: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second) };
+    const result = await createXivApiAdapter({ client }).searchRows('Item', 'Name', '+LevelEquip=100', { limit: 1 });
+    expect(result.rows.map((row) => row.row_id)).toEqual([51013, 52312]);
+    expect(client.getJson.mock.calls[1][0].searchParams.get('cursor')).toBe('page-two');
+  });
+
+  it('derives legal relic stat allocations from official enhancement rows', () => {
+    const models = normalizeXivApiRelicStatModels({
+      enhancementResponse: {
+        rows: [{
+          row_id: 51013,
+          fields: {
+            'Materia@as(raw)': [1411, 1410, 1412, 1413],
+            MateriaBigValueIndex: [7, 7, 7, 7],
+            MateriaSmallValueIndex: [2, 2, 2, 2],
+            Unknown7: 3
+          }
+        }]
+      },
+      materiaResponse: {
+        rows: [
+          { row_id: 1410, fields: { 'BaseParam@as(raw)': 27, Value: [0, 54, 108, 162, 216, 270, 306, 447] } },
+          { row_id: 1411, fields: { 'BaseParam@as(raw)': 22, Value: [0, 54, 108, 162, 216, 270, 306, 447] } },
+          { row_id: 1412, fields: { 'BaseParam@as(raw)': 44, Value: [0, 54, 108, 162, 216, 270, 306, 447] } },
+          { row_id: 1413, fields: { 'BaseParam@as(raw)': 45, Value: [0, 54, 108, 162, 216, 270, 306, 447] } }
+        ]
+      },
+      paramToStat: { 22: 'directHit', 27: 'criticalHit', 44: 'determination', 45: 'skillSpeed' }
+    });
+    expect(models.get(51013)).toEqual({
+      schemaVersion: 'relic-stat-allocation@1',
+      type: 'endwalker-discrete',
+      largeValue: 447,
+      largeStatCount: 2,
+      smallValue: 108,
+      smallStatCount: 1,
+      allowedStats: ['directHit', 'criticalHit', 'determination', 'skillSpeed']
+    });
   });
 
   it('accepts pinned Etro shapes and fails closed on renamed required fields', async () => {

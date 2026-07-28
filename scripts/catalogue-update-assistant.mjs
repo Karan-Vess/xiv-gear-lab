@@ -187,10 +187,12 @@ await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
 if (options.json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 else {
+  const displayedSnapshot = report.after ?? before;
+  const displayedIcons = report.after ? report.icons : icons;
   process.stdout.write(`Catalogue update report: ${reportPath}\n`);
   process.stdout.write(`Mode: ${report.mode}${requestedProfile ? ` (${requestedProfile.name}, level ${requestedProfile.levelCap})` : ''}\n`);
-  process.stdout.write(`Snapshot: ${before.id} · ${before.counts.items} items · ${(before.bytes / 1024 / 1024).toFixed(2)} MiB\n`);
-  process.stdout.write(`Icons: ${icons.files} files · ${icons.uniquePayloads} unique · ${(icons.avoidableBytes / 1024 / 1024).toFixed(2)} MiB avoidable duplication\n`);
+  process.stdout.write(`Snapshot: ${displayedSnapshot.id} · ${displayedSnapshot.counts.items} items · ${(displayedSnapshot.bytes / 1024 / 1024).toFixed(2)} MiB\n`);
+  process.stdout.write(`Icons: ${displayedIcons.files} files · ${displayedIcons.uniquePayloads} unique · ${(displayedIcons.avoidableBytes / 1024 / 1024).toFixed(2)} MiB avoidable duplication\n`);
   process.stdout.write(`Outcome: ${report.outcome}\n`);
   if (options.mode === 'patch' && !options.apply) {
     process.stdout.write(`${describePatchAvailability(patchProbe)}\n`);

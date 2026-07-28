@@ -14,8 +14,8 @@ export const CAP_CATALOGUE_PROFILES = Object.freeze({
     materiaTiers: [11, 12],
     foodItemLevel: 770,
     foodItemLevel: 770,
-    itemNamePattern: "^(Grand Champion's|Augmented Bygone Brass|Bygone Brass|Vana'dielian|Palazzo Diamond|Praemagitek|Augmented Courtly Lover's|Courtly Lover's|Heavyweight)|of Naught$",
-    itemIdRanges: [[49482, 49503], [50032, 50053]]
+    itemNamePattern: "^(Grand Champion's|Augmented Bygone Brass|Bygone Brass|Vana'dielian|Palazzo Diamond|Praemagitek|Augmented Courtly Lover's|Courtly Lover's|Heavyweight|Phantom)|of Naught$",
+    itemIdRanges: [[49482, 49503], [50032, 50053], [51000, 51021]]
   }),
   ew: Object.freeze({
     schemaVersion: CATALOGUE_PROFILE_SCHEMA,

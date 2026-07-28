@@ -13,7 +13,11 @@ import {
 import { createProviderClient } from './providers/http-client.mjs';
 import { createProviderResponseCache } from './providers/provider-cache.mjs';
 import { captureOverlay, createProviderOverlay, publishOverlaySnapshot } from './providers/snapshot-builder.mjs';
-import { createXivApiAdapter, normalizeXivApiEquipmentRows } from './providers/xivapi.mjs';
+import {
+  createXivApiAdapter,
+  normalizeXivApiEquipmentRows,
+  normalizeXivApiRelicStatModels
+} from './providers/xivapi.mjs';
 import { createXivGearAdapter, normalizeXivGearEquippedItems } from './providers/xivgear.mjs';
 import { CAP_CATALOGUE_PROFILES, catalogueProfile, itemMatchesCatalogueProfile } from './catalogue-update/profiles.mjs';
 import { catalogueContentFingerprint } from './catalogue-update/catalogue-identity.mjs';
@@ -399,7 +403,7 @@ for (const reference of BALANCE_FINAL_REFERENCES) {
 }
 balance.assertSelectionCount(balanceReferenceSets);
 
-const equipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async (profile) => {
+const supportingEquipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async (profile) => {
   const jobs = JOBS.filter((job) => !profile.excludedJobs.includes(job));
   const catalogues = await Promise.all(jobs.map(async (job) => [
     job,
@@ -411,27 +415,73 @@ const equipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async
     include: (item) =>
       (profile.maximumItemId === undefined || item.id <= profile.maximumItemId) &&
       (namePattern.test(item.name) || inConfiguredRange(item.id)),
-    minimumPerJob: profile.minimumItemsPerJob
+    minimumPerJob: 0
   });
+}));
+
+const officialEquipmentDiscoveries = await Promise.all(activeCatalogueProfiles.map(async (profile) => {
+  const jobs = JOBS.filter((job) => !profile.excludedJobs.includes(job));
+  const catalogues = await Promise.all(jobs.map(async (job) => {
+    const response = await xivApi.searchRows(
+      'Item',
+      'Name,LevelEquip,LevelItem@as(raw)',
+      [
+        `+LevelEquip=${profile.levelCap}`,
+        `+LevelItem>=${profile.minimumItemLevel}`,
+        `+LevelItem<=${profile.maximumItemLevel}`,
+        `+ClassJobCategory.${job}=true`,
+        '+EquipSlotCategory>0'
+      ].join(' '),
+      { language: 'en' }
+    );
+    if (response.rows.length < profile.minimumItemsPerJob) {
+      throw new Error(`XIVAPI official ${profile.name} discovery returned ${response.rows.length}/${profile.minimumItemsPerJob} required items for ${job}.`);
+    }
+    return [job, response];
+  }));
+  return catalogues;
 }));
 
 const jobsByItemId = new Map();
 const equipmentById = new Map();
-for (const discovery of equipmentDiscoveries) {
+for (const discovery of supportingEquipmentDiscoveries) {
   for (const [id, item] of discovery.equipmentById) equipmentById.set(id, item);
   for (const [id, jobs] of discovery.jobsByItemId) {
     jobsByItemId.set(id, [...new Set([...(jobsByItemId.get(id) ?? []), ...jobs])]);
   }
 }
+for (const profileCatalogues of officialEquipmentDiscoveries) {
+  for (const [job, response] of profileCatalogues) {
+    for (const row of response.rows) {
+      equipmentById.set(row.row_id, { id: row.row_id, name: row.fields.Name });
+      jobsByItemId.set(row.row_id, [...new Set([...(jobsByItemId.get(row.row_id) ?? []), job])]);
+    }
+  }
+}
 
+const officialDiscoveryVersions = new Set(
+  officialEquipmentDiscoveries.flatMap((profileCatalogues) =>
+    profileCatalogues.map(([, response]) => response.version)
+  )
+);
+if (officialDiscoveryVersions.size !== 1) {
+  throw new Error(`XIVAPI official equipment discovery changed version mid-run: ${[...officialDiscoveryVersions].join(', ')}.`);
+}
+const [officialDiscoveryVersion] = officialDiscoveryVersions;
 const itemIds = [...equipmentById.keys()].sort((a, b) => a - b);
-const itemResponse = await xivApi.sheetRows('Item', itemIds, compactFields, { language: 'en' });
+const itemResponse = await xivApi.sheetRows(
+  'Item',
+  itemIds,
+  compactFields,
+  { language: 'en', version: officialDiscoveryVersion }
+);
 
 const itemLevels = [...new Set(itemResponse.rows.map((row) => row.fields['LevelItem@as(raw)']))].sort();
 const itemLevelResponse = await xivApi.sheetRows(
   'ItemLevel',
   itemLevels,
-  'Strength,Dexterity,Intelligence,Mind,Vitality,Piety,Tenacity,CriticalHit,Determination,DirectHitRate,SkillSpeed,SpellSpeed'
+  'Strength,Dexterity,Intelligence,Mind,Vitality,Piety,Tenacity,CriticalHit,Determination,DirectHitRate,SkillSpeed,SpellSpeed',
+  { version: itemResponse.version }
 );
 const levelCaps = new Map(itemLevelResponse.rows.map((row) => [row.row_id, row.fields]));
 
@@ -453,24 +503,47 @@ const items = normalizedItems.filter((item) =>
   activeCatalogueProfiles.some((profile) => itemMatchesCatalogueProfile(item, profile))
 );
 
+const relicEnhancementResponse = await xivApi.searchRows(
+  'MandervilleWeaponEnhance',
+  'Materia@as(raw),MateriaBigValueIndex,MateriaSmallValueIndex,Unknown7',
+  '+Unknown7=3',
+  { version: itemResponse.version }
+);
+const relicItemIds = new Set(items.map((item) => item.id));
+relicEnhancementResponse.rows = relicEnhancementResponse.rows.filter((row) => relicItemIds.has(row.row_id));
+const relicMateriaIds = [...new Set(relicEnhancementResponse.rows.flatMap((row) => row.fields['Materia@as(raw)']))].sort((a, b) => a - b);
+const relicMateriaResponse = await xivApi.sheetRows(
+  'Materia',
+  relicMateriaIds,
+  'BaseParam@as(raw),Value',
+  { version: itemResponse.version }
+);
+const relicStatModels = normalizeXivApiRelicStatModels({
+  enhancementResponse: relicEnhancementResponse,
+  materiaResponse: relicMateriaResponse,
+  paramToStat: PARAM_TO_STAT
+});
 for (const item of items) {
-  if (!item.name.startsWith('Mandervillous')) continue;
-  const paladinSplit = item.jobs.includes('PLD');
-  item.relicStatModel = {
-    schemaVersion: 'relic-stat-allocation@1',
-    type: 'endwalker-discrete',
-    largeValue: paladinSplit ? (item.slot === 'offHand' ? 87 : 219) : 306,
-    largeStatCount: 2,
-    smallValue: paladinSplit ? (item.slot === 'offHand' ? 21 : 51) : 72,
-    smallStatCount: 1,
-    allowedStats: item.jobs.some((job) => HEALER_JOBS.includes(job))
-      ? ['criticalHit', 'determination', 'directHit', 'spellSpeed', 'piety']
-      : item.jobs.some((job) => ['PLD', 'WAR', 'DRK', 'GNB'].includes(job))
-        ? ['criticalHit', 'determination', 'directHit', 'skillSpeed', 'tenacity']
-        : item.jobs.some((job) => CASTER_DPS_JOBS.includes(job))
-          ? ['criticalHit', 'determination', 'directHit', 'spellSpeed']
-          : ['criticalHit', 'determination', 'directHit', 'skillSpeed']
-  };
+  let relicStatModel = relicStatModels.get(item.id);
+  if (!relicStatModel && item.name.startsWith('Mandervillous')) {
+    const paladinSplit = item.jobs.includes('PLD');
+    relicStatModel = {
+      schemaVersion: 'relic-stat-allocation@1',
+      type: 'endwalker-discrete',
+      largeValue: paladinSplit ? (item.slot === 'offHand' ? 87 : 219) : 306,
+      largeStatCount: 2,
+      smallValue: paladinSplit ? (item.slot === 'offHand' ? 21 : 51) : 72,
+      smallStatCount: 1,
+      allowedStats: item.jobs.some((job) => HEALER_JOBS.includes(job))
+        ? ['criticalHit', 'determination', 'directHit', 'spellSpeed', 'piety']
+        : item.jobs.some((job) => TANK_JOBS.includes(job))
+          ? ['criticalHit', 'determination', 'directHit', 'skillSpeed', 'tenacity']
+          : item.jobs.some((job) => CASTER_DPS_JOBS.includes(job))
+            ? ['criticalHit', 'determination', 'directHit', 'spellSpeed']
+            : ['criticalHit', 'determination', 'directHit', 'skillSpeed']
+    };
+  }
+  if (relicStatModel) item.relicStatModel = relicStatModel;
 }
 
 const discoveredItemIds = new Set(items.map((item) => item.id));
@@ -913,6 +986,10 @@ const contentProvenance751 = contentProvenance(
   'https://na.finalfantasyxiv.com/lodestone/topics/detail/c46881a31a2c90d0965493c921b434eca09113f8/',
   '7.51'
 );
+const contentProvenance755 = contentProvenance(
+  'https://na.finalfantasyxiv.com/lodestone/topics/detail/99b6bfb8ecac428c7d3bb37dcb84b52f1064320b',
+  '7.55'
+);
 const contentGraph = {
   schemaVersion: 'content-access@1',
   nodes: [
@@ -951,6 +1028,7 @@ const contentGraph = {
     { id: 'duty:the-clyteum', kind: 'duty', name: 'The Clyteum', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
     { id: 'duty:hell-on-rails-extreme', kind: 'duty', name: 'Hell on Rails (Extreme)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance74 },
     { id: 'quest:phantom-obscurum', kind: 'quest', name: 'A Phantom Reborn', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance741 },
+    { id: 'quest:phantom-occultum', kind: 'quest', name: 'Under No Illusion', expansionId: 'dt', level: 100, prerequisites: ['quest:phantom-obscurum'], provenance: contentProvenance755 },
     { id: 'duty:windurst-third-walk', kind: 'duty', name: 'Windurst: The Third Walk', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
     { id: 'duty:unmaking-extreme', kind: 'duty', name: 'The Unmaking (Extreme)', expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },
     { id: 'vendor:uahshepya', kind: 'vendor', name: "Uah'shepya", expansionId: 'dt', level: 100, prerequisites: ['quest:dawntrail-complete'], provenance: contentProvenance75 },

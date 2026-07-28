@@ -9,6 +9,10 @@ import { loadProductionChannelConfig, run, runNpm, workspace } from './productio
 const expansionId = String(process.argv[process.argv.indexOf('--expansion') + 1] ?? '').toLowerCase();
 const requestedPatch = String(process.argv[process.argv.indexOf('--patch') + 1] ?? '').trim();
 const forceSupportingRefresh = process.argv.includes('--force');
+const confirmationArgumentIndex = process.argv.indexOf('--confirm');
+const explicitPublicationConfirmation = confirmationArgumentIndex >= 0
+  ? String(process.argv[confirmationArgumentIndex + 1] ?? '')
+  : undefined;
 const historicalExpansion = {
   hw: {
     name: 'Heavensward',
@@ -68,6 +72,10 @@ const generatedCandidatePaths = [
 ];
 
 const askForPublicationConfirmation = async () => {
+  if (explicitPublicationConfirmation !== undefined) {
+    if (explicitPublicationConfirmation === expansion.confirmation) return true;
+    fail(`The explicit publication confirmation did not exactly match ${expansion.confirmation}. Nothing was uploaded.`);
+  }
   while (true) {
     const confirmation = await ask(
       `Type ${expansion.confirmation} to sign, commit and upload this candidate, or press Enter to cancel: `

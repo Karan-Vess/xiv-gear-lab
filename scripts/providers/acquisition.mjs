@@ -3,6 +3,7 @@ export const ACQUISITION_OVERLAY_SCHEMA = 'acquisition-route@2';
 const PATCH_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/597d1b99656a1a0d3ba6501a48d43ec46c667068';
 const PATCH_75_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/07320affa7e0fcd9685afcbe54fbf55405b6d822/';
 const PATCH_741_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/0de7befbbcefe67d1af77dcbe1bae937b916b67e/';
+const PATCH_755_NOTES_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/99b6bfb8ecac428c7d3bb37dcb84b52f1064320b';
 const HEAVYWEIGHT_REFERENCE_URL = 'https://ffxiv.consolegameswiki.com/wiki/AAC_Heavyweight_Tier_(Savage)';
 const HEAVYWEIGHT_NORMAL_REFERENCE_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/06944d892fd98cc00b2a28ff77edbafa4f7eef54';
 const CRUISERWEIGHT_REFERENCE_URL = 'https://na.finalfantasyxiv.com/lodestone/topics/detail/e8dc09ebc782c9c57de6489532ed55804541e0c7';
@@ -40,6 +41,7 @@ const patchForSource = (sourceUrl) => {
   if (sourceUrl === A_REALM_REBORN_GEAR_REFERENCE_URL) return '2.5';
   if ([CRUISERWEIGHT_REFERENCE_URL, BABYFACE_REFERENCE_URL, KHLOE_GOLD_REFERENCE_URL].includes(sourceUrl)) return '7.2';
   if (sourceUrl === PATCH_741_NOTES_URL || sourceUrl === PHANTOM_REFERENCE_URL) return '7.41';
+  if (sourceUrl === PATCH_755_NOTES_URL) return '7.55';
   if (sourceUrl === PATCH_75_NOTES_URL || sourceUrl === UNMAKING_REFERENCE_URL || sourceUrl === CLYTEUM_REFERENCE_URL || sourceUrl === AUGMENTED_COURTLY_REFERENCE_URL) return '7.5';
   if (sourceUrl === PALAZZO_REFERENCE_URL) return '7.51';
   return '7.4';
@@ -50,7 +52,7 @@ const provenance = (generatedAt, status = 'current', sourceUrl = PATCH_NOTES_URL
   provider: sourceUrl.includes('finalfantasyxiv.com') ? 'Square Enix Lodestone' : 'FFXIV Community Wiki',
   sourceUrl,
   sourcePatch: patchForSource(sourceUrl),
-  sourceVersion: 'combat-acquisition-routes@7',
+  sourceVersion: 'combat-acquisition-routes@8',
   schemaVersion: ACQUISITION_OVERLAY_SCHEMA,
   retrievedAt: generatedAt,
   ...(status === 'current' ? { verifiedAt: generatedAt } : {}),
@@ -171,6 +173,7 @@ const augmentedCourtlyCosts = (item) => {
 
 const isRunawayWeapon = (item) => item.id >= 49482 && item.id <= 49503;
 const isPhantomObscurumWeapon = (item) => item.id >= 50032 && item.id <= 50053;
+const isPhantomOccultumWeapon = (item) => item.id >= 51000 && item.id <= 51021;
 
 const weaponBundleId = (item) => item.jobs.includes('PLD') && (item.slot === 'weapon' || item.slot === 'offHand')
   ? 'bygone-brass-paladin-weapon-bundle'
@@ -637,6 +640,29 @@ const acquisitionForItem = (item, generatedAt) => {
       ]
     };
   }
+  if (isPhantomOccultumWeapon(item)) {
+    return {
+      sourceFamily: 'relic',
+      acquisitionNote: 'Complete the Patch 7.55 Phantom Weapon quests and select the weapon attributes at the second enhancement stage.',
+      routes: [route({
+        id: `relic-phantom-occultum:${item.id}`,
+        name: 'Final Phantom Weapon enhancement',
+        sourceFamily: 'relic',
+        status: 'current',
+        location: { kind: 'quest', name: 'Under No Illusion', area: 'Phantom Village', x: 6.6, y: 7.1 },
+        note: 'Complete both final enhancement stages. After one full completion, additional weapons can reach the first stage through Dodokkuli and the second stage without additional items.',
+        requirements: [{
+          kind: 'content',
+          contentId: 'quest:phantom-occultum',
+          description: 'Complete A Phantom Reborn, then begin Under No Illusion with Lydirceil.'
+        }],
+        costs: [],
+        frequency: 'one-time',
+        generatedAt,
+        sourceUrl: PATCH_755_NOTES_URL
+      })]
+    };
+  }
   if (item.name.startsWith("Vana'dielian")) {
     return {
       sourceFamily: 'alliance-raid',
@@ -960,14 +986,16 @@ const acquisitionForItem = (item, generatedAt) => {
   }
   return {
     sourceFamily: 'other',
-    acquisitionNote: 'Acquisition route is not available in the current overlay.',
+    acquisitionNote: 'Official level-cap equipment with acquisition details awaiting source-family validation.',
     routes: [route({
-      id: `unknown:${item.id}`,
-      name: 'Unclassified acquisition',
+      id: `preliminary:${item.expansionId ?? 'unknown'}:${item.id}`,
+      name: 'Preliminary official equipment source',
       sourceFamily: 'other',
-      status: 'unknown',
-      note: 'Acquisition route is not available in the current overlay.',
-      requirements: [{ kind: 'manual', description: 'Acquisition requirements are unknown.' }],
+      status: 'partial',
+      note: 'The item is present in the official level-cap catalogue. Its exact duty, vendor, quest and cost details remain to be validated.',
+      requirements: [{ kind: 'manual', description: 'Confirm the exact acquisition route before planning this item.' }],
+      expansionId: item.expansionId ?? 'dt',
+      minimumLevel: item.level ?? 100,
       generatedAt
     })]
   };

@@ -11,6 +11,7 @@ import {
 export const XIVAPI_ORIGIN = 'https://v2.xivapi.com';
 export const XIVAPI_BASE_URL = `${XIVAPI_ORIGIN}/api`;
 export const XIVAPI_SHEET_CONTRACT = 'sheet-response@1';
+export const XIVAPI_SEARCH_CONTRACT = 'search-response@1';
 
 export const validateXivApiSheet = (value, requestedIds, label = 'sheet') => {
   const response = expectRecord(value, 'XIVAPI v2', XIVAPI_SHEET_CONTRACT);
@@ -27,7 +28,65 @@ export const validateXivApiSheet = (value, requestedIds, label = 'sheet') => {
   return response;
 };
 
+export const validateXivApiSearch = (value, sheet, label = 'search') => {
+  const response = expectRecord(value, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT);
+  expectString(response.version, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'response.version');
+  expectString(response.schema, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'response.schema');
+  const results = expectArray(response.results, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'response.results');
+  if (response.next !== undefined) {
+    expectString(response.next, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'response.next');
+  }
+  for (const [index, candidate] of results.entries()) {
+    const result = expectRecord(candidate, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `response.results[${index}]`);
+    expectSafeInteger(result.row_id, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `response.results[${index}].row_id`, { minimum: 1 });
+    expectRecord(result.fields, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `response.results[${index}].fields`);
+    if (result.sheet !== undefined && result.sheet !== sheet) {
+      throw new ProviderContractError('XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `${label} returned sheet ${result.sheet} instead of ${sheet}.`);
+    }
+  }
+  assertUnique(results, (result) => result.row_id, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `${label} results`);
+  return response;
+};
+
 export const createXivApiAdapter = ({ client, cache }) => ({
+  async searchRows(sheet, fields, query, { language, version, limit = 500 } = {}) {
+    expectString(sheet, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'sheet');
+    expectString(fields, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'fields');
+    expectString(query, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, 'query');
+    const responses = [];
+    let cursor;
+    do {
+      const url = new URL(`${XIVAPI_BASE_URL}/search`);
+      url.searchParams.set('fields', fields);
+      url.searchParams.set('limit', String(limit));
+      if (cursor) {
+        url.searchParams.set('cursor', cursor);
+      } else {
+        url.searchParams.set('sheets', sheet);
+        url.searchParams.set('query', query);
+      }
+      if (language) url.searchParams.set('language', language);
+      if (version) url.searchParams.set('version', version);
+      const page = responses.length + 1;
+      const validate = (value) => validateXivApiSearch(value, sheet, `${sheet} search page ${page}`);
+      const response = cache
+        ? await cache.validatedJson({ provider: 'xivapi', key: url.href, load: () => client.getJson(url), validate })
+        : validate(await client.getJson(url));
+      responses.push(response);
+      cursor = response.next;
+    } while (cursor);
+
+    const [first] = responses;
+    for (const response of responses.slice(1)) {
+      if (response.version !== first.version || response.schema !== first.schema) {
+        throw new ProviderContractError('XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `${sheet} search pagination changed version or schema mid-request.`);
+      }
+    }
+    const rows = responses.flatMap((response) => response.results);
+    assertUnique(rows, (row) => row.row_id, 'XIVAPI v2', XIVAPI_SEARCH_CONTRACT, `${sheet} paginated search results`);
+    return { version: first.version, schema: first.schema, rows };
+  },
+
   async sheetRows(sheet, rowIds, fields, { language, version, batchSize = 100 } = {}) {
     if (!Array.isArray(rowIds) || rowIds.length === 0) {
       throw new ProviderContractError('XIVAPI v2', XIVAPI_SHEET_CONTRACT, `${sheet} requires at least one row ID.`);
@@ -68,6 +127,65 @@ export const createXivApiAdapter = ({ client, cache }) => ({
     return result.buffer;
   }
 });
+
+export const normalizeXivApiRelicStatModels = ({
+  enhancementResponse,
+  materiaResponse,
+  paramToStat
+}) => {
+  const materiaById = new Map(materiaResponse.rows.map((row, index) => {
+    const fields = expectRecord(row.fields, 'XIVAPI v2', 'relic-stat-model@1', `materia.rows[${index}].fields`);
+    const stat = paramToStat[fields['BaseParam@as(raw)']];
+    if (!stat) {
+      throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `materia ${row.row_id} references unsupported base parameter ${fields['BaseParam@as(raw)']}.`);
+    }
+    const values = expectArray(fields.Value, 'XIVAPI v2', 'relic-stat-model@1', `materia.rows[${index}].fields.Value`);
+    return [row.row_id, { stat, values }];
+  }));
+
+  return new Map(enhancementResponse.rows.map((row, index) => {
+    const fields = expectRecord(row.fields, 'XIVAPI v2', 'relic-stat-model@1', `enhancements.rows[${index}].fields`);
+    const materiaIds = expectArray(fields['Materia@as(raw)'], 'XIVAPI v2', 'relic-stat-model@1', `enhancements.rows[${index}].fields.Materia@as(raw)`);
+    const bigIndexes = expectArray(fields.MateriaBigValueIndex, 'XIVAPI v2', 'relic-stat-model@1', `enhancements.rows[${index}].fields.MateriaBigValueIndex`);
+    const smallIndexes = expectArray(fields.MateriaSmallValueIndex, 'XIVAPI v2', 'relic-stat-model@1', `enhancements.rows[${index}].fields.MateriaSmallValueIndex`);
+    const allocatedStatCount = expectSafeInteger(fields.Unknown7, 'XIVAPI v2', 'relic-stat-model@1', `enhancements.rows[${index}].fields.Unknown7`, { minimum: 1 });
+    if (materiaIds.length === 0 || materiaIds.length !== bigIndexes.length || materiaIds.length !== smallIndexes.length) {
+      throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} has mismatched materia allocation arrays.`);
+    }
+    if (allocatedStatCount !== 3) {
+      throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} uses unsupported ${allocatedStatCount}-stat allocation rules.`);
+    }
+
+    const allocations = materiaIds.map((materiaId, materiaIndex) => {
+      const materia = materiaById.get(materiaId);
+      if (!materia) {
+        throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} references missing materia ${materiaId}.`);
+      }
+      const bigIndex = expectSafeInteger(bigIndexes[materiaIndex], 'XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} big index ${materiaIndex}`, { minimum: 0 });
+      const smallIndex = expectSafeInteger(smallIndexes[materiaIndex], 'XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} small index ${materiaIndex}`, { minimum: 0 });
+      const largeValue = materia.values[bigIndex];
+      const smallValue = materia.values[smallIndex];
+      if (!Number.isSafeInteger(largeValue) || largeValue <= 0 || !Number.isSafeInteger(smallValue) || smallValue <= 0) {
+        throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} resolves invalid allocation values for materia ${materiaId}.`);
+      }
+      return { stat: materia.stat, largeValue, smallValue };
+    });
+    const largeValues = new Set(allocations.map((allocation) => allocation.largeValue));
+    const smallValues = new Set(allocations.map((allocation) => allocation.smallValue));
+    if (largeValues.size !== 1 || smallValues.size !== 1) {
+      throw new ProviderContractError('XIVAPI v2', 'relic-stat-model@1', `relic ${row.row_id} uses per-stat allocation values the current client cannot represent.`);
+    }
+    return [row.row_id, {
+      schemaVersion: 'relic-stat-allocation@1',
+      type: 'endwalker-discrete',
+      largeValue: allocations[0].largeValue,
+      largeStatCount: 2,
+      smallValue: allocations[0].smallValue,
+      smallStatCount: 1,
+      allowedStats: allocations.map((allocation) => allocation.stat)
+    }];
+  }));
+};
 
 export const normalizeXivApiEquipmentRows = ({
   response,
