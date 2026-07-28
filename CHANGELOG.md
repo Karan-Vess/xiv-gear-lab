@@ -10,6 +10,7 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Changed
 
+- Made the owner-run data publication confirmation recover from typing mistakes by prompting again, while deliberate cancellation now restores the generated candidate instead of blocking the next update attempt.
 - Expanded the M13 acceptance checklist with curated-set ablation tests, requiring generated optimisation to demonstrate comparable results without curated warm starts and to disclose any material quality gap.
 
 ## 0.10.0-beta.2 - 2026-07-28

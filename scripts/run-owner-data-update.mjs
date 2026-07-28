@@ -62,6 +62,35 @@ const runCaptured = (command, arguments_) => new Promise((resolveRun, rejectRun)
 const question = createInterface({ input: process.stdin, output: process.stdout });
 const ask = async (prompt) => (await question.question(prompt)).trim();
 const fail = (message) => { throw new Error(message); };
+const generatedCandidatePaths = [
+  'packages/data/src/generated/whm-snapshot.json',
+  'apps/web/public/icons/assets'
+];
+
+const askForPublicationConfirmation = async () => {
+  while (true) {
+    const confirmation = await ask(
+      `Type ${expansion.confirmation} to sign, commit and upload this candidate, or press Enter to cancel: `
+    );
+    if (confirmation === expansion.confirmation) return true;
+    if (!confirmation) return false;
+    process.stdout.write(
+      `\nThat did not exactly match ${expansion.confirmation}. Nothing was uploaded; please try again.\n\n`
+    );
+  }
+};
+
+const discardGeneratedCandidate = async () => {
+  await run('git', ['restore', '--worktree', '--', ...generatedCandidatePaths]);
+  const remaining = await runCaptured('git', ['status', '--porcelain']);
+  if (remaining) {
+    process.stdout.write(
+      `\nPublication cancelled and tracked candidate files were restored, but these local changes remain:\n${remaining}\n`
+    );
+    return;
+  }
+  process.stdout.write('\nPublication cancelled. Generated candidate files were restored and nothing was uploaded.\n');
+};
 
 const appendChangelog = async (itemCount, snapshotId) => {
   const path = resolve(workspace, 'CHANGELOG.md');
@@ -134,9 +163,9 @@ try {
   process.stdout.write(`  Missing job/slots: ${coverage.missingJobSlots.length}\n`);
   process.stdout.write(`  Source catalogue: ${(report.after.bytes / 1024 / 1024).toFixed(2)} MiB before signed-release compression\n\n`);
 
-  const confirmation = await ask(`Type ${expansion.confirmation} to sign, commit and upload this candidate: `);
-  if (confirmation !== expansion.confirmation) {
-    process.stdout.write('\nPublication cancelled. The generated candidate remains local and nothing was uploaded.\n');
+  const publicationConfirmed = await askForPublicationConfirmation();
+  if (!publicationConfirmed) {
+    await discardGeneratedCandidate();
     process.exitCode = 2;
   } else {
     await appendChangelog(coverage.items, report.after.id);

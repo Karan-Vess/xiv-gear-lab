@@ -112,7 +112,7 @@ When a compatible official change exists, the launcher refreshes all official an
 
 Etro, The Balance and XivGear do not expose one stable cross-provider release fingerprint. When their acquisition or curated data arrives after the official item release, answer `y` to the launcher's supporting-source refresh question. This performs a full validated refresh even when XIVAPI itself is unchanged. If the content fingerprint remains identical, nothing is signed or uploaded.
 
-No patch candidate is published until the owner types the exact `PUBLISH PATCH <version>` phrase. The script then uses the same local signing, staged-channel verification, narrow Git commit, push and hosted verification gates as the proven historical backfill workflow.
+No patch candidate is published until the owner types the exact `PUBLISH PATCH <version>` phrase. A non-empty typing mistake prompts again without uploading anything. Pressing Enter deliberately cancels and restores the generated candidate files so the next update attempt is not blocked by them. The script then uses the same local signing, staged-channel verification, narrow Git commit, push and hosted verification gates as the proven historical backfill workflow.
 
 ## Installed and hosted update/offline drills
 
