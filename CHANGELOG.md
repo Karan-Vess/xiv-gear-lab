@@ -6,6 +6,8 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ### Added
 
+- Published the owner-verified Patch 7.55 official-data catalogue through the signed data channel with 831 level-100 items (xivapi-7583112015aaef5d-dt-ew-shb-sb-hw-arr-1dfe5fad937bbf1e).
+
 - Published the owner-verified Patch 7.55 official-data catalogue through the signed data channel with 647 level-100 items (xivapi-7583112015aaef5d-dt-ew-shb-sb-hw-arr-5a003864eb5dfba5).
 
 - Added `Check-Game-Data.cmd`, a generic read-only owner tool that reports whether the configured providers expose no change, a compatible official change or data requiring application compatibility work.
