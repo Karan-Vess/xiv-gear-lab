@@ -6,7 +6,10 @@ import {
 import { gearSnapshot } from '@xiv-gear-lab/data';
 import type { GearSet } from '@xiv-gear-lab/domain';
 import { createPilotCombatEvaluatorRegistry } from './pilot-evaluators';
-import { rerankGearSetsByRotation } from './rerank-gearsets';
+import {
+  evaluateGearSetByRotation,
+  rerankGearSetsByRotation
+} from './rerank-gearsets';
 
 const samReference = gearSnapshot.curatedSets.find((set) =>
   set.job === 'SAM' &&
@@ -30,6 +33,20 @@ const finalists = Array.from({ length: 12 }, (_, index): GearSet => ({
 }));
 
 describe('speed-diverse gear-set rotation reranking', () => {
+  it('evaluates one equipped set in either supported window without changing it', () => {
+    const original = structuredClone(samReference);
+    const burst = evaluateGearSetByRotation(gearSnapshot, original, 'opener-30', 'none');
+    const sustained = evaluateGearSetByRotation(gearSnapshot, original, 'dummy-300', 'none');
+
+    expect(burst.mode).toBe('opener-30');
+    expect(burst.durationMs).toBe(30_000);
+    expect(sustained.mode).toBe('dummy-300');
+    expect(sustained.durationMs).toBe(300_000);
+    expect(burst.totalDamage).toBeGreaterThan(0);
+    expect(sustained.totalDamage).toBeGreaterThan(burst.totalDamage);
+    expect(original).toEqual(samReference);
+  });
+
   it('reranks twelve finalists deterministically within the M12 p95 budget', () => {
     const durations: number[] = [];
     let first: ReturnType<typeof rerankGearSetsByRotation> | undefined;

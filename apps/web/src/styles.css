@@ -186,6 +186,20 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .result-column { min-width: 0; display: grid; gap: 12px; }
+.equipped-evaluation-panel { display: grid; gap: 10px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(120deg, rgba(46, 164, 220, .09), rgba(9, 17, 29, .88) 56%); }
+.equipped-evaluation-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.equipped-evaluation-heading h3 { margin: 2px 0 3px; font-size: 14px; }
+.equipped-evaluation-heading small { color: #748da1; font-size: 9px; }
+.equipped-evaluation-actions { display: flex; align-items: end; justify-content: flex-end; gap: 7px; }
+.equipped-evaluation-actions label { display: grid; gap: 3px; color: #7891a4; font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.equipped-evaluation-actions select { min-width: 120px; padding: 7px 9px; }
+.equipped-evaluation-note { margin: 0; color: #71899b; font-size: 9px; }
+.equipped-evaluation-note.stale { color: #d5ae65; }
+.equipped-evaluation-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.equipped-evaluation-results article { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px 12px; padding: 9px 11px; border: 1px solid rgba(100, 179, 218, .18); border-radius: 8px; background: rgba(5, 12, 22, .52); }
+.equipped-evaluation-results article span { color: #7fa4b9; font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.equipped-evaluation-results article strong { grid-row: span 2; color: #f2dda5; font-family: Georgia, "Times New Roman", serif; font-size: 20px; }
+.equipped-evaluation-results article small { color: #6d8799; font-size: 8px; }
 .workspace-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
 .workspace-tabs button { min-width: 0; border: 1px solid var(--line); background: rgba(16, 25, 39, .72); border-radius: 9px; padding: 10px 12px; color: #9eafbf; text-align: left; cursor: pointer; }
 .workspace-tabs button strong, .workspace-tabs button span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -407,4 +421,7 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
   .topbar { flex-wrap: wrap; padding: 18px 0; }
   .top-actions { width: 100%; justify-content: flex-end; }
   .methodology-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .equipped-evaluation-heading { align-items: stretch; flex-direction: column; }
+  .equipped-evaluation-actions { justify-content: flex-start; }
+  .equipped-evaluation-results { grid-template-columns: 1fr; }
 }

@@ -88,7 +88,8 @@ describe('three-build comparison', () => {
     );
 
     expect(html).toContain('Directly comparable with Build 1');
-    expect(html).toContain('Difference from Build 1');
+    expect(html).toContain('100-potency difference from Build 1');
+    expect(html).toContain('Rotation difference from Build 1');
     expect(html).toContain('Base GCD');
     expect(html).toContain('Effective GCD');
     expect(html).toContain('MP regeneration');
@@ -98,6 +99,57 @@ describe('three-build comparison', () => {
     expect(html).toContain('Critical Hit outcome');
     expect(html).toContain('Direct Hit outcome');
     expect(html).toContain('Determination damage');
+  });
+
+  it('keeps the 100-potency comparison valid when only one build has a rotation result', () => {
+    const samSet = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const profile = gearSnapshot.rotationProfiles!.find((entry) => entry.job === 'SAM')!;
+    const state = createInitialBuildWorkspaceState({
+      expansion: 'dt',
+      level: 100,
+      job: 'SAM',
+      constraints: { ...constraints, minResource: 0, minGcd: 2.08, maxGcd: 2.14 },
+      gcdTarget: '2.14',
+      selectedSet: samSet,
+      message: 'Ready.'
+    });
+    state.builds['build-2'].selectedSet.metrics.expectedAction100 += 10;
+    state.builds['build-3'].selectedSet.metrics.expectedAction100 += 20;
+    state.builds['build-3'].selectedSet.rotationEvaluation = {
+      mode: 'opener-30',
+      label: '30-second burst',
+      durationMs: 30_000,
+      totalDamage: 950_000,
+      dps: 31_666,
+      profileId: profile.id,
+      profileVersion: profile.version,
+      rulesetId: profile.rulesetId,
+      gamePatch: profile.gamePatch,
+      engineId: profile.engineId,
+      method: { kind: 'generated-priority', confidence: 'generated-preliminary' },
+      actionCount: 18,
+      gcdCount: 12,
+      ogcdCount: 6,
+      clippedMs: 0,
+      references: profile.references,
+      limitation: profile.limitation,
+      rerankedCandidateCount: 12,
+      rerankDurationMs: 100,
+      proxyBestSetId: 'proxy-best',
+      winnerChanged: false,
+      timelineCacheHits: 0
+    };
+
+    const html = renderToStaticMarkup(
+      <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
+    );
+
+    expect(html).toContain('Only one build has a rotation result.');
+    expect(html).toContain('The 100-potency proxy remains comparable');
+    expect(html).toContain('100-potency difference from Build 1');
+    expect(html).toContain('Rotation difference from Build 1');
+    expect(html).toContain('Not evaluated in both builds');
+    expect(html).not.toContain('Not directly comparable');
   });
 
   it('keeps cross-job and cross-snapshot values visible but refuses a fake winner', () => {
@@ -162,7 +214,8 @@ describe('three-build comparison', () => {
       <ComparisonView state={state} snapshot={gearSnapshot} customItems={[]} onBaselineChange={() => undefined} />
     );
 
-    expect(html).toContain('Difference from Build 2');
+    expect(html).toContain('100-potency difference from Build 2');
+    expect(html).toContain('Rotation difference from Build 2');
     expect(html).toContain('Directly comparable with Build 2');
     expect(html).toContain('No equipment, meld or food differences.');
     expect(html).toContain('Constraints: tomestone');

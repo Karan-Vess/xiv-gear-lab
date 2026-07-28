@@ -5,7 +5,9 @@ import type {
   ExpansionId,
   GearSet,
   GearSlot,
-  OptimizerConstraints
+  OptimizerConstraints,
+  RotationEvaluationMode,
+  RotationEvaluationSummary
 } from '@xiv-gear-lab/domain';
 import type { OptimizerResult } from '@xiv-gear-lab/optimizer';
 
@@ -17,6 +19,13 @@ export type WorkspaceRunState = 'idle' | 'running' | 'done' | 'error';
 export interface CustomItemFallback {
   slot: GearSlot;
   equipped?: EquippedItem;
+}
+
+export interface EquippedSetEvaluation {
+  setFingerprint: string;
+  potion: 'none' | 'included';
+  evaluatedAt: string;
+  results: Record<RotationEvaluationMode, RotationEvaluationSummary>;
 }
 
 export interface BuildWorkspace {
@@ -32,6 +41,7 @@ export interface BuildWorkspace {
   constraints: OptimizerConstraints;
   gcdTarget: string;
   selectedSet: GearSet;
+  equippedSetEvaluation?: EquippedSetEvaluation;
   result?: OptimizerResult;
   previousOptimizedSet?: GearSet;
   customFallbacks: Record<string, CustomItemFallback>;
@@ -219,6 +229,21 @@ export const workspaceSnapshotIds = (state: BuildWorkspaceState): string[] => {
   return [...new Set(ids)].sort();
 };
 
+export const equippedSetEvaluationFingerprint = (set: GearSet): string => JSON.stringify({
+  job: set.job,
+  foodId: set.foodId ?? null,
+  items: Object.entries(set.items)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([slot, equipped]) => [
+      slot,
+      equipped?.itemId ?? null,
+      equipped?.materiaIds ?? [],
+      equipped?.relicStats ?? null
+    ]),
+  metrics: set.metrics,
+  calculationContext: set.calculationContext ?? null
+});
+
 export const buildUsesItem = (build: BuildWorkspace, itemId: number | string): boolean =>
   Object.values(build.selectedSet.items).some((entry) => String(entry?.itemId) === String(itemId));
 
@@ -255,6 +280,7 @@ export const copyBuildLoadout = (
         constraints: { ...clone(target.constraints), minResource: minimumResource },
         gcdTarget: source.gcdTarget,
         selectedSet: clone(source.selectedSet),
+        equippedSetEvaluation: undefined,
         result: undefined,
         previousOptimizedSet: undefined,
         customFallbacks: clone(source.customFallbacks),

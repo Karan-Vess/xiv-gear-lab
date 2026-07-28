@@ -5,6 +5,7 @@ import {
   createInitialBuildWorkspaceState,
   constraintsForExpansion,
   copyBuildLoadout,
+  equippedSetEvaluationFingerprint,
   isBuildWorkspaceState,
   prepareBuildWorkspaceStateForStorage,
   resetIncompatibleWorkspaceBuilds,
@@ -117,6 +118,18 @@ describe('build workspaces', () => {
 
     expect(workspaceBuildsUsingItem(state, itemId).map((build) => build.name)).toEqual(['Build 1', 'Build 3']);
     expect(workspaceSnapshotIds(state)).toEqual([gearSnapshot.manifest.id]);
+  });
+
+  it('changes the equipped-evaluation identity when loadout-affecting values change', () => {
+    const set = structuredClone(createState().builds['build-1'].selectedSet);
+    const original = equippedSetEvaluationFingerprint(set);
+
+    set.items.head!.materiaIds = [...set.items.head!.materiaIds, 999];
+    expect(equippedSetEvaluationFingerprint(set)).not.toBe(original);
+
+    const statChanged = structuredClone(createState().builds['build-1'].selectedSet);
+    statChanged.metrics.stats.criticalHit += 1;
+    expect(equippedSetEvaluationFingerprint(statChanged)).not.toBe(original);
   });
 
   it('copies a loadout independently while retaining destination access and acquisition restrictions', () => {

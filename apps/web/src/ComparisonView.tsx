@@ -45,10 +45,10 @@ const foodName = (set: GearSet, snapshot: GearSnapshot) =>
 
 const timingFor = (set: GearSet, snapshot: GearSnapshot) => gearSetTimingDisplay(set, snapshot);
 
-const contextsMatch = (left: GearSet, right: GearSet) => {
+const calculationContextsMatch = (left: GearSet, right: GearSet) => {
   const a = left.calculationContext;
   const b = right.calculationContext;
-  const calculationMatches = Boolean(
+  return Boolean(
     a && b &&
     left.job === right.job &&
     a.snapshotId === b.snapshotId &&
@@ -57,10 +57,12 @@ const contextsMatch = (left: GearSet, right: GearSet) => {
     a.evaluatorVersion === b.evaluatorVersion &&
     a.calculationSchema === b.calculationSchema
   );
-  if (!calculationMatches) return false;
+};
+
+const rotationContextsMatch = (left: GearSet, right: GearSet) => {
+  if (!calculationContextsMatch(left, right)) return false;
   const leftRotation = left.rotationEvaluation;
   const rightRotation = right.rotationEvaluation;
-  if (!leftRotation && !rightRotation) return true;
   return Boolean(
     leftRotation && rightRotation &&
     leftRotation.mode === rightRotation.mode &&
@@ -87,7 +89,7 @@ const compatibilityWarnings = (baseline: GearSet, candidate: GearSet): string[] 
   const baselineRotation = baseline.rotationEvaluation;
   const candidateRotation = candidate.rotationEvaluation;
   if (Boolean(baselineRotation) !== Boolean(candidateRotation)) {
-    warnings.push('Different evaluation modes: rotation results and generic-hit proxies are not directly comparable.');
+    warnings.push('Only one build has a rotation result. The 100-potency proxy remains comparable when the calculation context matches.');
   } else if (
     baselineRotation && candidateRotation && (
       baselineRotation.mode !== candidateRotation.mode ||
@@ -96,7 +98,7 @@ const compatibilityWarnings = (baseline: GearSet, candidate: GearSet): string[] 
       baselineRotation.engineId !== candidateRotation.engineId
     )
   ) {
-    warnings.push('Different rotation modes, profiles or engine versions.');
+    warnings.push('Different rotation modes, profiles or engine versions. The 100-potency proxy remains comparable when the calculation context matches.');
   }
   return warnings;
 };
@@ -184,12 +186,25 @@ export function ComparisonView({
       : 'Generic-hit proxy' },
     { label: 'Expected single 100-potency hit', value: (build) => formatNumber.format(build.selectedSet.metrics.expectedAction100) },
     {
-      label: `Difference from ${baseline.name}`,
+      label: `100-potency difference from ${baseline.name}`,
       value: (build) => {
         if (build.id === baseline.id) return 'Baseline';
-        if (!contextsMatch(baselineSet, build.selectedSet)) return 'Not directly comparable';
-        const baselineValue = selectedEvaluationValue(baselineSet);
-        const candidateValue = selectedEvaluationValue(build.selectedSet);
+        if (!calculationContextsMatch(baselineSet, build.selectedSet)) return 'Not directly comparable';
+        const baselineValue = baselineSet.metrics.expectedAction100;
+        const candidateValue = build.selectedSet.metrics.expectedAction100;
+        const delta = candidateValue - baselineValue;
+        const percent = baselineValue === 0 ? 0 : delta / baselineValue * 100;
+        return `${delta >= 0 ? '+' : ''}${formatNumber.format(delta)} · ${percent >= 0 ? '+' : ''}${percent.toFixed(3)}%`;
+      }
+    },
+    {
+      label: `Rotation difference from ${baseline.name}`,
+      value: (build) => {
+        if (build.id === baseline.id) return baselineSet.rotationEvaluation ? 'Baseline' : 'Not evaluated';
+        if (!baselineSet.rotationEvaluation || !build.selectedSet.rotationEvaluation) return 'Not evaluated in both builds';
+        if (!rotationContextsMatch(baselineSet, build.selectedSet)) return 'Not directly comparable';
+        const baselineValue = baselineSet.rotationEvaluation.totalDamage;
+        const candidateValue = build.selectedSet.rotationEvaluation.totalDamage;
         const delta = candidateValue - baselineValue;
         const percent = baselineValue === 0 ? 0 : delta / baselineValue * 100;
         return `${delta >= 0 ? '+' : ''}${formatNumber.format(delta)} · ${percent >= 0 ? '+' : ''}${percent.toFixed(3)}%`;

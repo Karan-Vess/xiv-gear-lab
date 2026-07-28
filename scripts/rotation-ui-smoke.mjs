@@ -149,7 +149,37 @@ app.whenReady().then(async () => {
         resultHeading: document.querySelector('#set-heading')?.textContent ?? '',
         rotationBadgeVisible: Boolean(document.querySelector('[data-rotation-evaluation]')),
         rotationScoreVisible: document.querySelector('.score-block span')?.textContent?.includes('Five-minute dummy rotation total damage') ?? false,
+        activeTabSummary: document.querySelector('[data-workspace-tab="build-1"] span')?.textContent ?? '',
         message
+      };
+    })()
+  `);
+
+  await window.webContents.executeJavaScript(`
+    (() => {
+      const button = document.querySelector('[data-evaluate-equipped-set]');
+      if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        throw new Error('Equipped-set evaluation control is missing or disabled for Samurai.');
+      }
+      button.click();
+    })()
+  `);
+  if (!await waitFor(window, `document.querySelector('[data-equipped-evaluation-mode="dummy-300"]')`, 900)) {
+    throw new Error('Equipped-set 30-second and 300-second evaluation did not finish within 90 seconds.');
+  }
+  const equippedAudit = await window.webContents.executeJavaScript(`
+    (() => {
+      const panel = document.querySelector('[data-equipped-evaluation-results]');
+      const text = panel?.textContent ?? '';
+      return {
+        resultVisible: Boolean(panel),
+        potencyVisible: text.includes('100p hit'),
+        burstVisible: text.includes('30 s burst'),
+        dummyVisible: text.includes('300 s dummy'),
+        dpsValues: [...(panel?.querySelectorAll('small') ?? [])]
+          .filter((entry) => entry.textContent?.includes('DPS'))
+          .map((entry) => entry.textContent?.trim() ?? ''),
+        message: document.querySelector('.run-message')?.textContent ?? ''
       };
     })()
   `);
@@ -170,16 +200,25 @@ app.whenReady().then(async () => {
     !audit.cacheReuseVisible ||
     audit.resultHeading !== 'Best five-minute dummy rotation result' ||
     !audit.rotationBadgeVisible ||
-    !audit.rotationScoreVisible
+    !audit.rotationScoreVisible ||
+    !audit.activeTabSummary.includes('100p') ||
+    !audit.activeTabSummary.includes('DPS') ||
+    !equippedAudit.resultVisible ||
+    !equippedAudit.potencyVisible ||
+    !equippedAudit.burstVisible ||
+    !equippedAudit.dummyVisible ||
+    equippedAudit.dpsValues.length !== 2 ||
+    !equippedAudit.message.includes('without changing any gear')
   ) {
-    errors.push(`M12E UI audit failed: ${JSON.stringify({ unsupportedAudit, pilotAudit, audit })}`);
+    errors.push(`M12E UI audit failed: ${JSON.stringify({ unsupportedAudit, pilotAudit, audit, equippedAudit })}`);
   }
 
   await mkdir(dirname(artifactPath), { recursive: true });
-  await writeFile(artifactPath, `${JSON.stringify({ unsupportedAudit, pilotAudit, audit, errors }, null, 2)}\n`);
+  await writeFile(artifactPath, `${JSON.stringify({ unsupportedAudit, pilotAudit, audit, equippedAudit, errors }, null, 2)}\n`);
   await new Promise((resolveDelay) => setTimeout(resolveDelay, 300));
   await writeFile(screenshotPath, (await window.webContents.capturePage()).toPNG());
   console.log(`M12E rotation UI audit: ${JSON.stringify(audit)}`);
+  console.log(`Equipped-set evaluation audit: ${JSON.stringify(equippedAudit)}`);
   console.log(`Evidence: ${artifactPath}`);
 
   if (errors.length > 0) {

@@ -71,11 +71,13 @@ import {
   constraintsForExpansion,
   copyBuildLoadout,
   createInitialBuildWorkspaceState,
+  equippedSetEvaluationFingerprint,
   isBuildId,
   resetIncompatibleWorkspaceBuilds,
   workspaceBuildsUsingItem,
   workspaceSnapshotIds,
   type BuildId,
+  type EquippedSetEvaluation,
   type BuildWorkspace,
   type BuildWorkspaceState,
   type CustomItemFallback,
@@ -688,6 +690,91 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
   );
 }
 
+function EquippedSetEvaluationPanel({
+  set,
+  evaluation,
+  available,
+  busy,
+  potion,
+  onPotionChange,
+  onEvaluate
+}: {
+  set: GearSet;
+  evaluation?: EquippedSetEvaluation;
+  available: boolean;
+  busy: boolean;
+  potion: 'none' | 'included';
+  onPotionChange: (next: 'none' | 'included') => void;
+  onEvaluate: () => void;
+}) {
+  const current = evaluation?.setFingerprint === equippedSetEvaluationFingerprint(set) &&
+    evaluation.potion === potion;
+  const results = current ? evaluation.results : undefined;
+  return (
+    <section className="equipped-evaluation-panel" aria-labelledby="equipped-evaluation-heading">
+      <div className="equipped-evaluation-heading">
+        <div>
+          <p className="eyebrow">Current equipment only</p>
+          <h3 id="equipped-evaluation-heading">Evaluate equipped set</h3>
+          <small>No gear search. Calculates this exact loadout at 30 s and 300 s.</small>
+        </div>
+        <div className="equipped-evaluation-actions">
+          <label>
+            Potion
+            <select
+              aria-label="Equipped-set evaluation potion assumption"
+              value={potion}
+              disabled={busy}
+              onChange={(event) => onPotionChange(event.target.value as 'none' | 'included')}
+            >
+              <option value="none">None</option>
+              <option value="included">Grade 2 Gemdraught</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="primary small"
+            data-evaluate-equipped-set
+            disabled={!available || busy}
+            onClick={onEvaluate}
+          >
+            {busy ? 'Evaluating...' : 'Evaluate 30 s + 300 s'}
+          </button>
+        </div>
+      </div>
+      {!available && (
+        <p className="equipped-evaluation-note">
+          Direct rotation evaluation is not installed for this job and ruleset yet.
+        </p>
+      )}
+      {available && evaluation && !current && (
+        <p className="equipped-evaluation-note stale">
+          Equipment or potion assumptions changed. Run the evaluation again to refresh these results.
+        </p>
+      )}
+      <div className="equipped-evaluation-results" data-equipped-evaluation-results>
+        <article data-equipped-evaluation-mode="generic-hit">
+          <span>100p hit</span>
+          <strong>{formatNumber.format(set.metrics.expectedAction100)}</strong>
+          <small>Always available</small>
+          <small>Generic damage proxy</small>
+        </article>
+        {results && (['opener-30', 'dummy-300'] as const).map((mode) => {
+            const result = results[mode];
+            return (
+              <article data-equipped-evaluation-mode={mode} key={mode}>
+                <span>{mode === 'opener-30' ? '30 s burst' : '300 s dummy'}</span>
+                <strong>{formatNumber.format(result.totalDamage)}</strong>
+                <small>{formatNumber.format(result.dps)} DPS</small>
+                <small>{result.actionCount} actions · {result.gcdCount} GCD · {result.clippedMs} ms clipping</small>
+              </article>
+            );
+          })}
+      </div>
+    </section>
+  );
+}
+
 function SetDetails({
   set,
   previousSet,
@@ -1099,7 +1186,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     selectedSet: { ...build.selectedSet, rotationEvaluation: undefined },
     result: undefined,
     runState: 'idle',
-    message: `${next === 'included' ? 'Potion-enabled' : 'Potion-free'} rotation assumption selected. Re-run the optimiser to compare finalists under it.`
+    message: `${next === 'included' ? 'Potion-enabled' : 'Potion-free'} rotation assumption selected. Re-run the optimiser or evaluate the current equipment to refresh rotation results.`
   }));
   const setSelectedSet = (next: GearSet) => setBuildField('selectedSet', next);
   const setPreviousOptimizedSet = (next: GearSet | undefined) => setBuildField('previousOptimizedSet', next);
@@ -1162,6 +1249,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const activeRotationProfile = evaluationMode === 'generic-hit'
     ? undefined
     : rotationProfileFor(job, evaluatorProfile.rulesetId, evaluationMode);
+  const equippedEvaluationAvailable = (['opener-30', 'dummy-300'] as const).every((mode) =>
+    getEvaluatorCapability(gearSnapshot.registry, job, 'standard', mode)?.status === 'available' &&
+    Boolean(rotationProfileFor(job, evaluatorProfile.rulesetId, mode))
+  );
   const customEvaluatorProfile = evaluatorProfileFor(customJob);
   const customItemLimits = useMemo(
     () => getCustomItemLimits(customJob, customDraft.slot),
@@ -1390,6 +1481,77 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       snapshot: gearSnapshot,
       evaluationMode,
       rotationPotion: activeBuild.rotationPotion ?? 'none'
+    });
+  };
+
+  const evaluateEquippedSet = () => {
+    if (!equippedEvaluationAvailable) {
+      setRunState('error');
+      setMessage(`Direct 30-second and 300-second evaluation is unavailable for ${job} under ${evaluatorProfile.rulesetId}.`);
+      return;
+    }
+    const runBuildId = activeBuildId;
+    const evaluatedSet = structuredClone(selectedSet);
+    const setFingerprint = equippedSetEvaluationFingerprint(evaluatedSet);
+    const rotationPotion = activeBuild.rotationPotion ?? 'none';
+    const priorWorker = workerRef.current;
+    priorWorker?.worker.terminate();
+    if (priorWorker) {
+      updateBuildById(priorWorker.buildId, (build) => ({
+        ...build,
+        runState: 'idle',
+        message: priorWorker.buildId === runBuildId
+          ? 'Previous calculation replaced by the equipped-set evaluation.'
+          : `Calculation cancelled because ${activeBuild.name} started an equipped-set evaluation.`
+      }));
+    }
+
+    const worker = new Worker(new URL('./optimizer.worker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = { worker, buildId: runBuildId };
+    updateBuildById(runBuildId, (build) => ({
+      ...build,
+      runState: 'running',
+      message: 'Evaluating this exact loadout at 30 seconds and 300 seconds. Equipment will not be changed.'
+    }));
+    worker.onmessage = (event: MessageEvent) => {
+      if (event.data.type === 'progress') {
+        const progress = Math.max(0, Math.min(100, Math.round(Number(event.data.progress) * 100)));
+        updateBuildById(runBuildId, (build) => ({
+          ...build,
+          message: `${event.data.message} ${progress}%`
+        }));
+      }
+      if (event.data.type === 'equipped-evaluation-result') {
+        updateBuildById(runBuildId, (build) => ({
+          ...build,
+          equippedSetEvaluation: {
+            setFingerprint,
+            potion: rotationPotion,
+            evaluatedAt: new Date().toISOString(),
+            results: event.data.results
+          },
+          runState: 'done',
+          message: 'Evaluated the equipped set at 30 seconds and 300 seconds without changing any gear.'
+        }));
+        worker.terminate();
+        if (workerRef.current?.worker === worker) workerRef.current = null;
+      }
+      if (event.data.type === 'error') {
+        updateBuildById(runBuildId, (build) => ({
+          ...build,
+          runState: 'error',
+          message: event.data.message
+        }));
+        worker.terminate();
+        if (workerRef.current?.worker === worker) workerRef.current = null;
+      }
+    };
+    worker.postMessage({
+      type: 'evaluate-equipped',
+      set: evaluatedSet,
+      customItems,
+      snapshot: gearSnapshot,
+      rotationPotion
     });
   };
 
@@ -2183,9 +2345,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                   >
                     <strong>{build.name}</strong>
                     <span>
-                      {build.job} · {(build.constraints.gcdMode ?? 'exact') === 'range' ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s` : `${build.gcdTarget}s`} · {build.selectedSet.rotationEvaluation
-                        ? `${formatNumber.format(build.selectedSet.rotationEvaluation.dps)} DPS`
-                        : formatNumber.format(build.selectedSet.metrics.expectedAction100)}
+                      {build.job} · {(build.constraints.gcdMode ?? 'exact') === 'range' ? `${build.constraints.minGcd.toFixed(2)}–${build.constraints.maxGcd.toFixed(2)}s` : `${build.gcdTarget}s`} · 100p {formatNumber.format(build.selectedSet.metrics.expectedAction100)}
+                      {build.selectedSet.rotationEvaluation ? ` · ${formatNumber.format(build.selectedSet.rotationEvaluation.dps)} DPS` : ''}
                       {build.selectedSet.hypotheticalAccess ? ' · HYPOTHETICAL' : ''}
                     </span>
                   </button>
@@ -2441,6 +2602,15 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                 </section>
 
                 <div className="result-column">
+                  <EquippedSetEvaluationPanel
+                    set={selectedSet}
+                    evaluation={activeBuild.equippedSetEvaluation}
+                    available={equippedEvaluationAvailable}
+                    busy={runState === 'running'}
+                    potion={activeBuild.rotationPotion ?? 'none'}
+                    onPotionChange={setRotationPotion}
+                    onEvaluate={evaluateEquippedSet}
+                  />
                   <SetDetails
                     set={selectedSet}
                     previousSet={previousOptimizedSet}

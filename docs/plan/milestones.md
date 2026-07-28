@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.10.0-beta.1 M12E optimiser and UI integration
+Status: revised through the v0.10.0-beta.2 M12 owner-testing UX follow-up
 Date: 2026-07-26
-Current runnable baseline: Windows/browser-capable v0.10.0-beta.1 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.10.0-beta.2 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -451,7 +451,7 @@ This is a reliability prerequisite, not the start of M12. The existing fast gene
 
 ### M12 - Bounded combat evaluator framework
 
-Status: **Feature-complete in v0.10.0-beta.1 and awaiting owner acceptance testing before the unsuffixed v0.10.0 milestone release**.
+Status: **Complete in v0.10.0-beta.2 after owner acceptance testing**.
 
 Deliver:
 
@@ -482,6 +482,7 @@ Accept when:
 - Unsupported jobs/modes remain visibly unavailable rather than falling back to a generic rotation.
 - Encounter mechanics, movement and fight scripting are absent by design and stated clearly.
 - Every evaluator result exposes its formula/methodology references without requiring the application to reproduce or teach the source material.
+- The currently equipped set can run both rotation windows directly without another gear search, and stale results are not presented after its loadout or potion assumption changes.
 
 Tests:
 
@@ -501,6 +502,7 @@ Implementation slices:
 - **M12C - Hybrid rotation policy (complete in v0.10.0-alpha.3):** ordered declarative priorities, safe-weave and controlled-clipping rules, optional patch- and assumption-matched community opener execution, explicit fallback warnings, consumable filtering, decision tracing and exact 30/300-second runs.
 - **M12D - Pilot evaluators (complete in v0.10.0-alpha.4):** SAM, DNC, BLM and DRK profiles, mechanics and independent reference traces.
 - **M12E - Optimiser and UI integration (complete in v0.10.0-beta.1):** selectable modes, speed-diverse finalist reranking, damage-only timeline reuse, worker cancellation/progress, comparison display, provenance and measured sub-five-second pilot performance.
+- **M12 owner-testing follow-up (complete in v0.10.0-beta.2):** one-click 30-second and 300-second evaluation of the exact active loadout, independent of gear optimisation, with potion-aware stale-result handling.
 
 ### M13 - Combat evaluator coverage and evolved modes
 

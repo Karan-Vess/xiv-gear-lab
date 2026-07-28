@@ -38,6 +38,27 @@ export interface GearSetRotationRerankResult {
   timelineCacheHits: number;
 }
 
+export const evaluateGearSetByRotation = (
+  snapshot: GearSnapshot,
+  set: GearSet,
+  mode: RotationEvaluationMode,
+  potion: 'none' | 'included',
+  control: GearSetRotationRerankControl = { isCancelled: () => false }
+): RotationEvaluationSummary => {
+  const evaluated = rerankGearSetsByRotation(
+    snapshot,
+    [set],
+    set.job,
+    mode,
+    potion,
+    set.id,
+    control
+  );
+  const summary = evaluated.best.rotationEvaluation;
+  if (!summary) throw new Error(`The ${mode} evaluator returned no result for ${set.name}.`);
+  return summary;
+};
+
 const rotationSummary = (
   evaluation: CombatEvaluationResult,
   rerankedCandidateCount: number,

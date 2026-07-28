@@ -8,6 +8,17 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 - Expanded the M13 acceptance checklist with curated-set ablation tests, requiring generated optimisation to demonstrate comparable results without curated warm starts and to disclose any material quality gap.
 
+## 0.10.0-beta.2 - 2026-07-28
+
+### Added
+
+- Added a three-score equipped-set panel with an always-visible 100-potency proxy and one-click 30-second and 300-second results without rerunning gear optimisation. Rotation results retain the selected potion assumption and visibly expire when the loadout or assumption changes.
+
+### Changed
+
+- Mixed proxy and simulator builds now retain a directly comparable 100-potency value and delta. Rotation damage is reported through a separate compatibility-aware comparison.
+- Marked M12 complete after owner acceptance of the combat evaluator and equipped-set evaluation workflow.
+
 ## 0.10.0-beta.1 - 2026-07-26
 
 ### Added

@@ -1,9 +1,13 @@
 import { optimizeCombatJob } from '@xiv-gear-lab/optimizer';
-import { rerankGearSetsByRotation } from '@xiv-gear-lab/simulator/rerank-gearsets';
+import {
+  evaluateGearSetByRotation,
+  rerankGearSetsByRotation
+} from '@xiv-gear-lab/simulator/rerank-gearsets';
 import type {
   CombatJob,
   EquipmentItem,
   EvaluationMode,
+  GearSet,
   GearSnapshot,
   OptimizerConstraints
 } from '@xiv-gear-lab/domain';
@@ -18,14 +22,50 @@ interface OptimizeWorkerRequest {
   rotationPotion: 'none' | 'included';
 }
 
-self.onmessage = (event: MessageEvent<OptimizeWorkerRequest>) => {
-  if (event.data.type !== 'optimize') return;
+interface EvaluateEquippedWorkerRequest {
+  type: 'evaluate-equipped';
+  set: GearSet;
+  customItems: EquipmentItem[];
+  snapshot: GearSnapshot;
+  rotationPotion: 'none' | 'included';
+}
+
+type WorkerRequest = OptimizeWorkerRequest | EvaluateEquippedWorkerRequest;
+
+self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   self.postMessage({ type: 'started' });
   try {
     const snapshot = {
       ...event.data.snapshot,
       items: [...event.data.snapshot.items, ...event.data.customItems]
     };
+    if (event.data.type === 'evaluate-equipped') {
+      const request = event.data;
+      const modes = ['opener-30', 'dummy-300'] as const;
+      const results = Object.fromEntries(modes.map((mode, modeIndex) => {
+        const summary = evaluateGearSetByRotation(
+          snapshot,
+          request.set,
+          mode,
+          request.rotationPotion,
+          {
+            isCancelled: () => false,
+            reportProgress: (progress) => self.postMessage({
+              type: 'progress',
+              progress: (modeIndex + progress) / modes.length,
+              phase: 'equipped-evaluation',
+              message: mode === 'opener-30'
+                ? 'Evaluating the equipped 30-second burst.'
+                : 'Evaluating the equipped five-minute dummy rotation.'
+            })
+          }
+        );
+        return [mode, summary];
+      }));
+      self.postMessage({ type: 'equipped-evaluation-result', results });
+      return;
+    }
+
     let result = optimizeCombatJob(snapshot, event.data.constraints, event.data.job, {
       isCancelled: () => false,
       reportProgress: (update) => self.postMessage({
