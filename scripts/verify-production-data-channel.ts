@@ -43,6 +43,13 @@ const policy: SnapshotUpdatePolicy = {
 };
 
 const hosted = process.argv.includes('--hosted');
+const expectedSnapshotIndex = process.argv.indexOf('--expect-snapshot');
+const expectedSnapshotId = expectedSnapshotIndex >= 0
+  ? process.argv[expectedSnapshotIndex + 1]
+  : undefined;
+if (expectedSnapshotIndex >= 0 && !expectedSnapshotId) {
+  throw new Error('--expect-snapshot requires a snapshot ID.');
+}
 let fetcher: typeof fetch = fetch;
 if (!hosted) {
   const manifestBytes = await readFile(resolve(workspace, 'docs', 'channel', 'manifest.json'));
@@ -62,6 +69,11 @@ if (!hosted) {
 }
 
 const candidate = await downloadSnapshotCandidate(policy, runtime, fetcher);
+if (expectedSnapshotId && candidate.snapshot.manifest.id !== expectedSnapshotId) {
+  throw new Error(
+    `Hosted snapshot ${candidate.snapshot.manifest.id} does not yet match expected snapshot ${expectedSnapshotId}.`
+  );
+}
 process.stdout.write(`${JSON.stringify({
   status: 'passed',
   mode: hosted ? 'hosted' : 'staged-local',

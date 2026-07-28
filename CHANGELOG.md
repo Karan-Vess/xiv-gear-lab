@@ -17,6 +17,7 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 - Fixed patch updates silently omitting new official equipment when a supporting provider lagged behind XIVAPI. Official sheet search now discovers the candidate pool directly, and Phantom Weapon allocations are derived from the official enhancement data.
 - Added Patch 7.55 Phantom Weapon Occultum acquisition metadata and raised the default item-level ceiling to 795.
 - Made long-running owner publications accept an exact explicit confirmation argument so Windows cannot close a piped approval before validation finishes.
+- Made hosted publication verification wait for the exact newly signed snapshot instead of accepting an older valid release while deployment is still in progress.
 - Made the owner-run data publication confirmation recover from typing mistakes by prompting again, while deliberate cancellation now restores the generated candidate instead of blocking the next update attempt.
 - Expanded the M13 acceptance checklist with curated-set ablation tests, requiring generated optimisation to demonstrate comparable results without curated warm starts and to disclose any material quality gap.
 

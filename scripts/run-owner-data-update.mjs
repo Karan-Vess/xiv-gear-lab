@@ -200,7 +200,7 @@ try {
     let hosted = false;
     for (let attempt = 1; attempt <= 24; attempt += 1) {
       try {
-        await runNpm(['run', 'verify:data-hosted']);
+        await runNpm(['run', 'verify:data-hosted', '--', '--expect-snapshot', report.after.id]);
         hosted = true;
         break;
       } catch {
