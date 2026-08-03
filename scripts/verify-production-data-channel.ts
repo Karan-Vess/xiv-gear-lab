@@ -23,7 +23,7 @@ const runtime: RuntimeCompatibility = {
     'ffxiv-combat-level-50@1'
   ],
   evaluatorProfileSchemas: ['generic-hit-profile@1'],
-  rotationProfileSchemas: ['combat-rotation-profile@1']
+  rotationProfileSchemas: ['combat-rotation-profile@1', 'combat-rotation-profile@2']
 };
 const minimumSnapshotCounts: Partial<SnapshotCounts> = {
   expansions: 6,

@@ -4,6 +4,160 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+## 0.11.0 - 2026-08-03
+
+### Changed
+
+- Completed M13 for the current Dawntrail standard-job scope after owner acceptance and deep validation across all 21 standard combat jobs. Next-expansion jobs and evolved modes remain time-gated until authoritative data exists.
+- Kept Black Mage's unrestricted-GCD recommendation explicitly preliminary after an external XivGear comparison preferred the matched 2.14-second set. Exact 2.14-second optimisation reproduced the community set, confirming a declared evaluator-model limitation rather than a gear-search failure.
+- Recorded that Viper reproduced its compared community set exactly and that XivGear independently ranked the unrestricted Samurai result slightly above the compared 2.14-second community set, while the exact 2.14-second search reproduced that set.
+
+### Validation
+
+- Passed the deep M13E acceptance matrix, including 159 automated tests, curated-free Quality First searches across all 21 standard jobs, Samurai cadence checks, healer MP sustainability, runtime compatibility and packaged desktop smoke paths.
+
+## 0.11.0-beta.3 - 2026-08-01
+
+### Added
+
+- Added strict cutoff diagnostics, per-DoT cadence details and a visible 510-second sensitivity audit that reports when the same retained finalists prefer a different winner than the requested 300-second result.
+- Added repeatable Samurai speed-tier and healer MP-sustainability acceptance audits.
+
+### Changed
+
+- Expanded Samurai's generated priority with Meikyo Shisui finishers, Tendo replacements and Higanbana Sen reservation instead of treating raw 300-second damage as the only cadence signal.
+- Healer damage spells now spend MP. Natural Piety regeneration, Lucid Dreaming, White Mage Assize, Scholar Aetherflow and Astrologian Draw affect long-window uptime, and evaluated healer results show remaining MP.
+- Advanced declarative rotation profiles to schema version 2 while retaining read compatibility with version 1 profiles.
+
+### Fixed
+
+- Rotation evaluation can now wait for a scheduled resource tick and resume instead of ending the entire timeline when the next action is temporarily unaffordable.
+- Healer timing caches now include Piety, preventing equal-GCD sets with different MP sustainability from sharing an invalid action timeline.
+
+## 0.11.0-beta.2 - 2026-07-29
+
+### Changed
+
+- Effective-level changes are now drafted until focus leaves the field or Enter is pressed. The control shows the installed level-cap evaluator choices and refreshes level-appropriate materia and food constraints when a supported level is applied.
+
+### Fixed
+
+- Typing a multi-digit effective level no longer briefly applies an unsupported intermediate value and crashes the renderer. Unsupported levels now leave the previous valid level active and explain which level-cap evaluators are installed.
+
+## 0.11.0-beta.1 - 2026-07-29
+
+### Added
+
+- Added repeatable routine and deep M13E acceptance commands that consolidate timing, all-job optimisation, curated-free, persistence and runtime-compatibility checks into one report.
+- Added a focused beta owner checklist for cast timing, broad-versus-exact GCD retention, independent build persistence, historical expansion safety and external comparison.
+
+### Changed
+
+- Started M13E acceptance with explicit cast-timing, cross-speed, evidence-hierarchy and external-comparison requirements across all 21 standard combat jobs.
+- Time-gated next-expansion onboarding so unavailable future data does not block the current Dawntrail acceptance cycle.
+- Deferred Blue Mage and Beastmaster optimisation until the standard-job application is otherwise complete and limited-job objectives can be defined from adequate evidence.
+
+### Fixed
+
+- Corrected casted-action timing so casts overlap their action lock and both cast and recast durations scale with the active speed and haste context. This removes artificial Black Mage clipping while preserving Summoner's genuine Slipstream overrun.
+
+## 0.11.0-alpha.8 - 2026-07-29
+
+### Added
+
+- Completed M13C standard-job coverage with generated-priority 30-second and 300-second evaluators for Summoner, Red Mage and Pictomancer.
+- Added magical-ranged mechanic fixtures and `npm run validate:m13c:casters` routine/deep curated-free validation commands.
+
+### Changed
+
+- Summoner models the Solar Bahamut, Bahamut, Solar Bahamut and Phoenix cycle, elemental attunements, pet attacks, Aetherflow and Searing Light.
+- Red Mage models expected-value Dualcast pairs, balanced mana generation, the fixed-speed enchanted melee and finisher chains, Grand Impact, Vice of Thorns and Prefulgence.
+- Pictomancer models additive and subtractive palettes, canvases, creature portraits, Hammer, Starry Muse and a bounded Hyperphantasia haste window.
+
+## 0.11.0-alpha.7 - 2026-07-29
+
+### Added
+
+- Continued M13C with generated-priority 30-second and 300-second evaluators for Bard and Machinist, completing current physical-ranged coverage alongside Dancer.
+- Added physical-ranged mechanic fixtures and `npm run validate:m13c:ranged` routine/deep curated-free validation commands.
+
+### Changed
+
+- Bard models damage-over-time upkeep, expected Hawk's Eye, a deterministic 45/45/30-second song cycle, Coda, Soul Voice, personal song effects and expected Repertoire damage; its provenance explicitly states that the pinned XivGear revision has no Bard-specific simulator.
+- Machinist models heated combos, tools, fixed three-shot Hypercharge, six-hit Wildfire, Reassemble, Full Metal Field and the pinned 100-Battery Automaton Queen trace.
+
+## 0.11.0-alpha.6 - 2026-07-29
+
+### Fixed
+
+- Downloaded catalogue caches no longer hide evaluator capabilities added by a newer executable. Compatible cached items and signed snapshot identity are retained while newer trusted bundled rotation profiles are applied in memory.
+- A newer compatible signed-channel rotation profile still takes precedence over the executable's bundled revision.
+
+## 0.11.0-alpha.5 - 2026-07-29
+
+### Added
+
+- Continued M13C with generated-priority 30-second and 300-second evaluators for Monk, Dragoon, Ninja, Reaper and Viper, completing current melee coverage alongside Samurai.
+- Added official Job Guide and pinned XivGear cross-check references, melee-mechanic fixtures and `npm run validate:m13c:melee` routine/deep curated-free validation commands.
+
+### Changed
+
+- Monk models permanent Greased Lightning, expected-value Chakra, deterministic Blitz/nadi sequences and reply actions; Dragoon models both combo branches and Life of the Dragon; Ninja models aggregate Mudra sequences, Ninki, Bunshin and personal vulnerability windows; Reaper models Soul/Shroud and Enshroud; Viper models Vipersight, Vicewinder, Rattling Coils and Reawaken.
+- The shared pilot engine now applies permanent job haste separately from maintained action buffs, preventing Monk and Ninja haste from being omitted without double-applying Samurai Fuka or Viper Swiftscaled.
+
+## 0.11.0-alpha.4 - 2026-07-29
+
+### Added
+
+- Continued M13C with generated-priority 30-second and 300-second evaluators for Paladin, Warrior and Gunbreaker, completing current tank coverage alongside Dark Knight.
+- Added official Job Guide and pinned XivGear cross-check references, tank-mechanic fixtures and `npm run validate:m13c:tanks` routine/deep curated-free validation commands.
+
+### Changed
+
+- Paladin models Fight or Flight, Goring Blade, Imperator, the Confiteor and Atonement chains, Blade of Honor and fixed base-recast spells; Warrior models Surging Tempest, Beast Gauge, Inner Release, guaranteed critical/direct-hit finishers and Primal Wrath; Gunbreaker models No Mercy, cartridge spending, Bloodfest, Reign of Beasts and complete Continuation chains.
+- Warrior's Infuriate timing uses a visible effective-cooldown approximation until active cooldown reduction is supported by the signed profile contract.
+
+## 0.11.0-alpha.3 - 2026-07-29
+
+### Added
+
+- Started M13C role-batch coverage with generated-priority 30-second and 300-second evaluators for White Mage, Scholar, Astrologian and Sage.
+- Added official Job Guide and pinned XivGear cross-check references, per-healer audit metadata, role-mechanic fixtures and `npm run validate:m13c:healers` routine/deep curated-free validation commands.
+
+### Changed
+
+- The shared pilot engine now supports healer role identity, Mind damage profiles and spell-speed timing without job-name special cases.
+- White Mage models Presence of Mind, Sacred Sight, Glare IV, Dia and Assize; Scholar models Chain Stratagem, Baneful Impaction, Aetherflow and Energy Drain; Astrologian models personal Divination, Oracle, Lord of Crowns and mature Earthly Star damage; Sage models its fixed Eukrasian DoT sequence, Phlegma charges and Psyche.
+- Combat-potion provenance now links the main-stat variant appropriate to each supported evaluator.
+
+## 0.11.0-alpha.2 - 2026-07-29
+
+### Added
+
+- Completed the M13B pilot audit with explicit independent cross-check metadata, dated source references, checked components and visible remaining limitations for Samurai, Dancer, Black Mage and Dark Knight.
+- Added repeatable four-job curated-set ablation validation. Removing every curated warm start reproduces the same generated equipment and meld plan in the bounded validation scenario, with each result remaining within the declared one-percent comparability threshold against its community reference.
+- Added `npm run validate:m13b` for the routine validation report and `npm run validate:m13b:deep` for the slower quality-first audit.
+
+### Changed
+
+- Samurai simulation now includes Kaeshi: Setsugekka and Zanshin in its generated priority.
+- Dancer simulation now distinguishes Flourish-granted Finishing Move from the longer Standard Step sequence.
+- Rotation methodology now shows independent trace-audit status separately from generated-priority confidence. Cross-checking a trace does not mislabel the generated method as a community-authored opener.
+
+## 0.11.0-alpha.1 - 2026-07-29
+
+### Added
+
+- Started M13 with explicit standard/evolved ruleset mode identity, an exact per-ruleset capability resolver, and calculation contexts that pin both job mode and evaluation mode.
+- Added compact per-build ruleset controls and catalogue, 100-potency, 30-second and 300-second capability status. Missing evolved or rotation profiles remain visible but cannot borrow standard-mode logic.
+- Added component-level generic-hit method references that distinguish original author, hosting platform, external formula cross-checks and XIV Gear Lab-owned implementation/ranking.
+- Added deterministic migration from pre-M13 workspaces to the standard mode while preserving all three independent builds.
+
+### Changed
+
+- Optimizer, recalculation and simulator profile lookup now use the selected job mode throughout, including warm starts, generated results, copied builds and opened saved sets.
+- Local workspace storage advanced to schema version 2 and database version 7.
+
 ## 0.10.0-beta.5 - 2026-07-28
 
 ### Added

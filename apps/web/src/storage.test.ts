@@ -1,7 +1,12 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { gearSnapshot } from '@xiv-gear-lab/data';
-import type { GearSet, OptimizerConstraints } from '@xiv-gear-lab/domain';
+import type {
+  GearSet,
+  OptimizerConstraints,
+  RotationEvaluationMode,
+  RotationEvaluationSummary
+} from '@xiv-gear-lab/domain';
 import {
   deleteCustomItem,
   loadBuildWorkspaceState,
@@ -21,6 +26,37 @@ const transactionDone = (transaction: IDBTransaction): Promise<void> => new Prom
   transaction.oncomplete = () => resolve();
   transaction.onerror = () => reject(transaction.error);
   transaction.onabort = () => reject(transaction.error);
+});
+
+const rotationSummary = (
+  mode: RotationEvaluationMode,
+  totalDamage: number
+): RotationEvaluationSummary => ({
+  mode,
+  label: mode === 'opener-30' ? '30-second burst' : 'Five-minute dummy',
+  durationMs: mode === 'opener-30' ? 30_000 : 300_000,
+  totalDamage,
+  dps: totalDamage / (mode === 'opener-30' ? 30 : 300),
+  profileId: 'test-rotation@1',
+  profileVersion: 'test@1',
+  rulesetId: 'dt-test@1',
+  gamePatch: 'test',
+  engineId: 'test-engine@1',
+  method: {
+    kind: 'generated-priority',
+    confidence: 'generated-preliminary'
+  },
+  actionCount: 10,
+  gcdCount: 8,
+  ogcdCount: 2,
+  clippedMs: 0,
+  references: [],
+  limitation: 'Persistence fixture.',
+  rerankedCandidateCount: 1,
+  rerankDurationMs: 1,
+  proxyBestSetId: 'test-set',
+  winnerChanged: false,
+  timelineCacheHits: 0
 });
 
 afterEach(async () => {
@@ -80,7 +116,7 @@ describe('saved-set storage migration', () => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    expect(upgraded.version).toBe(6);
+    expect(upgraded.version).toBe(7);
     expect(upgraded.objectStoreNames.contains('metadata')).toBe(true);
     expect(upgraded.objectStoreNames.contains('workspaces')).toBe(true);
     upgraded.close();
@@ -150,6 +186,68 @@ describe('saved-set storage migration', () => {
     });
     expect(customRecord).toBeTruthy();
     upgraded.close();
+  });
+
+  it('round-trips independent evaluator modes and equipped-set results without cross-contamination', async () => {
+    const base = structuredClone(gearSnapshot.curatedSets.find((set) => set.job === 'SAM')!);
+    const fallback = createInitialBuildWorkspaceState({
+      expansion: 'dt',
+      level: 100,
+      job: 'SAM',
+      constraints: {
+        minResource: 0,
+        minGcd: 2.08,
+        maxGcd: 2.14,
+        allowedSources: ['savage', 'relic'],
+        requiredItemIds: [],
+        excludedItemIds: [],
+        frontierLimit: 500
+      },
+      gcdTarget: '2.14',
+      selectedSet: base,
+      message: 'Ready.'
+    });
+    const opener = rotationSummary('opener-30', 900_000);
+    const dummy = rotationSummary('dummy-300', 9_500_000);
+    fallback.builds['build-1'].evaluationMode = 'generic-hit';
+    fallback.builds['build-2'].evaluationMode = 'opener-30';
+    fallback.builds['build-2'].rotationPotion = 'included';
+    fallback.builds['build-2'].selectedSet.rotationEvaluation = opener;
+    fallback.builds['build-2'].equippedSetEvaluation = {
+      setFingerprint: 'build-2-fingerprint',
+      potion: 'included',
+      evaluatedAt: '2026-07-29T00:00:00.000Z',
+      results: {
+        'opener-30': opener,
+        'dummy-300': dummy
+      }
+    };
+    fallback.builds['build-3'].evaluationMode = 'dummy-300';
+    fallback.builds['build-3'].rotationPotion = 'none';
+
+    await saveBuildWorkspaceState(fallback);
+    const reloaded = await loadBuildWorkspaceState(createInitialBuildWorkspaceState({
+      expansion: 'dt',
+      level: 100,
+      job: 'SAM',
+      constraints: fallback.builds['build-1'].constraints,
+      gcdTarget: '2.14',
+      selectedSet: base,
+      message: 'Fresh fallback.'
+    }));
+
+    expect(reloaded.builds['build-1'].evaluationMode).toBe('generic-hit');
+    expect(reloaded.builds['build-1'].equippedSetEvaluation).toBeUndefined();
+    expect(reloaded.builds['build-2'].evaluationMode).toBe('opener-30');
+    expect(reloaded.builds['build-2'].rotationPotion).toBe('included');
+    expect(reloaded.builds['build-2'].selectedSet.rotationEvaluation).toEqual(opener);
+    expect(reloaded.builds['build-2'].equippedSetEvaluation?.results).toEqual({
+      'opener-30': opener,
+      'dummy-300': dummy
+    });
+    expect(reloaded.builds['build-3'].evaluationMode).toBe('dummy-300');
+    expect(reloaded.builds['build-3'].rotationPotion).toBe('none');
+    expect(reloaded.builds['build-3'].equippedSetEvaluation).toBeUndefined();
   });
 
   it('resets only the three-build workspace while preserving saved sets and custom items', async () => {

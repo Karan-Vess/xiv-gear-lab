@@ -71,6 +71,18 @@ export interface CombatTimelineSummary {
   clippedMs: number;
   overcappedResources: Record<string, number>;
   driftMsByAction: Record<string, number>;
+  dotCadenceById: Record<string, DotCadenceSummary>;
+    pendingApplicationsByAction: Record<string, number>;
+    pendingApplicationPotency: number;
+    finalResources: Record<string, number>;
+}
+
+export interface DotCadenceSummary {
+  applications: number;
+  refreshes: number;
+  earlyRefreshMs: number;
+  lateRefreshMs: number;
+  missedTicks: number;
 }
 
 export interface CombatTimelineResult {
@@ -291,6 +303,9 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
   const previousUseAt = new Map<string, number>();
   const overcappedResources = new Map<string, number>();
   const driftMsByAction = new Map<string, number>();
+  const dotCadenceById = new Map<string, DotCadenceSummary>();
+  const lastDotExpiryById = new Map<string, number>();
+  const dotGenerationById = new Map<string, number>();
   const records: CombatActionRecord[] = [];
   const events: ScheduledEvent[] = [];
   let eventSequence = 0;
@@ -349,8 +364,22 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
         activeHasteAt(atMs)
       );
 
+  const castFor = (action: CombatActionProfile, atMs: number): number =>
+    action.castMs === 0 || action.speedScaling === 'none'
+      ? action.castMs
+      : adjustedRecastMs(
+        action.castMs,
+        options.combatStats.speedStatValue,
+        options.combatStats.speedBaseSub,
+        options.combatStats.speedLevelDiv,
+        activeHasteAt(atMs)
+      );
+
   const cooldownDurationFor = (action: CombatActionProfile): number =>
     action.cooldownMs ?? (action.kind === 'ogcd' ? action.recastMs : 0);
+
+  const actorOccupiedDurationFor = (action: CombatActionProfile, atMs: number): number =>
+    Math.max(castFor(action, atMs), action.animationLockMs) + options.profile.assumptions.latencyMs;
 
   const availableCharges = (action: CombatActionProfile, atMs: number): number => {
     if (cooldownDurationFor(action) === 0) return action.charges;
@@ -406,7 +435,7 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
         if (!action || action.kind !== 'ogcd') return false;
         const earliest = earliestUseAt(action, atMs);
         if (!Number.isFinite(earliest) || earliest >= gcdReadyAtMs) return false;
-        const lockDuration = action.castMs + action.animationLockMs + options.profile.assumptions.latencyMs;
+        const lockDuration = actorOccupiedDurationFor(action, earliest);
         return (
           lockDuration <= options.profile.assumptions.weaveWindowMs &&
           earliest + lockDuration <= gcdReadyAtMs
@@ -448,9 +477,34 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
     appliedAtMs: number,
     snapshot: CombatDamageSnapshot
   ): void => {
-    const previousGeneration = dots.get(effect.dotId)?.generation ?? 0;
+    const previousExpiry = lastDotExpiryById.get(effect.dotId);
+    const cadence = dotCadenceById.get(effect.dotId) ?? {
+      applications: 0,
+      refreshes: 0,
+      earlyRefreshMs: 0,
+      lateRefreshMs: 0,
+      missedTicks: 0
+    };
+    cadence.applications += 1;
+    if (previousExpiry !== undefined) {
+      cadence.refreshes += 1;
+      if (appliedAtMs < previousExpiry) {
+        cadence.earlyRefreshMs += previousExpiry - appliedAtMs;
+      } else if (appliedAtMs > previousExpiry) {
+        cadence.lateRefreshMs += appliedAtMs - previousExpiry;
+        const firstInactiveTick = Math.floor(previousExpiry / DOT_TICK_INTERVAL_MS) * DOT_TICK_INTERVAL_MS + DOT_TICK_INTERVAL_MS;
+        for (let tickAtMs = firstInactiveTick; tickAtMs <= appliedAtMs; tickAtMs += DOT_TICK_INTERVAL_MS) {
+          cadence.missedTicks += 1;
+        }
+      }
+    }
+    dotCadenceById.set(effect.dotId, cadence);
+
+    const previousGeneration = dotGenerationById.get(effect.dotId) ?? 0;
     const generation = previousGeneration + 1;
     const expiresAtMs = appliedAtMs + effect.durationMs;
+    dotGenerationById.set(effect.dotId, generation);
+    lastDotExpiryById.set(effect.dotId, expiresAtMs);
     dots.set(effect.dotId, {
       id: effect.dotId,
       actionId: action.id,
@@ -504,6 +558,17 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
         });
       } else if (effect.kind === 'expected-proc') {
         expectedProcs.set(effect.procId, Math.min(1, (expectedProcs.get(effect.procId) ?? 0) + effect.chance));
+      } else if (effect.kind === 'periodic-resource') {
+        for (let index = 0; index < effect.repeatCount; index += 1) {
+          const atMs = event.atMs + effect.firstDelayMs + index * effect.intervalMs;
+          if (atMs > options.durationMs) break;
+          enqueue({
+            type: 'resource-tick',
+            atMs,
+            resource: effect.resource,
+            amount: effect.amount
+          });
+        }
       } else if (effect.kind === 'schedule-action') {
         const scheduled = actions.get(effect.actionId);
         if (!scheduled) continue;
@@ -670,8 +735,10 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
       previousUseAt.set(action.id, startedAtMs);
     }
 
-    const snapshotAtMs = startedAtMs + action.castMs;
-    actorReadyAtMs = snapshotAtMs + action.animationLockMs + options.profile.assumptions.latencyMs;
+    const snapshotAtMs = startedAtMs + castFor(action, startedAtMs);
+    // The action lock starts with the action and overlaps its cast. Adding the
+    // full lock after cast completion creates artificial clipping on hardcasts.
+    actorReadyAtMs = startedAtMs + actorOccupiedDurationFor(action, startedAtMs);
     scheduleSnapshot(action, startedAtMs, snapshotAtMs, source, 1, potency);
     options.onActionStarted?.(action, startedAtMs);
   };
@@ -749,6 +816,16 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
     const state = stateViewAt(nowMs);
     const selectedActionId = options.chooseAction(state);
     if (!selectedActionId) {
+      const nextEventAtMs = events[0]?.atMs;
+      const nextStateAtMs = nextStateChangeAt(nowMs);
+      const nextWakeAtMs = [nextEventAtMs, nextStateAtMs]
+        .filter((value): value is number => value !== undefined && value > nowMs)
+        .reduce<number | undefined>((earliestWake, value) =>
+          earliestWake === undefined ? value : Math.min(earliestWake, value), undefined);
+      if (nextWakeAtMs !== undefined && nextWakeAtMs <= options.durationMs) {
+        processEventsThrough(nextWakeAtMs);
+        continue;
+      }
       processEventsThrough(options.durationMs);
       break;
     }
@@ -791,6 +868,24 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
     left.startedAtMs - right.startedAtMs ||
     left.actionId.localeCompare(right.actionId)
   );
+  const pendingApplicationsByAction = new Map<string, number>();
+  const pendingApplicationKeys = new Set<string>();
+  let pendingApplicationPotency = 0;
+  for (const event of events) {
+    if (
+      (event.type !== 'snapshot-action' && event.type !== 'apply-action') ||
+      event.startedAtMs > options.durationMs ||
+      event.atMs <= options.durationMs
+    ) continue;
+    const key = `${event.source}:${event.action.id}:${event.startedAtMs}`;
+    if (pendingApplicationKeys.has(key)) continue;
+    pendingApplicationKeys.add(key);
+    pendingApplicationsByAction.set(
+      event.action.id,
+      (pendingApplicationsByAction.get(event.action.id) ?? 0) + 1
+    );
+    pendingApplicationPotency += (event.type === 'apply-action' ? event.potency : event.potency ?? event.action.potency) * event.expectedWeight;
+  }
   cleanStateAt(Math.min(nowMs, options.durationMs));
   const summary: CombatTimelineSummary = {
     actionCount: records.filter((record) => record.source === 'player').length,
@@ -798,7 +893,15 @@ export const runCombatTimeline = (options: CombatTimelineEngineOptions): CombatT
     ogcdCount: records.filter((record) => actions.get(record.actionId)?.kind === 'ogcd' && record.source === 'player').length,
     clippedMs,
     overcappedResources: objectFromMap(overcappedResources),
-    driftMsByAction: objectFromMap(driftMsByAction)
+    driftMsByAction: objectFromMap(driftMsByAction),
+    dotCadenceById: Object.fromEntries(
+      [...dotCadenceById.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([id, cadence]) => [id, { ...cadence }])
+    ),
+    pendingApplicationsByAction: objectFromMap(pendingApplicationsByAction),
+    pendingApplicationPotency,
+    finalResources: objectFromMap(resources)
   };
   options.control?.reportProgress?.(cancelled ? Math.min(1, nowMs / options.durationMs) : 1);
 

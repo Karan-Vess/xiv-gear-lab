@@ -96,6 +96,20 @@ select { cursor: pointer; }
 .role-option.role-tank, .role-group.role-tank { background: #17365e; color: #edf6ff; }
 .role-option.role-healer, .role-group.role-healer { background: #174a35; color: #effff7; }
 .role-option.role-dps, .role-group.role-dps { background: #58242d; color: #fff1f3; }
+.ruleset-mode-summary { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid rgba(223, 189, 116, .22); border-radius: 7px; background: rgba(223, 189, 116, .035); }
+.ruleset-mode-summary span { color: #8f846e; font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.ruleset-mode-summary > select { width: 100%; margin: 2px 0 4px; }
+.ruleset-mode-summary strong { color: #e5d5b5; font-size: 10px; }
+.ruleset-mode-summary small { color: #807660; font-size: 8px; }
+.evaluator-capabilities { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.evaluator-capability { min-width: 0; display: flex; justify-content: space-between; gap: 6px; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: rgba(8, 14, 24, .42); font-size: 8px; }
+.evaluator-capability span { color: #71879a; }
+.evaluator-capability strong { color: #8ca2b4; font-size: 7px; letter-spacing: .05em; text-transform: uppercase; }
+.evaluator-capability.available { border-color: rgba(104, 224, 189, .22); }
+.evaluator-capability.available strong { color: #68e0bd; }
+.evaluator-capability.pending { border-color: rgba(223, 189, 116, .24); }
+.evaluator-capability.pending strong { color: #d9bd82; }
+.evaluator-capability.unsupported strong { color: #7c8c99; }
 .evaluation-mode-summary { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px; background: rgba(107, 212, 255, .045); }
 .evaluation-mode-summary span { color: #71879a; font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .evaluation-mode-summary > select { width: 100%; margin: 2px 0 4px; }
@@ -216,6 +230,7 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
 .set-heading-row { display: flex; justify-content: space-between; align-items: start; gap: 20px; padding: 23px 25px 18px; }
 .set-heading-row h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 27px; margin: 5px 0 0; }
 .evaluation-note { display: block; margin-top: 6px; color: #6daec8; font-size: 8px; letter-spacing: .02em; }
+.duration-stability-warning { display: block; margin-top: 6px; color: #efb366; font-size: 9px; }
 .gcd-state-note { display: block; margin-top: 5px; color: #8eafbd; font-size: 8px; }
 .change-legend { display: block; margin-top: 6px; color: #7693a5; font-size: 9px; }
 .score-block { display: grid; text-align: right; }
@@ -294,6 +309,7 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
 .methodology-panel { display: grid; gap: 9px; margin: 0 0 15px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(12, 22, 34, .72); }
 .methodology-panel p { margin: 0; color: #8197aa; font-size: 9px; line-height: 1.5; }
 .methodology-panel .methodology-caveat { color: #a28d68; }
+.methodology-panel .methodology-warning { color: #efb366; font-weight: 700; }
 .methodology-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .methodology-summary span { min-width: 0; display: grid; gap: 2px; color: #aac0d2; font-size: 8px; }
 .methodology-summary strong { color: #647c91; font-size: 7px; letter-spacing: .08em; text-transform: uppercase; }
@@ -303,6 +319,11 @@ legend { padding: 0 0 8px; color: #aebfd0; font-size: 11px; font-weight: 700; }
 .methodology-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .methodology-links > strong { color: #71899d; font-size: 8px; }
 .methodology-links a { padding: 4px 6px; border: 1px solid var(--line); border-radius: 20px; color: #8ed9f7; font-size: 8px; text-decoration: none; }
+.method-reference-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 7px; }
+.method-reference-card { min-width: 0; display: grid; align-content: start; gap: 3px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; background: rgba(8, 14, 24, .45); }
+.method-reference-card strong { color: #b7cad9; font-size: 8px; }
+.method-reference-card span, .method-reference-card small, .method-reference-card em { color: #71879a; font-size: 7px; line-height: 1.4; font-style: normal; }
+.method-reference-card a { color: #8ed9f7; font-size: 7px; text-decoration: none; }
 .methodology-panel details { color: #7890a4; font-size: 8px; }
 .methodology-panel summary { cursor: pointer; }
 .methodology-panel details ul { margin-top: 7px; }

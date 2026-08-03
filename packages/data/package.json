@@ -1,6 +1,6 @@
 {
   "name": "@xiv-gear-lab/data",
-  "version": "0.10.0-beta.5",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",

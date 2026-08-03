@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through the v0.10.0-beta.5 pre-M13 quality-first search preparation
-Date: 2026-07-26
-Current runnable baseline: Windows/browser-capable v0.10.0-beta.5 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Status: revised through completed M13 in v0.11.0
+Date: 2026-08-03
+Current runnable baseline: Windows/browser-capable v0.11.0 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -536,7 +536,7 @@ Tests:
 
 ### M13 - Combat evaluator coverage and evolved modes
 
-Status: **Planned**.
+Status: **Complete in v0.11.0 for the current Dawntrail standard-job scope. All 21 current standard jobs have generated-priority 30-second and 300-second evaluators, cast and cutoff timing, broad-versus-exact GCD retention, a 510-second duration-sensitivity audit, Samurai cadence checks, healer MP sustainability, curated-free searches, cross-mode persistence, update compatibility, packaged UI smoke coverage and safe level-cap evaluator switching. Owner acceptance and the deep release audit passed on 2026-08-03. M13D is time-gated until authoritative next-expansion data exists and remains a future onboarding task rather than blocking this completed scope.**
 
 Deliver:
 
@@ -545,7 +545,7 @@ Deliver:
 - Version existing jobs by ruleset and evolved/standard mode without overwriting Dawntrail profiles or saved results.
 - Explicit capability display for catalogue, generic hit, opener and dummy support.
 - Per-job provenance audit that identifies the origin of formulas and assumptions component by component, preserves original authorship where known and distinguishes a hosting platform from the author/community that produced a set or method.
-- Define whether and how limited jobs are supported; they remain outside normal recommendations until an evidence-backed objective and ruleset exist.
+- Keep limited jobs outside normal recommendations. Blue Mage and Beastmaster are explicitly deferred to the maybe-later list until the standard-job application is otherwise complete and each has an evidence-backed optimisation objective and ruleset.
 
 Accept when:
 
@@ -555,11 +555,24 @@ Accept when:
 - No missing evaluator silently borrows another job's logic.
 - No selectable evaluator lacks either a precise external reference link or an explicit declaration that the relevant method was developed by XIV Gear Lab.
 - Curated-set ablation confirms that generated optimisation can independently produce a comparable gear-and-meld result without curated warm starts. Any material quality gap must be measured and explained rather than hidden by restoring the curated candidate.
+- Cast duration, recast availability, action queueing, post-action lock and weave availability have separate tested semantics. Casted jobs must not gain artificial GCD clipping from a generic animation-lock assumption.
+- Cross-speed ranking checks cover slow, recommended and fast legal GCD tiers for timing-sensitive jobs. A broad-range optimisation must not lose a stronger in-range result that the same evaluator finds when that result's GCD is constrained directly.
+- Validation follows an explicit evidence hierarchy: official data and documented mechanics, reproducible in-game observations, trusted community research, external simulators, then clearly labelled local assumptions. XivGear and other simulators are independent cross-checks, not automatic ground truth.
+- External comparisons use matched duration, party, potion, latency, uptime and rotation assumptions where possible. Unresolved differences remain visible with their likely cause and confidence instead of being silently tuned away.
 
 Tests:
 
-- Per-job opener and five-minute traces; role-specific mechanic fixtures; evolved-mode boundaries; new-job gear/profile onboarding; old-save migration and cross-ruleset comparison warnings.
+- Per-job opener and five-minute traces; role-specific mechanic fixtures; cast/queue/lock/weave boundary tests; evolved-mode boundaries; new-job gear/profile onboarding; old-save migration and cross-ruleset comparison warnings.
 - For every completed evaluator batch, repeat representative searches with `curatedSets` empty and compare equipment, melds, proxy score and rotation score against the normal run and community reference.
+- For timing-sensitive jobs, compare representative slow, recommended and fast GCD tiers through both direct evaluation and broad-range optimisation. Include explicit Black Mage and Summoner cast-timing regressions plus Red Mage and Pictomancer timing-order checks.
+
+Implementation sequence:
+
+- **M13A, evaluator-mode foundation (complete in v0.11.0-alpha.1):** explicit standard/evolved identity, exact ruleset capability resolution, calculation-context pins, mode-safe optimiser and simulator lookup, compact capability UI, component-level generic-hit provenance and deterministic pre-M13 workspace migration.
+- **M13B, pilot validation (complete in v0.11.0-alpha.2):** audited Samurai, Dancer, Black Mage and Dark Knight actions, traces and assumptions against official Job Guides and pinned XivGear sources; added visible independent-audit metadata without promoting generated priorities to community-validated methods; restored Samurai Kaeshi: Setsugekka/Zanshin and Dancer Finishing Move distinctions; and added routine/deep curated-set ablation commands. The routine 2.14s SAM, 2.50s DNC, 2.41s BLM and 2.46s DRK matrix reproduced identical normal and curated-free plans and measured the curated-free results 0.281% to 0.652% above the corresponding community set when all sets were recalculated by the same local evaluator. BLM Paradox/Umbral Heart detail and the other explicitly listed pilot approximations remain declared limitations for later evaluator refinement rather than hidden validation claims.
+- **M13C, standard-job role batches (complete in v0.11.0-alpha.8):** added and validated opener/dummy evaluators for every remaining standard job in bounded role-sized batches. The healer batch landed in v0.11.0-alpha.3, tanks in alpha.4, melee in alpha.5 and physical ranged in alpha.7 with their documented job mechanics, fixtures, provenance and repeatable curated-free validation. The final magical-ranged batch adds SMN, RDM and PCT: Summoner models the four-minute Demi cycle, elemental attunements and pet attacks; Red Mage models expected-value Dualcast pairs plus fixed-speed melee and finishers; Pictomancer models palettes, canvases, portraits, Hammer and Starry Muse. The routine 2.48s SMN, 2.49s RDM and 2.50s PCT matrix reproduced all 11 normal-search items and measured the curated-free results 0.585%, 0.583% and 0.901% above the corresponding community sets under the same local evaluator. All 21 standard jobs now expose current Dawntrail 30-second and 300-second modes without borrowing another job's logic.
+- **M13D, next-expansion onboarding (time-gated):** use the M8/M13 contracts for the two new standard jobs and evolved modes when authoritative data exists. Dawntrail profiles remain immutable and unsupported mechanics fail closed. This future-data work does not block acceptance or release of the current Dawntrail standard-job scope.
+- **M13E, acceptance (complete in v0.11.0):** formalised the evidence and comparison rules; corrected overlapping cast/action-lock occupancy and speed-scaled casts; added strict cutoff diagnostics, DoT cadence, a visible 510-second sensitivity pass over the same finalists, Samurai Meikyo/Tendo and Higanbana-cadence fixtures, and healer MP/Piety sustainability; passed the 21-job routine and deep mechanical and curated-free matrices; added broad-versus-exact GCD checks; passed cross-mode persistence, migration, downloaded-profile overlay, runtime-update and packaged UI smoke checks; made effective-level changes transactional and safely reject unsupported levels; and consolidated acceptance into `npm run validate:m13e` and `npm run validate:m13e:deep`. Owner comparisons reproduced the Viper and exact-target Samurai community plans, externally validated the unrestricted Samurai plan as a slightly stronger dummy result, and retained the Black Mage unrestricted-GCD disagreement as a visible preliminary-model limitation. Blue Mage and Beastmaster are not part of this acceptance gate.
 
 ### M14 - Crafter gear and materia optimiser
 
@@ -689,6 +702,7 @@ These ideas remain useful, but they are outside the committed milestones until t
 - Select or lock an official item directly from its main build-slot row instead of opening the separate Equipment constraints menu. The M10 modal remains the supported path for now.
 - Hosted unattended patch watching, announcement-aware scheduling, adaptive polling and automatic publication. M11B deliberately provides a manual local launcher first; hosted automation can be reconsidered only after the patch workflow is proven and there is a real need for unattended operation.
 - Exact Lodestone item links. M11's time-boxed research found that Lodestone uses separate opaque Eorzea Database IDs, while the official game item ID and XIVAPI v2 do not expose a trustworthy direct mapping. Search-result scraping or guessed links would not be maintainable enough for the app.
+- Blue Mage and Beastmaster optimisation. Revisit limited jobs only after all standard-job milestones are complete and each job has enough authoritative or reproducible evidence to define what a valid "best set" means for its level caps, content restrictions and unusual mechanics.
 
 ## Test layers used throughout
 

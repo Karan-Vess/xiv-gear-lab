@@ -15,8 +15,10 @@ describe('M11 catalogue readiness', () => {
   it('accepts the Endwalker cap for historical jobs and refuses Dawntrail-only jobs', () => {
     const endwalkerWhm = assessCatalogueReadiness(gearSnapshot, 'WHM', { accessExpansion: 'ew', accessLevel: 90 });
     expect(endwalkerWhm.status).toBe('preliminary');
-    expect(endwalkerWhm.confidence).toBe('official-preliminary');
-    expect(endwalkerWhm.issues.some((issue) => issue.code === 'missing-curation')).toBe(true);
+    expect(endwalkerWhm.confidence).toBe('incomplete-acquisition');
+    expect(endwalkerWhm.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      'incomplete-acquisition', 'missing-curation'
+    ]));
     expect(endwalkerWhm.coveredSlots).toHaveLength(11);
 
     const endwalkerViper = assessCatalogueReadiness(gearSnapshot, 'VPR', { accessExpansion: 'ew', accessLevel: 90 });

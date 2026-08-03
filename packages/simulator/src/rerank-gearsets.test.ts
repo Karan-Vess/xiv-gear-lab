@@ -71,6 +71,9 @@ describe('speed-diverse gear-set rotation reranking', () => {
     expect(first!.best.rotationEvaluation?.mode).toBe('dummy-300');
     expect(first!.best.rotationEvaluation?.rerankedCandidateCount).toBe(12);
     expect(first!.best.rotationEvaluation?.references.some((reference) => reference.kind === 'official')).toBe(true);
+    expect(first!.stability).toMatchObject({ durationMs: 510_000 });
+    expect(first!.best.rotationEvaluation?.stability).toEqual(first!.stability);
+    expect(first!.best.rotationEvaluation?.cadence).toBeDefined();
     expect(p95).toBeLessThan(5000);
   });
 
@@ -102,6 +105,24 @@ describe('speed-diverse gear-set rotation reranking', () => {
     )).toThrow('cancelled');
   });
 
+  it('does not borrow a standard rotation profile for an evolved finalist', () => {
+    const evolved = structuredClone(finalists[0]!);
+    evolved.calculationContext = {
+      ...evolved.calculationContext!,
+      jobMode: 'evolved',
+      evaluationMode: 'generic-hit'
+    };
+
+    expect(() => rerankGearSetsByRotation(
+      gearSnapshot,
+      [evolved],
+      'SAM',
+      'dummy-300',
+      'none',
+      evolved.id
+    )).toThrow('dummy-300 is not installed for SAM evolved');
+  });
+
   it('reuses one timing timeline while preserving damage-only stat differences', () => {
     const damageOnlyFinalists = finalists.slice(0, 3).map((candidate, index): GearSet => ({
       ...structuredClone(candidate),
@@ -124,8 +145,8 @@ describe('speed-diverse gear-set rotation reranking', () => {
       damageOnlyFinalists[0]!.id
     );
 
-    expect(reranked.timelineCacheHits).toBe(2);
-    expect(reranked.best.rotationEvaluation?.timelineCacheHits).toBe(2);
+    expect(reranked.timelineCacheHits).toBe(4);
+    expect(reranked.best.rotationEvaluation?.timelineCacheHits).toBe(4);
 
     const profile = gearSnapshot.rotationProfiles!.find((entry) => entry.job === 'SAM')!;
     const evaluator = createPilotCombatEvaluatorRegistry().requireFor(profile);

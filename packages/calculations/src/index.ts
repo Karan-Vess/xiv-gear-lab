@@ -130,12 +130,14 @@ export const getCombatEvaluatorProfileForAccess = (
 export const getCombatEvaluatorProfileForSet = (
   set: GearSet,
   snapshot: Pick<GearSnapshot, 'evaluatorProfiles'>
-): CombatEvaluatorProfile => getCombatEvaluatorProfile(
-  set.job,
-  snapshot.evaluatorProfiles,
-  'standard',
-  set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId
-);
+): CombatEvaluatorProfile => {
+  const pinnedProfileId = set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId;
+  const pinnedProfile = pinnedProfileId
+    ? snapshot.evaluatorProfiles.find((entry) => entry.id === pinnedProfileId)
+    : undefined;
+  const jobMode = set.calculationContext?.jobMode ?? pinnedProfile?.jobMode ?? 'standard';
+  return getCombatEvaluatorProfile(set.job, snapshot.evaluatorProfiles, jobMode, pinnedProfileId);
+};
 
 export const mainStatMultiplier = (
   mainStat: number,
@@ -363,11 +365,17 @@ export const recalculateGearSet = (
   profiles: readonly CombatEvaluatorProfile[],
   calculationContext?: CalculationContext
 ): GearSet => {
+  const pinnedProfileId = calculationContext?.evaluatorProfileId ??
+    set.calculationContext?.evaluatorProfileId ??
+    set.evaluation?.profileId;
+  const pinnedProfile = pinnedProfileId
+    ? profiles.find((entry) => entry.id === pinnedProfileId)
+    : undefined;
   const profile = getCombatEvaluatorProfile(
     set.job,
     profiles,
-    'standard',
-    calculationContext?.evaluatorProfileId ?? set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId
+    calculationContext?.jobMode ?? set.calculationContext?.jobMode ?? pinnedProfile?.jobMode ?? 'standard',
+    pinnedProfileId
   );
   const equipped = Object.values(set.items).map((entry) => {
     const item = items.find((candidate) => String(candidate.id) === String(entry?.itemId));

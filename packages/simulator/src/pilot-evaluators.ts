@@ -4,17 +4,20 @@ import {
   criticalHitMultiplier,
   directHitChance,
   expectedActionDamage,
-  mainStatMultiplier
+  mainStatMultiplier,
+  pietyMpPerTick
 } from '@xiv-gear-lab/calculations';
 import {
   emptyStats,
   type CombatActionProfile,
   type CombatEvaluatorProfile,
   type CombatJob,
+  type JobRole,
   type StatKey
 } from '@xiv-gear-lab/domain';
 import {
   CombatEvaluatorRegistry,
+  LEGACY_ROTATION_PROFILE_SCHEMA_VERSION,
   ROTATION_PROFILE_SCHEMA_VERSION,
   runHybridCombatEvaluation,
   validateHybridRotationProfile,
@@ -35,7 +38,9 @@ interface PilotEvaluatorConfig {
   job: CombatJob;
   engineId: string;
   profileId: string;
-  mainStat: 'strength' | 'dexterity' | 'intelligence';
+  role: JobRole;
+  mainStat: 'strength' | 'dexterity' | 'intelligence' | 'mind';
+  speedStat: 'skillSpeed' | 'spellSpeed';
   attackPowerModifier: number;
   mainStatModifier: number;
   damageTrait: number;
@@ -45,13 +50,166 @@ interface PilotEvaluatorConfig {
   initialMechanics?: Record<string, CombatMechanicValue>;
   periodicResourceChanges?: CombatTimelineEngineOptions['periodicResourceChanges'];
   autoAttackActionId?: string;
+  baseHastePercent?: number;
 }
 
 const configByEngine: PilotEvaluatorConfig[] = [{
+  job: 'MNK',
+  engineId: 'mnk-pilot-engine@1',
+  profileId: 'mnk-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 110,
+  damageTrait: 1,
+  appliesTenacity: false,
+  initialResources: {
+    chakra: 0,
+    beast: 0,
+    nadi: 0,
+    'perfect-balance': 0,
+    'fire-reply-ready': 0,
+    'wind-reply-ready': 0
+  },
+  resourceCaps: {
+    chakra: 10,
+    beast: 3,
+    nadi: 2,
+    'perfect-balance': 3,
+    'fire-reply-ready': 1,
+    'wind-reply-ready': 1
+  },
+  autoAttackActionId: 'auto-attack',
+  baseHastePercent: 20
+}, {
+  job: 'DRG',
+  engineId: 'drg-pilot-engine@1',
+  profileId: 'drg-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1,
+  appliesTenacity: false,
+  initialResources: {
+    focus: 0,
+    'nastrond-ready': 0,
+    'mirage-ready': 0,
+    'rise-ready': 0,
+    'starcross-ready': 0
+  },
+  resourceCaps: {
+    focus: 2,
+    'nastrond-ready': 3,
+    'mirage-ready': 1,
+    'rise-ready': 1,
+    'starcross-ready': 1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'NIN',
+  engineId: 'nin-pilot-engine@1',
+  profileId: 'nin-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'dexterity',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 110,
+  damageTrait: 1,
+  appliesTenacity: false,
+  initialResources: {
+    ninki: 0,
+    kazematoi: 0,
+    'raiju-ready': 0,
+    'kassatsu-ready': 0,
+    'kunai-ready': 0,
+    'higi-ready': 0,
+    'phantom-ready': 0,
+    'tenri-ready': 0
+  },
+  resourceCaps: {
+    ninki: 100,
+    kazematoi: 5,
+    'raiju-ready': 3,
+    'kassatsu-ready': 1,
+    'kunai-ready': 1,
+    'higi-ready': 1,
+    'phantom-ready': 1,
+    'tenri-ready': 1
+  },
+  autoAttackActionId: 'auto-attack',
+  baseHastePercent: 15
+}, {
+  job: 'RPR',
+  engineId: 'rpr-pilot-engine@1',
+  profileId: 'rpr-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1,
+  appliesTenacity: false,
+  initialResources: {
+    soul: 0,
+    shroud: 0,
+    executioner: 0,
+    lemure: 0,
+    'void-shroud': 0,
+    sacrifice: 0,
+    'perfectio-ready': 0,
+    'harvest-moon-ready': 1
+  },
+  resourceCaps: {
+    soul: 100,
+    shroud: 100,
+    executioner: 2,
+    lemure: 5,
+    'void-shroud': 4,
+    sacrifice: 1,
+    'perfectio-ready': 1,
+    'harvest-moon-ready': 1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'VPR',
+  engineId: 'vpr-pilot-engine@1',
+  profileId: 'vpr-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'dexterity',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 110,
+  damageTrait: 1,
+  appliesTenacity: false,
+  initialResources: {
+    coil: 0,
+    offerings: 0,
+    tribute: 0,
+    'tail-ready': 0,
+    'bite-ready': 0,
+    'twin-ready': 0,
+    'ire-ready': 0
+  },
+  resourceCaps: {
+    coil: 3,
+    offerings: 100,
+    tribute: 5,
+    'tail-ready': 1,
+    'bite-ready': 2,
+    'twin-ready': 2,
+    'ire-ready': 1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
   job: 'SAM',
   engineId: 'sam-pilot-engine@1',
   profileId: 'sam-dt-generated-rotation@1',
+  role: 'dps',
   mainStat: 'strength',
+  speedStat: 'skillSpeed',
   attackPowerModifier: 237,
   mainStatModifier: 112,
   damageTrait: 1,
@@ -61,25 +219,107 @@ const configByEngine: PilotEvaluatorConfig[] = [{
     meditation: 0,
     setsu: 0,
     getsu: 0,
-    ka: 0
+    ka: 0,
+    'kaeshi-setsugekka-ready': 0,
+    'zanshin-ready': 0,
+    'meikyo-stacks': 0,
+    'tendo-ready': 0,
+    'tendo-kaeshi-ready': 0
   },
   resourceCaps: {
     kenki: 100,
     meditation: 3,
     setsu: 1,
     getsu: 1,
-    ka: 1
+    ka: 1,
+    'kaeshi-setsugekka-ready': 1,
+    'zanshin-ready': 1,
+    'meikyo-stacks': 3,
+    'tendo-ready': 1,
+    'tendo-kaeshi-ready': 1
   },
   initialMechanics: {
     'sam-ogi-ready': false,
-    'sam-kaeshi-ready': false
+    'sam-kaeshi-ready': false,
+    'sam-last-meikyo-window': -1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'BRD',
+  engineId: 'brd-pilot-engine@1',
+  profileId: 'brd-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'dexterity',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.2,
+  appliesTenacity: false,
+  initialResources: {
+    'brd-soul-voice': 0,
+    'brd-coda': 0,
+    'brd-blast-ready': 0,
+    'brd-barrage-ready': 0,
+    'brd-resonant-ready': 0,
+    'brd-encore-one-ready': 0,
+    'brd-encore-three-ready': 0
+  },
+  resourceCaps: {
+    'brd-soul-voice': 100,
+    'brd-coda': 3,
+    'brd-blast-ready': 1,
+    'brd-barrage-ready': 1,
+    'brd-resonant-ready': 1,
+    'brd-encore-one-ready': 1,
+    'brd-encore-three-ready': 1
+  },
+  initialMechanics: {
+    'brd-wanderer-next': true,
+    'brd-mage-next': false,
+    'brd-army-next': false,
+    'brd-first-finale': true,
+    'brd-later-finales': false
+  },
+  periodicResourceChanges: [{
+    resource: 'brd-soul-voice',
+    amount: 4,
+    firstAtMs: 3000,
+    intervalMs: 3000
+  }],
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'MCH',
+  engineId: 'mch-pilot-engine@1',
+  profileId: 'mch-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'dexterity',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.2,
+  appliesTenacity: false,
+  initialResources: {
+    'mch-heat': 0,
+    'mch-battery': 0,
+    'mch-overheat': 0,
+    'mch-excavator-ready': 0,
+    'mch-full-metal-ready': 0
+  },
+  resourceCaps: {
+    'mch-heat': 100,
+    'mch-battery': 100,
+    'mch-overheat': 3,
+    'mch-excavator-ready': 1,
+    'mch-full-metal-ready': 1
   },
   autoAttackActionId: 'auto-attack'
 }, {
   job: 'DNC',
   engineId: 'dnc-pilot-engine@1',
   profileId: 'dnc-dt-generated-rotation@1',
+  role: 'dps',
   mainStat: 'dexterity',
+  speedStat: 'skillSpeed',
   attackPowerModifier: 237,
   mainStatModifier: 115,
   damageTrait: 1.2,
@@ -89,21 +329,25 @@ const configByEngine: PilotEvaluatorConfig[] = [{
     'tillana-ready': 0,
     'dawn-ready': 0,
     'last-dance-ready': 0,
-    'starfall-ready': 0
+    'starfall-ready': 0,
+    'finishing-move-ready': 0
   },
   resourceCaps: {
     esprit: 100,
     'tillana-ready': 1,
     'dawn-ready': 1,
     'last-dance-ready': 1,
-    'starfall-ready': 1
+    'starfall-ready': 1,
+    'finishing-move-ready': 1
   },
   autoAttackActionId: 'auto-attack'
 }, {
   job: 'BLM',
   engineId: 'blm-pilot-engine@1',
   profileId: 'blm-dt-generated-rotation@1',
+  role: 'dps',
   mainStat: 'intelligence',
+  speedStat: 'spellSpeed',
   attackPowerModifier: 237,
   mainStatModifier: 115,
   damageTrait: 1.3,
@@ -134,10 +378,159 @@ const configByEngine: PilotEvaluatorConfig[] = [{
     intervalMs: 30_000
   }]
 }, {
+  job: 'SMN',
+  engineId: 'smn-pilot-engine@1',
+  profileId: 'smn-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'intelligence',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    'smn-solar-one-ready': 1,
+    'smn-bahamut-ready': 0,
+    'smn-solar-two-ready': 0,
+    'smn-phoenix-ready': 0,
+    'smn-umbral': 0,
+    'smn-astral': 0,
+    'smn-fountain': 0,
+    'smn-sunflare-ready': 0,
+    'smn-solar-enkindle-ready': 0,
+    'smn-deathflare-ready': 0,
+    'smn-bahamut-enkindle-ready': 0,
+    'smn-phoenix-enkindle-ready': 0,
+    'smn-arcanum': 0,
+    'smn-ruby': 0,
+    'smn-crimson-cyclone-ready': 0,
+    'smn-crimson-strike-ready': 0,
+    'smn-topaz': 0,
+    'smn-mountain-buster-ready': 0,
+    'smn-emerald': 0,
+    'smn-slipstream-ready': 0,
+    'smn-searing-flash-ready': 0,
+    'smn-aetherflow': 0,
+    'smn-further-ruin': 0
+  },
+  resourceCaps: {
+    'smn-solar-one-ready': 1,
+    'smn-bahamut-ready': 1,
+    'smn-solar-two-ready': 1,
+    'smn-phoenix-ready': 1,
+    'smn-umbral': 6,
+    'smn-astral': 6,
+    'smn-fountain': 6,
+    'smn-sunflare-ready': 1,
+    'smn-solar-enkindle-ready': 1,
+    'smn-deathflare-ready': 1,
+    'smn-bahamut-enkindle-ready': 1,
+    'smn-phoenix-enkindle-ready': 1,
+    'smn-arcanum': 3,
+    'smn-ruby': 2,
+    'smn-crimson-cyclone-ready': 1,
+    'smn-crimson-strike-ready': 1,
+    'smn-topaz': 4,
+    'smn-mountain-buster-ready': 1,
+    'smn-emerald': 4,
+    'smn-slipstream-ready': 1,
+    'smn-searing-flash-ready': 1,
+    'smn-aetherflow': 2,
+    'smn-further-ruin': 1
+  }
+}, {
+  job: 'RDM',
+  engineId: 'rdm-pilot-engine@1',
+  profileId: 'rdm-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'intelligence',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    'rdm-black-mana': 0,
+    'rdm-white-mana': 0,
+    'rdm-mana-stack': 0,
+    'rdm-grand-impact-ready': 0,
+    'rdm-vice-ready': 0,
+    'rdm-prefulgence-ready': 0
+  },
+  resourceCaps: {
+    'rdm-black-mana': 100,
+    'rdm-white-mana': 100,
+    'rdm-mana-stack': 3,
+    'rdm-grand-impact-ready': 1,
+    'rdm-vice-ready': 1,
+    'rdm-prefulgence-ready': 1
+  }
+}, {
+  job: 'PCT',
+  engineId: 'pct-pilot-engine@1',
+  profileId: 'pct-dt-generated-rotation@1',
+  role: 'dps',
+  mainStat: 'intelligence',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    'pct-palette': 0,
+    'pct-white-paint': 0,
+    'pct-black-paint': 0,
+    'pct-subtractive': 0,
+    'pct-subtractive-spectrum': 0,
+    'pct-hammer-time': 0,
+    'pct-hammer-canvas': 1,
+    'pct-hammer-motif-needed': 0,
+    'pct-landscape-canvas': 1,
+    'pct-landscape-motif-needed': 0,
+    'pct-star-prism-ready': 0,
+    'pct-rainbow-ready': 0,
+    'pct-pom-canvas': 1,
+    'pct-wing-canvas': 0,
+    'pct-claw-canvas': 0,
+    'pct-maw-canvas': 0,
+    'pct-pom-motif-needed': 0,
+    'pct-wing-motif-needed': 0,
+    'pct-claw-motif-needed': 0,
+    'pct-maw-motif-needed': 0,
+    'pct-mog-ready': 0,
+    'pct-madeen-ready': 0
+  },
+  resourceCaps: {
+    'pct-palette': 100,
+    'pct-white-paint': 5,
+    'pct-black-paint': 1,
+    'pct-subtractive': 3,
+    'pct-subtractive-spectrum': 1,
+    'pct-hammer-time': 3,
+    'pct-hammer-canvas': 1,
+    'pct-hammer-motif-needed': 1,
+    'pct-landscape-canvas': 1,
+    'pct-landscape-motif-needed': 1,
+    'pct-star-prism-ready': 1,
+    'pct-rainbow-ready': 1,
+    'pct-pom-canvas': 1,
+    'pct-wing-canvas': 1,
+    'pct-claw-canvas': 1,
+    'pct-maw-canvas': 1,
+    'pct-pom-motif-needed': 1,
+    'pct-wing-motif-needed': 1,
+    'pct-claw-motif-needed': 1,
+    'pct-maw-motif-needed': 1,
+    'pct-mog-ready': 1,
+    'pct-madeen-ready': 1
+  }
+}, {
   job: 'DRK',
   engineId: 'drk-pilot-engine@1',
   profileId: 'drk-dt-generated-rotation@1',
+  role: 'tank',
   mainStat: 'strength',
+  speedStat: 'skillSpeed',
   attackPowerModifier: 190,
   mainStatModifier: 105,
   damageTrait: 1,
@@ -163,6 +556,178 @@ const configByEngine: PilotEvaluatorConfig[] = [{
     intervalMs: 3000
   }],
   autoAttackActionId: 'auto-attack'
+}, {
+  job: 'PLD',
+  engineId: 'pld-pilot-engine@1',
+  profileId: 'pld-dt-generated-rotation@1',
+  role: 'tank',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 190,
+  mainStatModifier: 100,
+  damageTrait: 1,
+  appliesTenacity: true,
+  initialResources: {
+    mp: 10_000,
+    requiescat: 0,
+    'confiteor-ready': 0,
+    'goring-ready': 0,
+    'honor-ready': 0,
+    'atonement-ready': 0,
+    'supplication-ready': 0,
+    'sepulchre-ready': 0,
+    'divine-might': 0
+  },
+  resourceCaps: {
+    mp: 10_000,
+    requiescat: 4,
+    'confiteor-ready': 1,
+    'goring-ready': 1,
+    'honor-ready': 1,
+    'atonement-ready': 1,
+    'supplication-ready': 1,
+    'sepulchre-ready': 1,
+    'divine-might': 1
+  },
+  periodicResourceChanges: [{
+    resource: 'mp',
+    amount: 200,
+    firstAtMs: 3000,
+    intervalMs: 3000
+  }],
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'WAR',
+  engineId: 'war-pilot-engine@1',
+  profileId: 'war-dt-generated-rotation@1',
+  role: 'tank',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 190,
+  mainStatModifier: 105,
+  damageTrait: 1,
+  appliesTenacity: true,
+  initialResources: {
+    beast: 0,
+    'inner-release': 0,
+    'burgeoning-fury': 0,
+    'nascent-chaos': 0,
+    'primal-rend-ready': 0,
+    'primal-ruination-ready': 0
+  },
+  resourceCaps: {
+    beast: 100,
+    'inner-release': 3,
+    'burgeoning-fury': 3,
+    'nascent-chaos': 1,
+    'primal-rend-ready': 1,
+    'primal-ruination-ready': 1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'GNB',
+  engineId: 'gnb-pilot-engine@1',
+  profileId: 'gnb-dt-generated-rotation@1',
+  role: 'tank',
+  mainStat: 'strength',
+  speedStat: 'skillSpeed',
+  attackPowerModifier: 190,
+  mainStatModifier: 100,
+  damageTrait: 1,
+  appliesTenacity: true,
+  initialResources: {
+    cartridge: 0,
+    'ready-to-break': 0,
+    'ready-to-reign': 0,
+    'ready-to-rip': 0,
+    'ready-to-tear': 0,
+    'ready-to-gouge': 0,
+    'ready-to-blast': 0,
+    'gnashing-active': 0
+  },
+  resourceCaps: {
+    cartridge: 6,
+    'ready-to-break': 1,
+    'ready-to-reign': 1,
+    'ready-to-rip': 1,
+    'ready-to-tear': 1,
+    'ready-to-gouge': 1,
+    'ready-to-blast': 1,
+    'gnashing-active': 1
+  },
+  autoAttackActionId: 'auto-attack'
+}, {
+  job: 'WHM',
+  engineId: 'whm-pilot-engine@1',
+  profileId: 'whm-dt-generated-rotation@1',
+  role: 'healer',
+  mainStat: 'mind',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    mp: 10_000,
+    'sacred-sight': 0
+  },
+  resourceCaps: {
+    mp: 10_000,
+    'sacred-sight': 3
+  }
+}, {
+  job: 'SCH',
+  engineId: 'sch-pilot-engine@1',
+  profileId: 'sch-dt-generated-rotation@1',
+  role: 'healer',
+  mainStat: 'mind',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    mp: 10_000,
+    aetherflow: 0,
+    'impact-ready': 0
+  },
+  resourceCaps: {
+    mp: 10_000,
+    aetherflow: 3,
+    'impact-ready': 1
+  }
+}, {
+  job: 'AST',
+  engineId: 'ast-pilot-engine@1',
+  profileId: 'ast-dt-generated-rotation@1',
+  role: 'healer',
+  mainStat: 'mind',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: {
+    mp: 10_000,
+    'oracle-ready': 0
+  },
+  resourceCaps: {
+    mp: 10_000,
+    'oracle-ready': 1
+  }
+}, {
+  job: 'SGE',
+  engineId: 'sge-pilot-engine@1',
+  profileId: 'sge-dt-generated-rotation@1',
+  role: 'healer',
+  mainStat: 'mind',
+  speedStat: 'spellSpeed',
+  attackPowerModifier: 237,
+  mainStatModifier: 115,
+  damageTrait: 1.3,
+  appliesTenacity: false,
+  initialResources: { mp: 10_000 },
+  resourceCaps: { mp: 10_000 }
 }];
 
 const damageProfileFor = (config: PilotEvaluatorConfig): CombatEvaluatorProfile => ({
@@ -172,14 +737,24 @@ const damageProfileFor = (config: PilotEvaluatorConfig): CombatEvaluatorProfile 
   job: config.job,
   jobMode: 'standard',
   version: 'dt-7.51-pilot-damage@1',
-  role: config.job === 'DRK' ? 'tank' : 'dps',
+  role: config.role,
   mainStat: config.mainStat,
-  mainStatLabel: config.mainStat,
-  mainStatAbbreviation: config.mainStat.slice(0, 3).toUpperCase(),
-  speedStat: config.job === 'BLM' ? 'spellSpeed' : 'skillSpeed',
-  speedStatLabel: config.job === 'BLM' ? 'Spell Speed' : 'Skill Speed',
-  speedStatAbbreviation: config.job === 'BLM' ? 'SPS' : 'SKS',
-  meldStats: ['criticalHit', 'determination', 'directHit', config.job === 'BLM' ? 'spellSpeed' : 'skillSpeed'],
+  mainStatLabel: ({
+    strength: 'Strength',
+    dexterity: 'Dexterity',
+    intelligence: 'Intelligence',
+    mind: 'Mind'
+  } as const)[config.mainStat],
+  mainStatAbbreviation: ({
+    strength: 'STR',
+    dexterity: 'DEX',
+    intelligence: 'INT',
+    mind: 'MND'
+  } as const)[config.mainStat],
+  speedStat: config.speedStat,
+  speedStatLabel: config.speedStat === 'spellSpeed' ? 'Spell Speed' : 'Skill Speed',
+  speedStatAbbreviation: config.speedStat === 'spellSpeed' ? 'SPS' : 'SKS',
+  meldStats: ['criticalHit', 'determination', 'directHit', config.speedStat],
   baseStats: emptyStats(),
   attackPowerModifier: config.attackPowerModifier,
   mainStatModifier: config.mainStatModifier,
@@ -234,6 +809,49 @@ const buffMultiplierFor = (
         multiplier *= directFactorWithChanceBonus(stats.directHit, 0.2) / normal;
       }
     }
+    if (
+      buff.id === 'brd-wanderers-minuet' &&
+      (action.criticalHitMode ?? 'normal') === 'normal'
+    ) {
+      const normal = 1 + criticalHitChance(stats.criticalHit, LEVEL_100) *
+        (criticalHitMultiplier(stats.criticalHit, LEVEL_100) - 1);
+      multiplier *= criticalFactorWithChanceBonus(stats.criticalHit, 0.02) / normal;
+    }
+    if (
+      (buff.id === 'brd-battle-voice' || buff.id === 'brd-armys-paeon') &&
+      (action.directHitMode ?? 'normal') === 'normal'
+    ) {
+      const normal = 1 + directHitChance(stats.directHit, LEVEL_100) * 0.25;
+      const bonus = buff.id === 'brd-battle-voice' ? 0.2 : 0.03;
+      multiplier *= directFactorWithChanceBonus(stats.directHit, bonus) / normal;
+    }
+    if (buff.id === 'mch-reassemble' && action.kind === 'gcd') {
+      if ((action.criticalHitMode ?? 'normal') === 'normal') {
+        const normal = 1 + criticalHitChance(stats.criticalHit, LEVEL_100) *
+          (criticalHitMultiplier(stats.criticalHit, LEVEL_100) - 1);
+        multiplier *= criticalHitMultiplier(stats.criticalHit, LEVEL_100) / normal;
+      }
+      if ((action.directHitMode ?? 'normal') === 'normal') {
+        const normal = 1 + directHitChance(stats.directHit, LEVEL_100) * 0.25;
+        multiplier *= 1.25 / normal;
+      }
+    }
+    if (
+      buff.id === 'sch-chain-stratagem' &&
+      (action.criticalHitMode ?? 'normal') === 'normal'
+    ) {
+      const normal = 1 + criticalHitChance(stats.criticalHit, LEVEL_100) *
+        (criticalHitMultiplier(stats.criticalHit, LEVEL_100) - 1);
+      multiplier *= criticalFactorWithChanceBonus(stats.criticalHit, 0.1) / normal;
+    }
+    if (
+      buff.id === 'drg-battle-litany' &&
+      (action.criticalHitMode ?? 'normal') === 'normal'
+    ) {
+      const normal = 1 + criticalHitChance(stats.criticalHit, LEVEL_100) *
+        (criticalHitMultiplier(stats.criticalHit, LEVEL_100) - 1);
+      multiplier *= criticalFactorWithChanceBonus(stats.criticalHit, 0.1) / normal;
+    }
   }
   return { multiplier, stats };
 };
@@ -252,8 +870,12 @@ const resolveBlmPotency = (
 };
 
 const applySamMechanic = (
-  mechanicId: string
+  mechanicId: string,
+  state: CombatTimelineStateView
 ): Record<string, CombatMechanicValue | null> | void => {
+  if (mechanicId === 'sam-meikyo-used') {
+    return { 'sam-last-meikyo-window': Math.floor(state.nowMs / 60_000) };
+  }
   if (mechanicId === 'sam-ikishoten-used') return { 'sam-ogi-ready': true };
   if (mechanicId === 'sam-ogi-used') {
     return {
@@ -310,12 +932,69 @@ const applyBlmMechanic = (
   if (mechanicId === 'blm-high-thunder') return { 'blm-thunder-ready': false };
 };
 
+const applyBrdMechanic = (
+  mechanicId: string
+): Record<string, CombatMechanicValue | null> | void => {
+  if (mechanicId === 'brd-wanderer-used') {
+    return {
+      'brd-wanderer-next': false,
+      'brd-mage-next': true,
+      'brd-army-next': false
+    };
+  }
+  if (mechanicId === 'brd-mage-used') {
+    return {
+      'brd-wanderer-next': false,
+      'brd-mage-next': false,
+      'brd-army-next': true
+    };
+  }
+  if (mechanicId === 'brd-army-used') {
+    return {
+      'brd-wanderer-next': true,
+      'brd-mage-next': false,
+      'brd-army-next': false
+    };
+  }
+  if (mechanicId === 'brd-first-finale-used') {
+    return {
+      'brd-first-finale': false,
+      'brd-later-finales': true
+    };
+  }
+};
+
 const mechanicsFor = (
   config: PilotEvaluatorConfig
 ): CombatTimelineEngineOptions['applyMechanic'] => {
-  if (config.job === 'SAM') return (id) => applySamMechanic(id);
+  if (config.job === 'SAM') return (id, state) => applySamMechanic(id, state);
+  if (config.job === 'BRD') return (id) => applyBrdMechanic(id);
   if (config.job === 'BLM') return (id) => applyBlmMechanic(id);
   return undefined;
+};
+
+const conditionEvaluatorFor = (
+  config: PilotEvaluatorConfig
+): ((mechanicId: string, state: CombatTimelineStateView) => boolean) | undefined => {
+  if (config.job !== 'SAM') return undefined;
+  return (mechanicId, state) => {
+    if (mechanicId === 'sam-meikyo-alignment-window') {
+      const window = Math.floor(state.nowMs / 60_000);
+      return (
+        state.nowMs % 60_000 <= 15_000 &&
+        Number(state.mechanics['sam-last-meikyo-window'] ?? -1) !== window
+      );
+    }
+    if (
+      mechanicId === 'sam-higanbana-reserve-window' ||
+      mechanicId === 'sam-higanbana-safe-to-spend-sen'
+    ) {
+      const higanbana = state.dots.find((dot) => dot.id === 'sam-higanbana');
+      const reserve = !higanbana || higanbana.expiresAtMs - state.nowMs <= 12_000;
+      return mechanicId === 'sam-higanbana-reserve-window' ? reserve : !reserve;
+    }
+    return Boolean(state.mechanics[mechanicId]);
+  };
 };
 
 /**
@@ -392,7 +1071,10 @@ export const rescorePilotCombatTimeline = (
 };
 
 class PilotCombatEvaluator implements CombatEvaluatorPlugin {
-  readonly supportedProfileSchemas = [ROTATION_PROFILE_SCHEMA_VERSION] as const;
+  readonly supportedProfileSchemas = [
+    LEGACY_ROTATION_PROFILE_SCHEMA_VERSION,
+    ROTATION_PROFILE_SCHEMA_VERSION
+  ] as const;
 
   constructor(
     readonly config: PilotEvaluatorConfig
@@ -431,17 +1113,36 @@ class PilotCombatEvaluator implements CombatEvaluatorPlugin {
       throw new Error(`Combat evaluator profile ${request.profile.id} is invalid: ${validation.join(' ')}`);
     }
     const damageProfile = damageProfileFor(this.config);
-    return runHybridCombatEvaluation(request, {
+    const effectiveRequest = this.config.baseHastePercent
+      ? {
+        ...request,
+        combatStats: {
+          ...request.combatStats,
+          hastePercent: request.combatStats.hastePercent + this.config.baseHastePercent
+        }
+      }
+      : request;
+    const periodicResourceChanges = [
+      ...(this.config.periodicResourceChanges ?? []),
+      ...(this.config.role === 'healer' ? [{
+        resource: 'mp',
+        amount: pietyMpPerTick(request.combatStats.stats.piety, LEVEL_100),
+        firstAtMs: 3000,
+        intervalMs: 3000
+      }] : [])
+    ];
+    return runHybridCombatEvaluation(effectiveRequest, {
       initialResources: this.config.initialResources,
       resourceCaps: this.config.resourceCaps,
       initialMechanics: this.config.initialMechanics,
-      periodicResourceChanges: this.config.periodicResourceChanges,
+      periodicResourceChanges,
       autoAttackActionId: this.config.autoAttackActionId,
+      evaluateMechanicCondition: conditionEvaluatorFor(this.config),
       control,
       resolvePotency: (action, state) =>
         this.config.job === 'BLM' ? resolveBlmPotency(action, state) : action.potency,
       resolveDamage: (potency, snapshot, action, source, expectedWeight) => {
-        const buffed = buffMultiplierFor(this.config, action, snapshot, source, request);
+        const buffed = buffMultiplierFor(this.config, action, snapshot, source, effectiveRequest);
         return expectedActionDamage(
           potency,
           buffed.stats,

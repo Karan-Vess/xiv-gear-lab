@@ -109,10 +109,11 @@ app.whenReady().then(async () => {
   if (
     stormbloodAudit.selectedExpansion !== 'sb' ||
     !stormbloodAudit.optimizerPresent ||
+    stormbloodAudit.runtimeErrors.length > 0 ||
     heavenswardAudit.selectedExpansion !== 'hw' ||
     !heavenswardAudit.optimizerPresent ||
     heavenswardAudit.fatalErrorPresent ||
-    !heavenswardAudit.incompleteMessagePresent ||
+    heavenswardAudit.runtimeErrors.length > 0 ||
     errors.length > 0
   ) {
     throw new Error(`Historical expansion-switch smoke failed: ${JSON.stringify({ stormbloodAudit, heavenswardAudit, errors })}`);

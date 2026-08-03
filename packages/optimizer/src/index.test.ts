@@ -1358,6 +1358,10 @@ describe('future job onboarding contract', () => {
     }, 'ALP');
     expect(result.best?.job).toBe('ALP');
     expect(result.best?.evaluation?.profileId).toBe('alpha-generic@1');
+    expect(result.best?.calculationContext).toMatchObject({
+      jobMode: 'standard',
+      evaluationMode: 'generic-hit'
+    });
     expect(Object.keys(result.best?.items ?? {})).toHaveLength(11);
   }, 20_000);
 
@@ -1372,5 +1376,19 @@ describe('future job onboarding contract', () => {
       excludedItemIds: [],
       frontierLimit: 300
     }, 'BET')).toThrow('Generic-hit evaluation is pending for BET.');
+  });
+
+  it('does not borrow a standard profile when the selected evolved evaluator is pending', () => {
+    const snapshot = makeFutureSnapshot();
+    expect(() => optimizeCombatJob(snapshot, {
+      minResource: 440,
+      minGcd: 2.29,
+      maxGcd: 2.5,
+      allowedSources: ['savage', 'tomestone-upgrade', 'tomestone'],
+      requiredItemIds: [],
+      excludedItemIds: [],
+      frontierLimit: 300,
+      jobMode: 'evolved'
+    }, 'ALP')).toThrow('Generic-hit evaluation is pending for ALP. Mode evolved.');
   });
 });

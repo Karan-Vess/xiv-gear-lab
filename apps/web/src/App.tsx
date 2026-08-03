@@ -15,18 +15,22 @@ import {
   effectiveLevel,
   emptyStats,
   assessItemAccess,
-  getEvaluatorCapability,
+  getJobMode,
+  getJobModeKind,
   gearSlotsForJob,
   jobAvailableAtAccess,
+  resolveEvaluatorCapability,
   type AcquisitionCost,
   type CombatJob,
   type EquipmentItem,
   type EquippedItem,
+  type EvaluatorCapability,
   type EvaluationMode,
   type ExpansionId,
   type GearSet,
   type GearSlot,
   type JobRole,
+  type JobModeId,
   type Materia,
   type OptimizerConstraints,
   type OptimizerSearchMode,
@@ -88,26 +92,60 @@ import {
 let gearSnapshot = bundledGearSnapshot;
 let EXPANSIONS = gearSnapshot.registry.expansions;
 let SUPPORTED_JOBS = gearSnapshot.registry.jobs;
-const evaluatorProfileFor = (job: CombatJob, expansionId?: ExpansionId, level?: number) => {
+const evaluatorProfileFor = (
+  job: CombatJob,
+  expansionId?: ExpansionId,
+  level?: number,
+  jobMode: JobModeId = 'standard'
+) => {
   const latest = gearSnapshot.registry.expansions.at(-1)!;
   return expansionId && level !== undefined
-    ? getCombatEvaluatorProfileForAccess(job, gearSnapshot, expansionId, level)
-    : getCombatEvaluatorProfileForAccess(job, gearSnapshot, latest.id, latest.levelCap);
+    ? getCombatEvaluatorProfileForAccess(job, gearSnapshot, expansionId, level, jobMode)
+    : getCombatEvaluatorProfileForAccess(job, gearSnapshot, latest.id, latest.levelCap, jobMode);
 };
-const evaluatorProfileForAccessOrUndefined = (job: CombatJob, expansionId: ExpansionId, level: number) => {
+const evaluatorProfileForAccessOrUndefined = (
+  job: CombatJob,
+  expansionId: ExpansionId,
+  level: number,
+  jobMode: JobModeId = 'standard'
+) => {
   try {
-    return evaluatorProfileFor(job, expansionId, level);
+    return evaluatorProfileFor(job, expansionId, level, jobMode);
   } catch {
     return undefined;
   }
+};
+const evaluatorCapabilityForAccess = (
+  job: CombatJob,
+  jobMode: JobModeId,
+  evaluationMode: EvaluationMode,
+  expansionId: ExpansionId,
+  level: number
+): EvaluatorCapability => {
+  const declared = getJobMode(gearSnapshot.registry, job, jobMode)?.capabilities[evaluationMode];
+  const profile = evaluatorProfileForAccessOrUndefined(job, expansionId, level, jobMode);
+  if (!profile) {
+    return declared?.status === 'available'
+      ? { status: 'pending', reason: `No ${jobMode} ruleset profile is installed for this expansion and level.` }
+      : declared ?? { status: 'unsupported', reason: `No ${jobMode} capability is declared for ${job}.` };
+  }
+  return resolveEvaluatorCapability(
+    gearSnapshot,
+    job,
+    jobMode,
+    evaluationMode,
+    profile.rulesetId
+  );
 };
 const evaluatorProfileForSet = (set: GearSet) => getCombatEvaluatorProfileForSet(set, gearSnapshot);
 const rotationProfileFor = (
   job: CombatJob,
   rulesetId: string,
-  mode: RotationEvaluationMode
+  mode: RotationEvaluationMode,
+  jobMode: JobModeId = 'standard'
 ) => gearSnapshot.rotationProfiles?.find((profile) =>
   profile.job === job &&
+  profile.jobMode === jobMode &&
   profile.rulesetId === rulesetId &&
   profile.supportedModes.includes(mode)
 );
@@ -614,7 +652,8 @@ function AcquisitionCell({ item }: { item?: EquipmentItem }) {
 }
 
 function ResultMethodology({ set, customItems }: { set: GearSet; customItems: EquipmentItem[] }) {
-  const role = evaluatorProfileForSet(set).role;
+  const evaluatorProfile = evaluatorProfileForSet(set);
+  const role = evaluatorProfile.role;
   const equippedItems = gearSlotsForJob(set.job)
     .map((slot) => set.items[slot])
     .map((equipped) => equipped ? findItem(equipped.itemId, customItems) : undefined)
@@ -625,6 +664,7 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
     .map((entry) => ({ item, source: entry }))
   );
   const resultKind = resultMethodologyDescription(set, communitySources);
+  const genericReferences = evaluatorProfile.references ?? [];
   const rotationReferences = set.rotationEvaluation?.references.filter((reference) => reference.url) ?? [];
   return (
     <div className="methodology-panel">
@@ -641,8 +681,33 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
         {set.rotationEvaluation && (
           <span><strong>Rotation method</strong>{set.rotationEvaluation.method.kind.replaceAll('-', ' ')} · {set.rotationEvaluation.method.confidence.replaceAll('-', ' ')}</span>
         )}
+        {set.rotationEvaluation?.validation && (
+          <span><strong>Trace audit</strong>{set.rotationEvaluation.validation.status.replaceAll('-', ' ')} · {set.rotationEvaluation.validation.checkedAt}</span>
+        )}
       </div>
       <p>{resultKind}</p>
+      {genericReferences.length > 0 && (
+        <details className="method-reference-details">
+          <summary>Generic-hit method references · {genericReferences.length}</summary>
+          <div className="method-reference-grid">
+            {genericReferences.map((reference) => (
+              <div className="method-reference-card" key={reference.id}>
+                <strong>{reference.title}</strong>
+                <span>
+                  {reference.author ?? reference.provider}
+                  {reference.host && reference.host !== (reference.author ?? reference.provider)
+                    ? ` · hosted by ${reference.host}`
+                    : ''}
+                </span>
+                {reference.components?.length ? <small>{reference.components.join(' · ')}</small> : null}
+                {reference.url
+                  ? <SafeExternalLink href={reference.url}>Open reference ↗</SafeExternalLink>
+                  : <em>Developed by {reference.provider}; no external reference applies.</em>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {set.rotationEvaluation && (
         <>
           <p>
@@ -651,7 +716,35 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
           <p>
             Reranked {set.rotationEvaluation.rerankedCandidateCount} speed-diverse finalists in {set.rotationEvaluation.rerankDurationMs.toFixed(0)} ms · reused {set.rotationEvaluation.timelineCacheHits} identical timing timeline{set.rotationEvaluation.timelineCacheHits === 1 ? '' : 's'}.
           </p>
+          {set.rotationEvaluation.stability && (
+            <p className={set.rotationEvaluation.stability.winnerChanged ? 'methodology-warning' : 'methodology-caveat'} data-duration-stability>
+              {set.rotationEvaluation.stability.winnerChanged
+                ? `Duration-sensitive: the ${set.rotationEvaluation.stability.durationMs / 1000}s audit preferred a ${set.rotationEvaluation.stability.bestSetGcd.toFixed(2)}s finalist by ${set.rotationEvaluation.stability.gapToBestPercent.toFixed(3)}%.`
+                : `Duration check: the same winner remained first at ${set.rotationEvaluation.stability.durationMs / 1000}s.`}
+            </p>
+          )}
+          {set.rotationEvaluation.cadence && (
+            <p className="methodology-caveat" data-cadence-summary>
+              Cadence: {(set.rotationEvaluation.cadence.cooldownDriftMs / 1000).toFixed(2)}s cooldown drift · {(set.rotationEvaluation.cadence.dotEarlyRefreshMs / 1000).toFixed(2)}s early DoT refresh · {(set.rotationEvaluation.cadence.dotLateRefreshMs / 1000).toFixed(2)}s DoT downtime · {set.rotationEvaluation.cadence.missedDotTicks} missed tick{set.rotationEvaluation.cadence.missedDotTicks === 1 ? '' : 's'} · {set.rotationEvaluation.cadence.pendingApplicationCount} pending at cutoff.
+            </p>
+          )}
+          {set.rotationEvaluation.sustainability && (
+            <p className="methodology-caveat" data-sustainability-summary>
+              MP sustainability: {set.rotationEvaluation.sustainability.finalMp.toLocaleString()} MP remains at the cutoff · {set.rotationEvaluation.sustainability.overcappedMp.toLocaleString()} MP overcapped.
+            </p>
+          )}
           <p className="methodology-caveat">{set.rotationEvaluation.method.warning ?? set.rotationEvaluation.limitation}</p>
+          {set.rotationEvaluation.validation && (
+            <details className="method-reference-details">
+              <summary>Independent trace audit · {set.rotationEvaluation.validation.checks.length} checks</summary>
+              <div className="method-reference-card">
+                <strong>{set.rotationEvaluation.validation.status.replaceAll('-', ' ')}</strong>
+                <span>Checked {set.rotationEvaluation.validation.checkedAt}</span>
+                {set.rotationEvaluation.validation.checks.map((check) => <small key={check}>Checked: {check}</small>)}
+                {set.rotationEvaluation.validation.limitations.map((limitation) => <em key={limitation}>Still preliminary: {limitation}</em>)}
+              </div>
+            </details>
+          )}
           <div className="methodology-links">
             <strong>Rotation references</strong>
             {rotationReferences.map((reference) => (
@@ -664,6 +757,7 @@ function ResultMethodology({ set, customItems }: { set: GearSet; customItems: Eq
       <div className="methodology-context">
         <code>{set.calculationContext?.snapshotId ?? 'snapshot unknown'}</code>
         <code>{set.calculationContext?.rulesetId ?? 'ruleset unknown'}</code>
+        <code>{set.calculationContext?.jobMode ?? evaluatorProfile.jobMode} mode · {set.calculationContext?.evaluationMode ?? 'legacy evaluation mode'}</code>
         <code>{set.calculationContext?.evaluatorProfileId ?? set.evaluation?.profileId ?? 'evaluator unknown'}{set.calculationContext?.evaluatorVersion ? ` @ ${set.calculationContext.evaluatorVersion}` : ''}</code>
         {set.rotationEvaluation && <code>{set.rotationEvaluation.profileId} @ {set.rotationEvaluation.profileVersion} · {set.rotationEvaluation.engineId}</code>}
       </div>
@@ -821,6 +915,11 @@ function SetDetails({
           {rotation && (
             <span className="evaluation-note" data-rotation-evaluation>
               {rotation.label} · {rotation.method.kind.replaceAll('-', ' ')} · {rotation.method.confidence.replaceAll('-', ' ')}
+            </span>
+          )}
+          {rotation?.stability?.winnerChanged && (
+            <span className="duration-stability-warning" data-duration-stability-warning>
+              Duration-sensitive · {rotation.stability.durationMs / 1000}s audit prefers {rotation.stability.bestSetGcd.toFixed(2)}s by {rotation.stability.gapToBestPercent.toFixed(3)}%
             </span>
           )}
           <span className="gcd-state-note">
@@ -1018,9 +1117,10 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   SUPPORTED_JOBS = gearSnapshot.registry.jobs;
   const latestExpansion = [...EXPANSIONS].sort((left, right) => right.order - left.order)[0]!;
   const initialJobDefinition = SUPPORTED_JOBS.find((entry) =>
-    entry.id === 'WHM' && getEvaluatorCapability(gearSnapshot.registry, entry.id, 'standard', 'generic-hit')?.status === 'available'
+    entry.id === 'WHM' &&
+    evaluatorCapabilityForAccess(entry.id, 'standard', 'generic-hit', latestExpansion.id, latestExpansion.levelCap).status === 'available'
   ) ?? SUPPORTED_JOBS.find((entry) =>
-    getEvaluatorCapability(gearSnapshot.registry, entry.id, 'standard', 'generic-hit')?.status === 'available'
+    evaluatorCapabilityForAccess(entry.id, 'standard', 'generic-hit', latestExpansion.id, latestExpansion.levelCap).status === 'available'
   )!;
   const initialProfile = evaluatorProfileFor(initialJobDefinition.id);
   const initialSet = gearSnapshot.curatedSets.find((set) => set.job === initialJobDefinition.id) ?? gearSnapshot.curatedSets[0]!;
@@ -1040,6 +1140,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const [view, setView] = useState<View>('optimize');
   const [uiScale, setUiScale] = useState<UiScale>(() => readUiScale(typeof window === 'undefined' ? undefined : window.localStorage));
   const [workspaceState, setWorkspaceState] = useState<BuildWorkspaceState>(initialWorkspaceState);
+  const [levelDraft, setLevelDraft] = useState(String(latestExpansion.levelCap));
   const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
   const [savedSets, setSavedSets] = useState<GearSet[]>([]);
   const [customItems, setCustomItems] = useState<EquipmentItem[]>([]);
@@ -1082,11 +1183,16 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     result,
     message,
     job,
+    jobMode,
     selectedSet,
     previousOptimizedSet,
     customFallbacks,
     evaluationMode
   } = activeBuild;
+
+  useEffect(() => {
+    setLevelDraft(String(level));
+  }, [activeBuildId, level]);
 
   const updateBuildById = (id: BuildId, update: (build: BuildWorkspace) => BuildWorkspace) => {
     setWorkspaceState((current) => {
@@ -1115,16 +1221,16 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     if (pending) workerRef.current = null;
     updateBuildById(activeBuildId, (build) => {
       const nextLevel = effectiveLevel(gearSnapshot.registry, next, build.level);
-      const currentJobRemainsAvailable = jobAvailableAtAccess(gearSnapshot.registry, build.job, next, nextLevel) &&
-        Boolean(evaluatorProfileForAccessOrUndefined(build.job, next, nextLevel));
+      const currentJobRemainsAvailable = jobAvailableAtAccess(gearSnapshot.registry, build.job, next, nextLevel, build.jobMode) &&
+        Boolean(evaluatorProfileForAccessOrUndefined(build.job, next, nextLevel, build.jobMode));
       const nextJob = currentJobRemainsAvailable
         ? build.job
         : SUPPORTED_JOBS.find((definition) =>
           jobAvailableAtAccess(gearSnapshot.registry, definition.id, next, nextLevel) &&
-          getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available' &&
-          Boolean(evaluatorProfileForAccessOrUndefined(definition.id, next, nextLevel))
+          evaluatorCapabilityForAccess(definition.id, 'standard', 'generic-hit', next, nextLevel).status === 'available'
         )?.id ?? build.job;
-      const nextProfile = evaluatorProfileForAccessOrUndefined(nextJob, next, nextLevel);
+      const nextJobMode = currentJobRemainsAvailable ? build.jobMode : 'standard';
+      const nextProfile = evaluatorProfileForAccessOrUndefined(nextJob, next, nextLevel, nextJobMode);
       const expansionName = gearSnapshot.registry.expansions.find((entry) => entry.id === next)?.name ?? next;
       if (!nextProfile) {
         return {
@@ -1134,7 +1240,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         };
       }
       const nextEvaluationMode = build.evaluationMode !== 'generic-hit' &&
-        rotationProfileFor(nextJob, nextProfile.rulesetId, build.evaluationMode)
+        rotationProfileFor(nextJob, nextProfile.rulesetId, build.evaluationMode, nextJobMode)
         ? build.evaluationMode
         : 'generic-hit';
       const expansionOrder = new Map(gearSnapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
@@ -1167,13 +1273,14 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         ...build,
         expansion: next,
         job: nextJob,
+        jobMode: nextJobMode,
         evaluationMode: nextEvaluationMode,
         gcdTarget: nextJob === build.job ? build.gcdTarget : nextJobDefinition.defaultGcdTarget.toFixed(2),
         selectedSet: {
           ...(nextJob === build.job || !nextReferenceSet ? build.selectedSet : nextReferenceSet),
           rotationEvaluation: undefined
         },
-        constraints: nextConstraints,
+        constraints: { ...nextConstraints, jobMode: nextJobMode },
         result: undefined,
         previousOptimizedSet: undefined,
         runState: catalogueAvailable ? 'idle' : 'error',
@@ -1183,13 +1290,13 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       };
     });
   };
-  const setLevel = (next: number) => setBuildField('level', next);
   const setConstraints = (next: OptimizerConstraints | ((current: OptimizerConstraints) => OptimizerConstraints)) => setBuildField('constraints', next);
   const setGcdTarget = (next: string) => setBuildField('gcdTarget', next);
   const setRunState = (next: WorkspaceRunState) => setBuildField('runState', next);
   const setResult = (next: OptimizerResult | undefined) => setBuildField('result', next);
   const setMessage = (next: string) => setBuildField('message', next);
   const setJob = (next: CombatJob) => setBuildField('job', next);
+  const setJobMode = (next: JobModeId) => setBuildField('jobMode', next);
   const setEvaluationMode = (next: EvaluationMode) => setBuildField('evaluationMode', next);
   const setRotationPotion = (next: 'none' | 'included') => updateBuildById(activeBuildId, (build) => ({
     ...build,
@@ -1225,7 +1332,8 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           (build) => Boolean(evaluatorProfileForAccessOrUndefined(
             build.job,
             build.expansion,
-            effectiveLevel(gearSnapshot.registry, build.expansion, build.level)
+            effectiveLevel(gearSnapshot.registry, build.expansion, build.level),
+            build.jobMode
           ))
         ));
       }
@@ -1250,29 +1358,112 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   }, [workspaceHydrated, workspaceState, savedSets]);
 
   const activeLevel = effectiveLevel(gearSnapshot.registry, expansion, level);
+  const selectableEffectiveLevels = useMemo(() => {
+    const selectedOrder = gearSnapshot.registry.expansions.find((entry) => entry.id === expansion)?.order ?? -1;
+    const profileRulesets = new Set(gearSnapshot.evaluatorProfiles
+      .filter((profile) => profile.job === job && profile.jobMode === jobMode)
+      .map((profile) => profile.rulesetId));
+    return [...new Set(gearSnapshot.rulesets
+      .filter((ruleset) =>
+        ruleset.jobMode === jobMode &&
+        profileRulesets.has(ruleset.id) &&
+        (gearSnapshot.registry.expansions.find((entry) => entry.id === ruleset.expansionId)?.order ?? Number.MAX_SAFE_INTEGER) <= selectedOrder
+      )
+      .flatMap((ruleset) => [ruleset.minimumLevel, ruleset.maximumLevel]))]
+      .sort((left, right) => left - right);
+  }, [expansion, job, jobMode]);
+  const commitLevelDraft = () => {
+    const parsed = Number(levelDraft);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      setLevelDraft(String(level));
+      setRunState('error');
+      setMessage('Enter a whole effective level greater than zero. The previous applied level was kept.');
+      return;
+    }
+    const nextActiveLevel = effectiveLevel(gearSnapshot.registry, expansion, parsed);
+    const nextProfile = evaluatorProfileForAccessOrUndefined(job, expansion, nextActiveLevel, jobMode);
+    if (
+      !nextProfile ||
+      !jobAvailableAtAccess(gearSnapshot.registry, job, expansion, nextActiveLevel, jobMode)
+    ) {
+      setLevelDraft(String(level));
+      setRunState('error');
+      setMessage(
+        `No compatible ${jobDefinition.name} level-cap evaluator is installed for level ${nextActiveLevel}. ` +
+        `Available levels for this job and expansion access: ${selectableEffectiveLevels.join(', ') || 'none'}. ` +
+        'The previous applied level was kept.'
+      );
+      return;
+    }
+
+    const pending = workerRef.current;
+    pending?.worker.terminate();
+    if (pending) workerRef.current = null;
+    const nextEvaluationMode = evaluationMode !== 'generic-hit' &&
+      rotationProfileFor(job, nextProfile.rulesetId, evaluationMode, jobMode)
+      ? evaluationMode
+      : 'generic-hit';
+    const expansionOrder = new Map(gearSnapshot.registry.expansions.map((entry) => [entry.id, entry.order]));
+    const selectedOrder = expansionOrder.get(expansion) ?? -1;
+    const supportsAccess = (entry: { expansionId?: ExpansionId; requiredLevel?: number }) =>
+      (entry.requiredLevel === undefined || entry.requiredLevel <= nextActiveLevel) &&
+      (entry.expansionId === undefined || (expansionOrder.get(entry.expansionId) ?? Number.MAX_SAFE_INTEGER) <= selectedOrder);
+    const availableMateriaTiers = [...new Set(gearSnapshot.materia
+      .filter((entry) => nextProfile.meldStats.includes(entry.stat) && supportsAccess(entry))
+      .map((entry) => entry.tier))]
+      .sort((left, right) => right - left);
+    const availableFoods = gearSnapshot.foods.filter(supportsAccess);
+
+    updateBuildById(activeBuildId, (build) => {
+      const nextConstraints = constraintsForExpansion(build.constraints, {
+        minimumResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0,
+        materiaTiers: availableMateriaTiers,
+        lockedFoodIsAvailable: availableFoods.some((food) => food.id === build.constraints.lockedFoodId),
+        hasAvailableFood: availableFoods.length > 0,
+        materiaCatalogueVersion: 'combat-materia-shb-dt-7-12@3'
+      });
+      return {
+        ...build,
+        level: parsed,
+        evaluationMode: nextEvaluationMode,
+        constraints: { ...nextConstraints, jobMode },
+        selectedSet: { ...build.selectedSet, rotationEvaluation: undefined },
+        equippedSetEvaluation: undefined,
+        result: undefined,
+        previousOptimizedSet: undefined,
+        runState: 'idle',
+        message: `Effective level ${nextActiveLevel} applied. ` +
+          `Materia and food limits were refreshed for this level.` +
+          (nextEvaluationMode !== evaluationMode
+            ? ' Rotation evaluation returned to the generic-hit proxy because this historical ruleset has no compatible pilot.'
+            : '')
+      };
+    });
+    setLevelDraft(String(parsed));
+  };
   const catalogueReadiness = useMemo(() => assessCatalogueReadiness(gearSnapshot, job, {
     accessExpansion: expansion,
-    accessLevel: activeLevel
-  }), [activeLevel, expansion, job]);
+    accessLevel: activeLevel,
+    jobMode
+  }), [activeLevel, expansion, job, jobMode]);
   const jobDefinition = SUPPORTED_JOBS.find((entry) => entry.id === job)!;
-  const evaluatorProfile = evaluatorProfileFor(job, expansion, activeLevel);
+  const evaluatorProfile = evaluatorProfileFor(job, expansion, activeLevel, jobMode);
   const evaluatorRuleset = gearSnapshot.rulesets.find((entry) => entry.id === evaluatorProfile.rulesetId);
   const activeRotationProfile = evaluationMode === 'generic-hit'
     ? undefined
-    : rotationProfileFor(job, evaluatorProfile.rulesetId, evaluationMode);
+    : rotationProfileFor(job, evaluatorProfile.rulesetId, evaluationMode, jobMode);
   const equippedEvaluationAvailable = (['opener-30', 'dummy-300'] as const).every((mode) =>
-    getEvaluatorCapability(gearSnapshot.registry, job, 'standard', mode)?.status === 'available' &&
-    Boolean(rotationProfileFor(job, evaluatorProfile.rulesetId, mode))
+    resolveEvaluatorCapability(gearSnapshot, job, jobMode, mode, evaluatorProfile.rulesetId).status === 'available'
   );
   const customEvaluatorProfile = evaluatorProfileFor(customJob);
   const customItemLimits = useMemo(
     () => getCustomItemLimits(customJob, customDraft.slot),
     [customJob, customDraft.slot]
   );
-  const jobIsAvailable = (definition: (typeof SUPPORTED_JOBS)[number]) =>
-    jobAvailableAtAccess(gearSnapshot.registry, definition.id, expansion, level);
-  const jobCanOptimize = (definition: (typeof SUPPORTED_JOBS)[number]) =>
-    getEvaluatorCapability(gearSnapshot.registry, definition.id, 'standard', 'generic-hit')?.status === 'available';
+  const jobIsAvailable = (definition: (typeof SUPPORTED_JOBS)[number], mode: JobModeId = jobMode) =>
+    jobAvailableAtAccess(gearSnapshot.registry, definition.id, expansion, level, mode);
+  const jobCanOptimize = (definition: (typeof SUPPORTED_JOBS)[number], mode: JobModeId = jobMode) =>
+    evaluatorCapabilityForAccess(definition.id, mode, 'generic-hit', expansion, activeLevel).status === 'available';
 
   useEffect(() => {
     const accessChecked = withHypotheticalAccess(selectedSet, customItems, expansion, activeLevel);
@@ -1283,14 +1474,16 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
 
   useEffect(() => {
     if (jobIsAvailable(jobDefinition) && jobCanOptimize(jobDefinition)) return;
-    const fallback = SUPPORTED_JOBS.find((entry) => jobIsAvailable(entry) && jobCanOptimize(entry));
+    const fallback = SUPPORTED_JOBS.find((entry) => jobIsAvailable(entry, 'standard') && jobCanOptimize(entry, 'standard'));
     if (!fallback) return;
     const referenceSet = gearSnapshot.curatedSets.find((set) => set.job === fallback.id);
     setJob(fallback.id);
+    setJobMode('standard');
     setGcdTarget(fallback.defaultGcdTarget.toFixed(2));
-    const fallbackProfile = evaluatorProfileFor(fallback.id, expansion, activeLevel);
+    const fallbackProfile = evaluatorProfileFor(fallback.id, expansion, activeLevel, 'standard');
     setConstraints((current) => ({
       ...current,
+      jobMode: 'standard',
       minResource: fallbackProfile.resourceStat ? fallbackProfile.baseStats[fallbackProfile.resourceStat] : 0
     }));
     setResult(undefined);
@@ -1300,42 +1493,104 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     setMessage(jobIsAvailable(jobDefinition)
       ? `${jobDefinition.name} data is present, but its evaluator is not ready. Switched to ${fallback.name}.`
       : `${jobDefinition.name} is unavailable at the selected expansion or effective level. Switched to ${fallback.name}.`);
-  }, [activeLevel, expansion, job, jobDefinition]);
+  }, [activeLevel, expansion, job, jobDefinition, jobMode]);
 
   const selectJob = (nextJob: CombatJob) => {
     const definition = SUPPORTED_JOBS.find((entry) => entry.id === nextJob)!;
-    const capability = getEvaluatorCapability(gearSnapshot.registry, nextJob, 'standard', 'generic-hit');
-    if (capability?.status !== 'available') {
-      setMessage(`${definition.name} data is present, but its generic-hit evaluator is ${capability?.status ?? 'unsupported'}. Optimisation remains unavailable until a compatible profile is installed.`);
+    const preferredMode = getJobMode(gearSnapshot.registry, nextJob, jobMode) &&
+      evaluatorCapabilityForAccess(nextJob, jobMode, 'generic-hit', expansion, activeLevel).status === 'available'
+      ? jobMode
+      : 'standard';
+    const capability = evaluatorCapabilityForAccess(nextJob, preferredMode, 'generic-hit', expansion, activeLevel);
+    if (capability.status !== 'available') {
+      setMessage(`${definition.name} data is present, but its ${preferredMode} generic-hit evaluator is ${capability.status}. Optimisation remains unavailable until a compatible profile is installed.`);
       return;
     }
     const referenceSet = gearSnapshot.curatedSets.find((set) => set.job === nextJob);
-    const nextProfile = evaluatorProfileFor(nextJob, expansion, activeLevel);
+    const nextProfile = evaluatorProfileFor(nextJob, expansion, activeLevel, preferredMode);
     const nextEvaluationMode = evaluationMode !== 'generic-hit' &&
-      rotationProfileFor(nextJob, nextProfile.rulesetId, evaluationMode)
+      rotationProfileFor(nextJob, nextProfile.rulesetId, evaluationMode, preferredMode)
       ? evaluationMode
       : 'generic-hit';
-    setJob(nextJob);
-    setEvaluationMode(nextEvaluationMode);
-    setGcdTarget(definition.defaultGcdTarget.toFixed(2));
-    setConstraints((current) => ({
-      ...current,
-      minResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0
+    updateBuildById(activeBuildId, (build) => ({
+      ...build,
+      job: nextJob,
+      jobMode: preferredMode,
+      evaluationMode: nextEvaluationMode,
+      gcdTarget: definition.defaultGcdTarget.toFixed(2),
+      constraints: {
+        ...build.constraints,
+        jobMode: preferredMode,
+        minResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0
+      },
+      selectedSet: referenceSet
+        ? { ...referenceSet, rotationEvaluation: undefined }
+        : { ...build.selectedSet, rotationEvaluation: undefined },
+      result: undefined,
+      previousOptimizedSet: undefined,
+      runState: 'idle',
+      message: nextEvaluationMode === 'generic-hit'
+        ? `${definition.name} selected in ${preferredMode} mode. The current evaluator is a reference-validated damage proxy, not a rotation simulation.${preferredMode !== jobMode ? ` ${jobMode} mode was unavailable and was not borrowed.` : ''}`
+        : `${definition.name} selected in ${preferredMode} mode. ${evaluationModeLabel(nextEvaluationMode)} remains available for this ruleset.`
     }));
-    setResult(undefined);
-    setRunState('idle');
-    setPreviousOptimizedSet(undefined);
-    if (referenceSet) setSelectedSet({ ...referenceSet, rotationEvaluation: undefined });
-    setMessage(nextEvaluationMode === 'generic-hit'
-      ? `${definition.name} selected. The current evaluator is a reference-validated damage proxy, not a rotation simulation.`
-      : `${definition.name} selected. ${evaluationModeLabel(nextEvaluationMode)} remains available for this current-cap ruleset.`);
+  };
+
+  const selectJobMode = (nextMode: JobModeId) => {
+    const modeDefinition = getJobMode(gearSnapshot.registry, job, nextMode);
+    const capability = evaluatorCapabilityForAccess(job, nextMode, 'generic-hit', expansion, activeLevel);
+    const nextProfile = evaluatorProfileForAccessOrUndefined(job, expansion, activeLevel, nextMode);
+    if (!modeDefinition || capability.status !== 'available' || !nextProfile) {
+      setMessage(capability.reason ?? `${nextMode} mode is not available for ${job} at the selected expansion and level.`);
+      return;
+    }
+    const ruleset = gearSnapshot.rulesets.find((entry) => entry.id === nextProfile.rulesetId);
+    if (!ruleset) {
+      setMessage(`${modeDefinition.name} references missing ruleset ${nextProfile.rulesetId}. The current mode was left unchanged.`);
+      return;
+    }
+    const nextEvaluationMode = evaluationMode !== 'generic-hit' &&
+      resolveEvaluatorCapability(gearSnapshot, job, nextMode, evaluationMode, nextProfile.rulesetId).status === 'available'
+      ? evaluationMode
+      : 'generic-hit';
+    const recalculated = recalculateGearSet(
+      { ...selectedSet, rotationEvaluation: undefined },
+      [...gearSnapshot.items, ...customItems],
+      gearSnapshot.materia,
+      gearSnapshot.foods,
+      gearSnapshot.evaluatorProfiles,
+      {
+        snapshotId: gearSnapshot.manifest.id,
+        rulesetId: nextProfile.rulesetId,
+        evaluatorProfileId: nextProfile.id,
+        evaluatorVersion: nextProfile.version,
+        calculationSchema: ruleset.calculationSchema,
+        jobMode: nextMode,
+        evaluationMode: 'generic-hit'
+      }
+    );
+    updateBuildById(activeBuildId, (build) => ({
+      ...build,
+      jobMode: nextMode,
+      evaluationMode: nextEvaluationMode,
+      constraints: {
+        ...build.constraints,
+        jobMode: nextMode,
+        minResource: nextProfile.resourceStat ? nextProfile.baseStats[nextProfile.resourceStat] : 0
+      },
+      selectedSet: recalculated,
+      equippedSetEvaluation: undefined,
+      result: undefined,
+      previousOptimizedSet: undefined,
+      runState: 'idle',
+      message: `${modeDefinition.name} rules selected. ${nextProfile.rulesetId} is now pinned to new results.${nextEvaluationMode !== evaluationMode ? ' The previous rotation mode was unavailable here and was safely reset to the generic hit.' : ''}`
+    }));
   };
 
   const selectEvaluationMode = (nextMode: EvaluationMode) => {
     if (nextMode !== 'generic-hit') {
-      const capability = getEvaluatorCapability(gearSnapshot.registry, job, 'standard', nextMode);
-      const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, nextMode);
-      if (capability?.status !== 'available' || !profile) {
+      const capability = resolveEvaluatorCapability(gearSnapshot, job, jobMode, nextMode, evaluatorProfile.rulesetId);
+      const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, nextMode, jobMode);
+      if (capability.status !== 'available' || !profile) {
         setMessage(`${evaluationModeLabel(nextMode)} is not available for ${job} under the selected ${evaluatorProfile.rulesetId} ruleset.`);
         return;
       }
@@ -1437,6 +1692,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         : `${requestedMinGcd.toFixed(2)}–${requestedMaxGcd.toFixed(2)}s range`,
       accessExpansion: expansion,
       accessLevel: activeLevel,
+      jobMode,
       requiredItemIds: [...new Set([...constraints.requiredItemIds, ...activeCustomItems.map((item) => item.id)])]
     };
 
@@ -1482,7 +1738,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           selectedSet: next.best ?? build.selectedSet,
           message: next.best
             ? next.rotationRerank
-              ? `${evaluationModeLabel(next.rotationRerank.mode)} reranked ${next.rotationRerank.candidateCount} finalists in ${next.rotationRerank.durationMs.toFixed(0)} ms${next.rotationRerank.winnerChanged ? ' and changed the winner.' : '; the proxy winner stayed first.'} Optimality was not proven.`
+              ? `${evaluationModeLabel(next.rotationRerank.mode)} reranked ${next.rotationRerank.candidateCount} finalists in ${next.rotationRerank.durationMs.toFixed(0)} ms${next.rotationRerank.winnerChanged ? ' and changed the winner.' : '; the proxy winner stayed first.'}${next.rotationRerank.stability?.winnerChanged ? ` The ${next.rotationRerank.stability.durationMs / 1000}s audit preferred another finalist.` : ''} Optimality was not proven.`
               : next.speedFallback
               ? `Exact speed unavailable; showing the closest attainable ${next.speedFallback.achievedGcd.toFixed(2)}s set after searching ${next.evaluatedStates.toLocaleString()} states.`
               : `Searched ${next.evaluatedStates.toLocaleString()} states in ${next.durationMs.toFixed(0)} ms. ${next.optimality?.status === 'proven' ? 'Optimality proven.' : 'Best result found; optimality not proven.'}`
@@ -2274,7 +2530,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
       workerRef.current.worker.terminate();
       workerRef.current = null;
     }
-    const profile = evaluatorProfileFor(activeBuild.job, activeBuild.expansion, effectiveLevel(gearSnapshot.registry, activeBuild.expansion, activeBuild.level));
+    const profile = evaluatorProfileFor(
+      activeBuild.job,
+      activeBuild.expansion,
+      effectiveLevel(gearSnapshot.registry, activeBuild.expansion, activeBuild.level),
+      activeBuild.jobMode
+    );
     const minimumResource = profile.resourceStat ? profile.baseStats[profile.resourceStat] : 0;
     setWorkspaceState((current) => copyBuildLoadout(current, activeBuildId, targetId, minimumResource));
   };
@@ -2286,12 +2547,21 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     }
     const definition = SUPPORTED_JOBS.find((entry) => entry.id === set.job);
     const profile = evaluatorProfileForSet(set);
+    const openedJobMode = set.calculationContext?.jobMode ?? profile.jobMode;
+    const requestedEvaluationMode = set.rotationEvaluation?.mode ?? set.calculationContext?.evaluationMode ?? 'generic-hit';
+    const openedEvaluationMode = requestedEvaluationMode === 'generic-hit' ||
+      resolveEvaluatorCapability(gearSnapshot, set.job, openedJobMode, requestedEvaluationMode, profile.rulesetId).status === 'available'
+      ? requestedEvaluationMode
+      : 'generic-hit';
     updateBuildById(activeBuildId, (build) => ({
       ...build,
       job: set.job,
+      jobMode: openedJobMode,
+      evaluationMode: openedEvaluationMode,
       gcdTarget: set.metrics.gcd.toFixed(2),
       constraints: {
         ...build.constraints,
+        jobMode: openedJobMode,
         minResource: profile.resourceStat ? profile.baseStats[profile.resourceStat] : 0
       },
       selectedSet: structuredClone(set),
@@ -2412,6 +2682,42 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                 <section className="control-panel" aria-label={`${activeBuild.name} optimisation controls`}>
                   <div className="panel-title"><div><p className="eyebrow">{activeBuild.name} constraints</p><h2>Recommendation brief</h2></div><span className="verified-badge">{gearSnapshot.items.length} official items</span></div>
 
+                  <div className="ruleset-mode-summary" data-ruleset-mode-control>
+                    <span>Ruleset mode</span>
+                    <select
+                      aria-label="Ruleset mode"
+                      value={jobMode}
+                      onChange={(event) => selectJobMode(event.target.value)}
+                    >
+                      {jobDefinition.modes.map((mode) => {
+                        const capability = evaluatorCapabilityForAccess(job, mode.id, 'generic-hit', expansion, activeLevel);
+                        return (
+                          <option value={mode.id} disabled={capability.status !== 'available'} key={mode.id}>
+                            {mode.name} · {capability.status}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <strong>{getJobMode(gearSnapshot.registry, job, jobMode)?.name ?? jobMode}</strong>
+                    <small>{getJobModeKind(getJobMode(gearSnapshot.registry, job, jobMode) ?? { id: jobMode })} rules · {evaluatorProfile.rulesetId} · {evaluatorProfile.version}</small>
+                  </div>
+
+                  <div className="evaluator-capabilities" data-evaluator-capabilities aria-label={`${job} evaluator capabilities`}>
+                    {([
+                      ['Catalogue', jobAvailableAtAccess(gearSnapshot.registry, job, expansion, activeLevel, jobMode)
+                        ? { status: 'available' as const }
+                        : { status: 'unsupported' as const, reason: 'This job mode is unavailable at the selected expansion or level.' }],
+                      ['100p hit', resolveEvaluatorCapability(gearSnapshot, job, jobMode, 'generic-hit', evaluatorProfile.rulesetId)],
+                      ['30s burst', resolveEvaluatorCapability(gearSnapshot, job, jobMode, 'opener-30', evaluatorProfile.rulesetId)],
+                      ['300s dummy', resolveEvaluatorCapability(gearSnapshot, job, jobMode, 'dummy-300', evaluatorProfile.rulesetId)]
+                    ] as const).map(([label, capability]) => (
+                      <div className={`evaluator-capability ${capability.status}`} title={capability.reason} key={label}>
+                        <span>{label}</span>
+                        <strong>{capability.status}</strong>
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="evaluation-mode-summary" data-evaluation-mode-control>
                     <span>Evaluation mode</span>
                     <select
@@ -2421,12 +2727,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     >
                       <option value="generic-hit">Expected single 100-potency hit · fast proxy</option>
                       {(['opener-30', 'dummy-300'] as const).map((mode) => {
-                        const capability = getEvaluatorCapability(gearSnapshot.registry, job, 'standard', mode);
-                        const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, mode);
-                        const available = capability?.status === 'available' && Boolean(profile);
+                        const capability = resolveEvaluatorCapability(gearSnapshot, job, jobMode, mode, evaluatorProfile.rulesetId);
+                        const profile = rotationProfileFor(job, evaluatorProfile.rulesetId, mode, jobMode);
+                        const available = capability.status === 'available' && Boolean(profile);
                         return (
                           <option value={mode} disabled={!available} key={mode}>
-                            {evaluationModeLabel(mode)} · {available ? 'pilot available' : capability?.status ?? 'unsupported'}
+                            {evaluationModeLabel(mode)} · {available ? 'pilot available' : capability.status}
                           </option>
                         );
                       })}
@@ -2469,17 +2775,41 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
                     </select>
                   </label>
                   <label>Effective level
-                    <input type="number" min="1" max="100" value={level} onChange={(event) => setLevel(Number(event.target.value))} />
-                    <small>Applied: {activeLevel}. Expansion cap is enforced.</small>
+                    <input
+                      aria-label="Effective level"
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max={Math.max(...EXPANSIONS.map((entry) => entry.levelCap))}
+                      list="effective-level-options"
+                      value={levelDraft}
+                      onChange={(event) => setLevelDraft(event.target.value)}
+                      onBlur={commitLevelDraft}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          commitLevelDraft();
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault();
+                          setLevelDraft(String(level));
+                        }
+                      }}
+                    />
+                    <datalist id="effective-level-options">
+                      {selectableEffectiveLevels.map((entry) => <option value={entry} key={entry} />)}
+                    </datalist>
+                    <small>
+                      Applied: {activeLevel}. Installed level-cap evaluators: {selectableEffectiveLevels.join(', ') || 'none'}. Expansion cap is enforced.
+                    </small>
                   </label>
                   <label>Job
                     <select id="job-select" className={`job-select role-${jobDefinition.role}`} data-job-role={jobDefinition.role} value={job} onChange={(event) => selectJob(event.target.value as CombatJob)}>
                       {ROLE_GROUPS.map((group) => (
                         <optgroup label={group.label} className={`role-group role-${group.role}`} key={group.role}>
                           {SUPPORTED_JOBS.filter((entry) => entry.role === group.role).map((entry) => {
-                            const capability = getEvaluatorCapability(gearSnapshot.registry, entry.id, 'standard', 'generic-hit');
-                            const capabilityLabel = capability?.status === 'available' ? 'validated proxy' : `evaluator ${capability?.status ?? 'unsupported'}`;
-                            return <option className={`role-option role-${entry.role}`} value={entry.id} disabled={!jobIsAvailable(entry) || capability?.status !== 'available'} key={entry.id}>{entry.name} · {capabilityLabel}</option>;
+                            const capability = evaluatorCapabilityForAccess(entry.id, 'standard', 'generic-hit', expansion, activeLevel);
+                            const capabilityLabel = capability.status === 'available' ? 'validated proxy' : `evaluator ${capability.status}`;
+                            return <option className={`role-option role-${entry.role}`} value={entry.id} disabled={!jobIsAvailable(entry, 'standard') || capability.status !== 'available'} key={entry.id}>{entry.name} · {capabilityLabel}</option>;
                           })}
                         </optgroup>
                       ))}

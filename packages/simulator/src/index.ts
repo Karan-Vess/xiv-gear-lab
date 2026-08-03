@@ -1,5 +1,6 @@
 import type {
   CombatMethodReference,
+  CombatRotationValidation,
   CombatRotationProfile,
   CommunityOpenerProfile,
   RotationEvaluationMode,
@@ -17,7 +18,8 @@ import {
   type CombatTimelineEngineOptions
 } from './timing-engine';
 
-export const ROTATION_PROFILE_SCHEMA_VERSION = 'combat-rotation-profile@1';
+export const LEGACY_ROTATION_PROFILE_SCHEMA_VERSION = 'combat-rotation-profile@1';
+export const ROTATION_PROFILE_SCHEMA_VERSION = 'combat-rotation-profile@2';
 
 export interface CombatEvaluationStats {
   stats: StatBlock;
@@ -33,6 +35,12 @@ export type OpenerPreference = 'auto' | 'generated' | string;
 
 export interface CombatEvaluationRequest {
   mode: RotationEvaluationMode;
+  /**
+   * Internal audit windows may extend the normal 300-second dummy without
+   * creating another user-facing evaluation mode. The selected mode remains
+   * the semantic contract; this value only changes its measurement horizon.
+   */
+  durationOverrideMs?: number;
   profile: CombatRotationProfile;
   combatStats: CombatEvaluationStats;
   openerPreference: OpenerPreference;
@@ -64,6 +72,16 @@ export interface CombatEvaluationSummary {
   clippedMs: number;
   overcappedResources: Record<string, number>;
   driftMsByAction: Record<string, number>;
+  dotCadenceById: Record<string, {
+    applications: number;
+    refreshes: number;
+    earlyRefreshMs: number;
+    lateRefreshMs: number;
+    missedTicks: number;
+  }>;
+  pendingApplicationsByAction: Record<string, number>;
+  pendingApplicationPotency: number;
+  finalResources: Record<string, number>;
 }
 
 export interface ResolvedRotationMethod {
@@ -89,6 +107,7 @@ export interface CombatEvaluationResult {
   timingCacheKey: string;
   summary: CombatEvaluationSummary;
   references: CombatMethodReference[];
+  validation?: CombatRotationValidation;
   timeline?: CombatActionRecord[];
   limitation: string;
 }
@@ -131,6 +150,17 @@ export interface RotationTimingIdentity {
 
 export const durationForMode = (mode: RotationEvaluationMode): number =>
   mode === 'opener-30' ? 30_000 : 300_000;
+
+export const durationForRequest = (request: Pick<CombatEvaluationRequest, 'mode' | 'durationOverrideMs'>): number => {
+  const durationMs = request.durationOverrideMs ?? durationForMode(request.mode);
+  if (!Number.isInteger(durationMs) || durationMs < 1) {
+    throw new Error(`Combat evaluation duration must be a positive integer, received ${durationMs}.`);
+  }
+  if (request.mode === 'opener-30' && durationMs !== 30_000) {
+    throw new Error('The fixed 30-second opener window cannot be overridden.');
+  }
+  return durationMs;
+};
 
 export const labelForMode = (mode: RotationEvaluationMode): string =>
   mode === 'opener-30' ? '30-second burst' : 'Five-minute dummy rotation';
@@ -204,7 +234,7 @@ export const buildRotationTimingIdentity = (
   profileVersion: request.profile.version,
   engineId: request.profile.engineId,
   mode: request.mode,
-  durationMs: durationForMode(request.mode),
+  durationMs: durationForRequest(request),
   speedStatValue: request.combatStats.speedStatValue,
   weaponDelayMs: request.combatStats.weaponDelayMs,
   hastePercent: request.combatStats.hastePercent,
@@ -257,7 +287,7 @@ export const runHybridCombatEvaluation = (
     potion: request.potion,
     evaluateMechanicCondition
   });
-  const durationMs = durationForMode(request.mode);
+  const durationMs = durationForRequest(request);
   const timeline = runCombatTimeline({
     ...timelineOptions,
     profile: request.profile,
@@ -283,6 +313,9 @@ export const runHybridCombatEvaluation = (
     timingCacheKey: buildRotationTimingCacheKey(request, method),
     summary: timeline.summary,
     references: request.profile.references.map((reference) => ({ ...reference })),
+    ...(request.profile.validation ? {
+      validation: structuredClone(request.profile.validation)
+    } : {}),
     ...(request.includeTimeline ? { timeline: timeline.records } : {}),
     limitation: request.profile.limitation
   };

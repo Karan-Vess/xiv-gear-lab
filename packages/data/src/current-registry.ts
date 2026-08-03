@@ -44,10 +44,27 @@ const baseTimingEffect: JobTimingEffect = {
 };
 
 const rotationPilotProfileIds: Partial<Record<CombatJob, string>> = {
+  MNK: 'mnk-dt-generated-rotation@1',
+  DRG: 'drg-dt-generated-rotation@1',
+  NIN: 'nin-dt-generated-rotation@1',
+  RPR: 'rpr-dt-generated-rotation@1',
+  VPR: 'vpr-dt-generated-rotation@1',
+  WHM: 'whm-dt-generated-rotation@1',
+  SCH: 'sch-dt-generated-rotation@1',
+  AST: 'ast-dt-generated-rotation@1',
+  SGE: 'sge-dt-generated-rotation@1',
   SAM: 'sam-dt-generated-rotation@1',
+  BRD: 'brd-dt-generated-rotation@1',
+  MCH: 'mch-dt-generated-rotation@1',
   DNC: 'dnc-dt-generated-rotation@1',
   BLM: 'blm-dt-generated-rotation@1',
-  DRK: 'drk-dt-generated-rotation@1'
+  SMN: 'smn-dt-generated-rotation@1',
+  RDM: 'rdm-dt-generated-rotation@1',
+  PCT: 'pct-dt-generated-rotation@1',
+  DRK: 'drk-dt-generated-rotation@1',
+  PLD: 'pld-dt-generated-rotation@1',
+  WAR: 'war-dt-generated-rotation@1',
+  GNB: 'gnb-dt-generated-rotation@1'
 };
 
 const job = (
@@ -77,6 +94,7 @@ const job = (
     id: 'standard',
     name: 'Standard',
     introducedIn,
+    kind: 'standard',
     capabilities: {
       'generic-hit': { status: 'available', profileId },
       'opener-30': rotationProfileId
@@ -149,7 +167,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '7.51',
     minimumLevel: 100,
     maximumLevel: 100,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   },
   {
     id: ENDWALKER_RULESET_ID,
@@ -159,7 +178,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '6.58',
     minimumLevel: 90,
     maximumLevel: 90,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   },
   {
     id: SHADOWBRINGERS_RULESET_ID,
@@ -169,7 +189,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '5.58',
     minimumLevel: 80,
     maximumLevel: 80,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   },
   {
     id: STORMBLOOD_RULESET_ID,
@@ -179,7 +200,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '4.58',
     minimumLevel: 70,
     maximumLevel: 70,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   },
   {
     id: HEAVENSWARD_RULESET_ID,
@@ -189,7 +211,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '3.58',
     minimumLevel: 60,
     maximumLevel: 60,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   },
   {
     id: A_REALM_REBORN_RULESET_ID,
@@ -199,7 +222,8 @@ export const CURRENT_RULESETS: CalculationRuleset[] = [
     gamePatch: '2.58',
     minimumLevel: 50,
     maximumLevel: 50,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   }
 ];
 
@@ -257,7 +281,55 @@ const commonProfile = (
   baseGcdMs: 2500,
   hastePercent,
   timingEffectId,
-  confidence: 'reference-validated-proxy' as const
+  confidence: 'reference-validated-proxy' as const,
+  references: [
+    {
+      id: 'generic-hit-xivgear-maths',
+      kind: 'xivgear-reference' as const,
+      title: 'XivGear mathematics',
+      provider: 'XivGear',
+      author: 'XivGear contributors',
+      host: 'xivgear.app',
+      components: ['weapon damage', 'main stat', 'critical hit', 'direct hit', 'determination', 'speed tiers'],
+      url: 'https://xivgear.app/math/',
+      gamePatch: '7.5',
+      accessedAt: '2026-07-28',
+      notes: 'Formula structure cross-check only. XIV Gear Lab owns its clean-room implementation and ranking.'
+    },
+    ...(role === 'tank' ? [{
+      id: 'generic-hit-tenacity',
+      kind: 'community' as const,
+      title: 'Tenacity',
+      provider: 'Allagan Studies',
+      author: 'Allagan Studies contributors',
+      host: 'AkhMorning',
+      components: ['tenacity damage', 'tenacity mitigation', 'tenacity healing'],
+      url: 'https://www.akhmorning.com/allagan-studies/stats/ten/',
+      gamePatch: '7.0',
+      accessedAt: '2026-07-28'
+    }] : role === 'healer' ? [{
+      id: 'generic-hit-piety',
+      kind: 'community' as const,
+      title: 'Piety',
+      provider: 'Allagan Studies',
+      author: 'Allagan Studies contributors',
+      host: 'AkhMorning',
+      components: ['piety MP regeneration'],
+      url: 'https://www.akhmorning.com/allagan-studies/stats/piety/',
+      gamePatch: '7.0',
+      accessedAt: '2026-07-28'
+    }] : []),
+    {
+      id: `${jobId.toLowerCase()}-generic-hit-implementation`,
+      kind: 'xiv-gear-lab' as const,
+      title: `${jobId} generic-hit profile and ranking`,
+      provider: 'XIV Gear Lab',
+      author: 'XIV Gear Lab',
+      components: ['job profile assembly', 'gear aggregation', 'materia caps', 'food application', 'optimizer ranking'],
+      gamePatch: '7.51',
+      notes: 'Project-owned implementation. Profile constants without a direct component citation remain internal and unverified.'
+    }
+  ]
 });
 
 const healerProfile = (jobId: CombatJob, id: string, vitality = 438): CombatEvaluatorProfile => ({

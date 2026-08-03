@@ -5,6 +5,7 @@ import type {
   ExpansionId,
   GearSet,
   GearSlot,
+  JobModeId,
   OptimizerConstraints,
   RotationEvaluationMode,
   RotationEvaluationSummary
@@ -29,13 +30,13 @@ export interface EquippedSetEvaluation {
 }
 
 export interface BuildWorkspace {
-  schemaVersion: 'build-workspace@1';
+  schemaVersion: 'build-workspace@2';
   id: BuildId;
   name: string;
   expansion: ExpansionId;
   level: number;
   job: CombatJob;
-  jobMode: string;
+  jobMode: JobModeId;
   evaluationMode: EvaluationMode;
   rotationPotion?: 'none' | 'included';
   constraints: OptimizerConstraints;
@@ -52,7 +53,7 @@ export interface BuildWorkspace {
 
 export interface BuildWorkspaceState {
   id: 'primary';
-  schemaVersion: 'build-workspace-state@1';
+  schemaVersion: 'build-workspace-state@2';
   activeTab: WorkspaceTab;
   activeBuildId: BuildId;
   baselineBuildId: BuildId;
@@ -111,7 +112,7 @@ const createBuild = (
   options: InitialBuildWorkspaceOptions,
   now: string
 ): BuildWorkspace => ({
-  schemaVersion: 'build-workspace@1',
+  schemaVersion: 'build-workspace@2',
   id,
   name: `Build ${index + 1}`,
   expansion: options.expansion,
@@ -120,7 +121,7 @@ const createBuild = (
   jobMode: 'standard',
   evaluationMode: 'generic-hit',
   rotationPotion: 'none',
-  constraints: clone(options.constraints),
+  constraints: { ...clone(options.constraints), jobMode: 'standard' },
   gcdTarget: options.gcdTarget,
   selectedSet: clone(options.selectedSet),
   customFallbacks: {},
@@ -134,7 +135,7 @@ export const createInitialBuildWorkspaceState = (
   now = new Date().toISOString()
 ): BuildWorkspaceState => ({
   id: 'primary',
-  schemaVersion: 'build-workspace-state@1',
+  schemaVersion: 'build-workspace-state@2',
   activeTab: 'build-1',
   activeBuildId: 'build-1',
   baselineBuildId: 'build-1',
@@ -147,12 +148,83 @@ export const createInitialBuildWorkspaceState = (
 export const isBuildId = (value: unknown): value is BuildId =>
   typeof value === 'string' && BUILD_IDS.includes(value as BuildId);
 
+const isEvaluationMode = (value: unknown): value is EvaluationMode =>
+  value === 'generic-hit' || value === 'opener-30' || value === 'dummy-300';
+
+/**
+ * M13A makes ruleset mode an explicit part of every workspace. Earlier
+ * workspaces can only have used the standard mode, so that migration is
+ * deterministic and does not reinterpret an evolved result.
+ */
+export const migrateBuildWorkspaceState = (value: unknown): BuildWorkspaceState | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const candidate = value as {
+    id?: unknown;
+    schemaVersion?: unknown;
+    activeTab?: unknown;
+    activeBuildId?: unknown;
+    baselineBuildId?: unknown;
+    builds?: Partial<Record<BuildId, Partial<BuildWorkspace> & { schemaVersion?: string }>>;
+    updatedAt?: unknown;
+  };
+  if (
+    candidate.id !== 'primary' ||
+    !['build-workspace-state@1', 'build-workspace-state@2'].includes(String(candidate.schemaVersion ?? '')) ||
+    !candidate.builds ||
+    !isBuildId(candidate.activeBuildId) ||
+    !isBuildId(candidate.baselineBuildId) ||
+    !(candidate.activeTab === 'comparison' || isBuildId(candidate.activeTab))
+  ) return undefined;
+
+  const builds = Object.fromEntries(BUILD_IDS.map((id) => {
+    const build = candidate.builds?.[id];
+    if (
+      !build ||
+      !['build-workspace@1', 'build-workspace@2'].includes(String(build.schemaVersion ?? '')) ||
+      build.id !== id ||
+      typeof build.job !== 'string' ||
+      typeof build.gcdTarget !== 'string' ||
+      !build.selectedSet ||
+      !build.constraints ||
+      !Array.isArray(build.constraints.allowedSources) ||
+      !build.customFallbacks
+    ) return [id, undefined];
+
+    const jobMode = typeof build.jobMode === 'string'
+      ? build.jobMode
+      : build.selectedSet.calculationContext?.jobMode ?? 'standard';
+    const evaluationMode = isEvaluationMode(build.evaluationMode)
+      ? build.evaluationMode
+      : 'generic-hit';
+    return [id, {
+      ...(build as BuildWorkspace),
+      schemaVersion: 'build-workspace@2',
+      id,
+      jobMode,
+      evaluationMode,
+      constraints: { ...build.constraints, jobMode }
+    } satisfies BuildWorkspace];
+  })) as Record<BuildId, BuildWorkspace | undefined>;
+  if (BUILD_IDS.some((id) => !builds[id])) return undefined;
+
+  return {
+    ...candidate,
+    id: 'primary',
+    schemaVersion: 'build-workspace-state@2',
+    activeTab: candidate.activeTab,
+    activeBuildId: candidate.activeBuildId,
+    baselineBuildId: candidate.baselineBuildId,
+    builds: builds as Record<BuildId, BuildWorkspace>,
+    updatedAt: typeof candidate.updatedAt === 'string' ? candidate.updatedAt : new Date(0).toISOString()
+  };
+};
+
 export const isBuildWorkspaceState = (value: unknown): value is BuildWorkspaceState => {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<BuildWorkspaceState>;
   if (
     candidate.id !== 'primary' ||
-    candidate.schemaVersion !== 'build-workspace-state@1' ||
+    candidate.schemaVersion !== 'build-workspace-state@2' ||
     !candidate.builds ||
     !isBuildId(candidate.activeBuildId) ||
     !isBuildId(candidate.baselineBuildId) ||
@@ -163,9 +235,11 @@ export const isBuildWorkspaceState = (value: unknown): value is BuildWorkspaceSt
     const build = candidate.builds?.[id];
     return Boolean(
       build &&
-      build.schemaVersion === 'build-workspace@1' &&
+      build.schemaVersion === 'build-workspace@2' &&
       build.id === id &&
       typeof build.job === 'string' &&
+      typeof build.jobMode === 'string' &&
+      isEvaluationMode(build.evaluationMode) &&
       typeof build.gcdTarget === 'string' &&
       build.selectedSet &&
       build.constraints &&
@@ -277,7 +351,7 @@ export const copyBuildLoadout = (
         jobMode: source.jobMode,
         evaluationMode: source.evaluationMode,
         rotationPotion: source.rotationPotion ?? 'none',
-        constraints: { ...clone(target.constraints), minResource: minimumResource },
+        constraints: { ...clone(target.constraints), jobMode: source.jobMode, minResource: minimumResource },
         gcdTarget: source.gcdTarget,
         selectedSet: clone(source.selectedSet),
         equippedSetEvaluation: undefined,

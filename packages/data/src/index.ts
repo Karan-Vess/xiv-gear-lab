@@ -41,7 +41,9 @@ const registrySnapshot: GearSnapshot = {
           rulesetId: ruleset.id,
           evaluatorProfileId: profile.id,
           evaluatorVersion: profile.version,
-          calculationSchema: ruleset.calculationSchema
+          calculationSchema: ruleset.calculationSchema,
+          jobMode: profile.jobMode,
+          evaluationMode: 'generic-hit'
         }
       }
       : set;

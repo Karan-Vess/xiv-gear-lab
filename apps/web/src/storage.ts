@@ -1,12 +1,13 @@
 import { emptyStats, type EquipmentItem, type GearSet, type GearSlot } from '@xiv-gear-lab/domain';
 import {
   isBuildWorkspaceState,
+  migrateBuildWorkspaceState,
   prepareBuildWorkspaceStateForStorage,
   type BuildWorkspaceState
 } from './workspace';
 
 const DATABASE = 'xiv-gear-lab';
-const DATABASE_VERSION = 6;
+const DATABASE_VERSION = 7;
 const SAVED_SET_STORE = 'saved-sets';
 const CUSTOM_ITEM_STORE = 'custom-items';
 const METADATA_STORE = 'metadata';
@@ -63,7 +64,7 @@ const openDatabase = (): Promise<IDBDatabase> =>
         databaseVersion: DATABASE_VERSION,
         savedSetSchema: 'saved-gear-set@2',
         customItemSchema: 'custom-item@2',
-        workspaceSchema: 'build-workspace-state@1'
+        workspaceSchema: 'build-workspace-state@2'
       });
     };
     request.onsuccess = () => resolve(request.result);
@@ -189,12 +190,13 @@ export const loadBuildWorkspaceState = async (
     await saveBuildWorkspaceState(fallback);
     return fallback;
   }
-  if (!isBuildWorkspaceState(stored)) {
+  const schemaMigrated = migrateBuildWorkspaceState(stored);
+  if (!schemaMigrated || !isBuildWorkspaceState(schemaMigrated)) {
     throw new Error('Stored build workspaces use an unsupported or malformed schema.');
   }
   const migrated: BuildWorkspaceState = {
-    ...stored,
-    builds: Object.fromEntries(Object.entries(stored.builds).map(([id, build]) => {
+    ...schemaMigrated,
+    builds: Object.fromEntries(Object.entries(schemaMigrated.builds).map(([id, build]) => {
       const fallbackConstraints = fallback.builds[id as keyof typeof fallback.builds].constraints;
       const materiaSelectionNeedsMigration = Boolean(
         fallbackConstraints.materiaCatalogueVersion &&

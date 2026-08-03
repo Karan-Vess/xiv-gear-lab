@@ -184,6 +184,13 @@ export function ComparisonView({
     { label: 'Rotation method', value: (build) => build.selectedSet.rotationEvaluation
       ? `${build.selectedSet.rotationEvaluation.method.kind.replaceAll('-', ' ')} · ${build.selectedSet.rotationEvaluation.method.confidence.replaceAll('-', ' ')}`
       : 'Generic-hit proxy' },
+    { label: 'Duration stability', value: (build) => {
+      const stability = build.selectedSet.rotationEvaluation?.stability;
+      if (!stability) return 'Not audited';
+      return stability.winnerChanged
+        ? `${stability.durationMs / 1000}s prefers ${stability.bestSetGcd.toFixed(2)}s by ${stability.gapToBestPercent.toFixed(3)}%`
+        : `Same winner at ${stability.durationMs / 1000}s`;
+    } },
     { label: 'Expected single 100-potency hit', value: (build) => formatNumber.format(build.selectedSet.metrics.expectedAction100) },
     {
       label: `100-potency difference from ${baseline.name}`,

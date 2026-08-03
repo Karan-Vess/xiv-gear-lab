@@ -76,6 +76,7 @@ export type EvaluationMode = 'generic-hit' | 'opener-30' | 'dummy-300';
 export type OptimizerSearchMode = 'thorough' | 'quick';
 export type CapabilityStatus = 'available' | 'pending' | 'unsupported';
 export type JobModeId = string;
+export type JobModeKind = 'standard' | 'evolved';
 
 export interface ExpansionDefinition {
   id: ExpansionId;
@@ -94,6 +95,8 @@ export interface JobModeDefinition {
   id: JobModeId;
   name: string;
   introducedIn: ExpansionId;
+  /** Optional on pre-M13 snapshots; inferred from the ID when absent. */
+  kind?: JobModeKind;
   capabilities: Record<EvaluationMode, EvaluatorCapability>;
 }
 
@@ -132,6 +135,8 @@ export interface CalculationRuleset {
   minimumLevel: number;
   maximumLevel: number;
   jobMode: JobModeId;
+  /** Optional on pre-M13 snapshots; inferred from jobMode when absent. */
+  jobModeKind?: JobModeKind;
 }
 
 export interface LevelFormulaConstants {
@@ -175,6 +180,8 @@ export interface CombatEvaluatorProfile {
   objective: string;
   confidence: 'reference-validated-proxy' | 'internal-unverified';
   limitation: string;
+  /** Component-level method attribution. Optional for pre-M13 signed snapshots. */
+  references?: CombatMethodReference[];
 }
 
 export type RotationEvaluationMode = Exclude<EvaluationMode, 'generic-hit'>;
@@ -189,6 +196,12 @@ export interface CombatMethodReference {
   kind: 'official' | 'community' | 'xivgear-reference' | 'xiv-gear-lab';
   title: string;
   provider: string;
+  /** Original author or community when provider is only the hosting platform. */
+  author?: string;
+  /** Hosting platform when it differs from the author or community. */
+  host?: string;
+  /** Formula, data, timing, or ranking components supported by this reference. */
+  components?: string[];
   url?: string;
   gamePatch: string;
   publishedAt?: string;
@@ -207,6 +220,15 @@ export type CombatActionEffect =
     resource: string;
     amount: number;
     timing?: 'snapshot' | 'application';
+  }
+  | {
+    /** Schedules fixed resource ticks after this action resolves. */
+    kind: 'periodic-resource';
+    resource: string;
+    amount: number;
+    firstDelayMs: number;
+    intervalMs: number;
+    repeatCount: number;
   }
   | {
     kind: 'buff';
@@ -257,6 +279,7 @@ export interface CombatActionProfile {
   /** Independent action cooldown. GCD actions otherwise only use recastMs as the global recast. */
   cooldownMs?: number;
   castMs: number;
+  /** Action occupancy from activation; this overlaps castMs rather than beginning after the cast. */
   animationLockMs: number;
   applicationDelayMs: number;
   charges: number;
@@ -315,6 +338,19 @@ export interface CombatDummyAssumptions {
   cutoffPolicy: RotationCutoffPolicy;
 }
 
+export interface CombatRotationValidation {
+  /**
+   * Output traces were checked against sources independent of the clean-room
+   * evaluator. This does not promote generated priorities to community-owned
+   * or community-validated logic.
+   */
+  status: 'independently-cross-checked';
+  checkedAt: string;
+  referenceIds: string[];
+  checks: string[];
+  limitations: string[];
+}
+
 /**
  * Safe signed data for an executable combat evaluator already present in the
  * application. The profile may select known mechanics but cannot deliver code.
@@ -336,6 +372,8 @@ export interface CombatRotationProfile {
   defaultOpenerId?: string;
   assumptions: CombatDummyAssumptions;
   references: CombatMethodReference[];
+  /** Optional for signed profiles created before the M13B audit contract. */
+  validation?: CombatRotationValidation;
   limitation: string;
 }
 
@@ -585,7 +623,29 @@ export interface RotationEvaluationSummary {
   gcdCount: number;
   ogcdCount: number;
   clippedMs: number;
+  sustainability?: {
+    finalMp: number;
+    overcappedMp: number;
+  };
+  cadence?: {
+    cooldownDriftMs: number;
+    dotEarlyRefreshMs: number;
+    dotLateRefreshMs: number;
+    missedDotTicks: number;
+    pendingApplicationCount: number;
+    pendingApplicationPotency: number;
+  };
+  stability?: {
+    durationMs: number;
+    selectedSetDps: number;
+    bestSetId: string;
+    bestSetGcd: number;
+    bestDps: number;
+    winnerChanged: boolean;
+    gapToBestPercent: number;
+  };
   references: CombatMethodReference[];
+  validation?: CombatRotationValidation;
   limitation: string;
   rerankedCandidateCount: number;
   rerankDurationMs: number;
@@ -600,6 +660,10 @@ export interface CalculationContext {
   evaluatorProfileId: string;
   evaluatorVersion: string;
   calculationSchema: string;
+  /** Optional only for results created before M13A. */
+  jobMode?: JobModeId;
+  /** Optional only for results created before M13A. */
+  evaluationMode?: EvaluationMode;
 }
 
 export interface LegacyCalculationContext {
@@ -741,6 +805,8 @@ export interface OptimizerConstraints {
   allowCustomItems?: boolean;
   accessExpansion?: ExpansionId;
   accessLevel?: number;
+  /** Optional on legacy callers and workspaces; defaults to standard. */
+  jobMode?: JobModeId;
   allowExperimentalAccess?: boolean;
 }
 
@@ -761,6 +827,7 @@ export interface ResolvedOptimizerConstraints extends OptimizerConstraints {
   itemLevelMode: 'any' | 'exact' | 'range';
   minItemLevel: number;
   maxItemLevel: number;
+  jobMode: JobModeId;
 }
 
 export const resolveOptimizerConstraints = (
@@ -783,7 +850,8 @@ export const resolveOptimizerConstraints = (
   includeAugmentedCraftedGear: constraints.includeAugmentedCraftedGear ?? true,
   itemLevelMode: constraints.itemLevelMode ?? 'any',
   minItemLevel: constraints.minItemLevel ?? 1,
-  maxItemLevel: constraints.maxItemLevel ?? constraints.minItemLevel ?? 9999
+  maxItemLevel: constraints.maxItemLevel ?? constraints.minItemLevel ?? 9999,
+  jobMode: constraints.jobMode ?? 'standard'
 });
 
 export const emptyStats = (): StatBlock => ({
@@ -826,12 +894,61 @@ export const getJobMode = (
 ): JobModeDefinition | undefined =>
   registry.jobs.find((entry) => entry.id === job)?.modes.find((entry) => entry.id === mode);
 
+export const getJobModeKind = (mode: Pick<JobModeDefinition, 'id' | 'kind'>): JobModeKind =>
+  mode.kind ?? (mode.id === 'evolved' ? 'evolved' : 'standard');
+
 export const getEvaluatorCapability = (
   registry: GameRegistry,
   job: CombatJob,
   mode: JobModeId,
   evaluator: EvaluationMode
 ): EvaluatorCapability | undefined => getJobMode(registry, job, mode)?.capabilities[evaluator];
+
+/**
+ * Resolves the declared capability against the exact ruleset payload. This is
+ * intentionally stricter than getEvaluatorCapability: a registry flag alone
+ * cannot make an evaluator selectable when its matching profile is absent.
+ */
+export const resolveEvaluatorCapability = (
+  snapshot: Pick<GearSnapshot, 'registry' | 'evaluatorProfiles' | 'rotationProfiles'>,
+  job: CombatJob,
+  jobMode: JobModeId,
+  evaluator: EvaluationMode,
+  rulesetId: string
+): EvaluatorCapability => {
+  const declared = getEvaluatorCapability(snapshot.registry, job, jobMode, evaluator);
+  if (!declared) {
+    return { status: 'unsupported', reason: `No ${jobMode} capability declaration exists for ${job}.` };
+  }
+  if (declared.status !== 'available') return declared;
+
+  if (evaluator === 'generic-hit') {
+    const profile = snapshot.evaluatorProfiles.find((entry) =>
+      entry.job === job &&
+      entry.jobMode === jobMode &&
+      entry.rulesetId === rulesetId
+    );
+    return profile
+      ? { status: 'available', profileId: profile.id }
+      : {
+        status: 'pending',
+        reason: `The ${jobMode} generic-hit profile is not installed for ruleset ${rulesetId}.`
+      };
+  }
+
+  const profile = snapshot.rotationProfiles?.find((entry) =>
+    entry.job === job &&
+    entry.jobMode === jobMode &&
+    entry.rulesetId === rulesetId &&
+    entry.supportedModes.includes(evaluator)
+  );
+  return profile
+    ? { status: 'available', profileId: profile.id }
+    : {
+      status: 'pending',
+      reason: `The ${jobMode} ${evaluator} profile is not installed for ruleset ${rulesetId}.`
+    };
+};
 
 export const effectiveLevel = (
   registry: GameRegistry,
@@ -1136,6 +1253,9 @@ export const assessSnapshotCompatibility = (
     if (ruleset.minimumLevel > ruleset.maximumLevel) {
       errors.push(`Ruleset ${ruleset.id} has an invalid level range.`);
     }
+    if (ruleset.jobModeKind !== undefined && !['standard', 'evolved'].includes(ruleset.jobModeKind)) {
+      errors.push(`Ruleset ${ruleset.id} has unsupported mode kind ${ruleset.jobModeKind}.`);
+    }
   }
 
   for (const job of registry.jobs) {
@@ -1151,6 +1271,9 @@ export const assessSnapshotCompatibility = (
     for (const mode of job.modes) {
       if (!expansionIds.has(mode.introducedIn)) {
         errors.push(`Job ${job.id} mode ${mode.id} references unknown expansion ${mode.introducedIn}.`);
+      }
+      if (mode.kind !== undefined && !['standard', 'evolved'].includes(mode.kind)) {
+        errors.push(`Job ${job.id} mode ${mode.id} has unsupported kind ${mode.kind}.`);
       }
       for (const evaluator of ['generic-hit', 'opener-30', 'dummy-300'] as EvaluationMode[]) {
         const capability = mode.capabilities[evaluator];
@@ -1202,6 +1325,20 @@ export const assessSnapshotCompatibility = (
     if (ruleset && ruleset.jobMode !== profile.jobMode) {
       errors.push(`Profile ${profile.id} mode ${profile.jobMode} does not match ruleset mode ${ruleset.jobMode}.`);
     }
+    if ((profile.references ?? []).length === 0) {
+      warnings.push(`Profile ${profile.id} has no component-level method references.`);
+    }
+    for (const reference of profile.references ?? []) {
+      if (!reference.id.trim() || !reference.title.trim() || !reference.provider.trim()) {
+        errors.push(`Profile ${profile.id} contains an incomplete method reference.`);
+      }
+      if (reference.kind !== 'xiv-gear-lab' && !reference.url) {
+        errors.push(`Profile ${profile.id} external reference ${reference.id} has no direct URL.`);
+      }
+      if ((reference.components ?? []).some((component) => !component.trim())) {
+        errors.push(`Profile ${profile.id} reference ${reference.id} contains an empty component label.`);
+      }
+    }
   }
 
   for (const profile of snapshot.rotationProfiles ?? []) {
@@ -1210,7 +1347,7 @@ export const assessSnapshotCompatibility = (
     const supportedRotationModes: RotationEvaluationMode[] = ['opener-30', 'dummy-300'];
     const actionKinds: CombatActionKind[] = ['gcd', 'ogcd', 'auto-attack', 'dot', 'pet'];
     const speedScalingModes: CombatActionSpeedScaling[] = ['none', 'skill-speed', 'spell-speed'];
-    const effectKinds: CombatActionEffect['kind'][] = ['resource', 'buff', 'dot', 'combo', 'expected-proc', 'schedule-action', 'mechanic'];
+    const effectKinds: CombatActionEffect['kind'][] = ['resource', 'periodic-resource', 'buff', 'dot', 'combo', 'expected-proc', 'schedule-action', 'mechanic'];
     const conditionKinds: CombatPriorityCondition['kind'][] = [
       'always',
       'cooldown-ready',
@@ -1260,6 +1397,32 @@ export const assessSnapshotCompatibility = (
       }
       if (reference.kind !== 'xiv-gear-lab' && !reference.url?.trim()) {
         errors.push(`Rotation profile ${profile.id} external reference ${reference.id} has no direct URL.`);
+      }
+    }
+    if (profile.validation) {
+      if (
+        profile.validation.status !== 'independently-cross-checked' ||
+        !profile.validation.checkedAt.trim() ||
+        Number.isNaN(Date.parse(profile.validation.checkedAt))
+      ) {
+        errors.push(`Rotation profile ${profile.id} has invalid independent-validation metadata.`);
+      }
+      if (profile.validation.referenceIds.length === 0 || profile.validation.checks.length === 0) {
+        errors.push(`Rotation profile ${profile.id} has an empty independent-validation audit.`);
+      }
+      if (
+        profile.validation.checks.some((entry) => !entry.trim()) ||
+        profile.validation.limitations.some((entry) => !entry.trim())
+      ) {
+        errors.push(`Rotation profile ${profile.id} has a blank independent-validation statement.`);
+      }
+      for (const duplicate of duplicateValues(profile.validation.referenceIds)) {
+        errors.push(`Rotation profile ${profile.id} repeats validation reference ${duplicate}.`);
+      }
+      for (const referenceId of profile.validation.referenceIds) {
+        if (!referencesById.has(referenceId)) {
+          errors.push(`Rotation profile ${profile.id} validation references missing methodology ${referenceId}.`);
+        }
       }
     }
     for (const duplicate of duplicateValues(profile.actions.map((entry) => entry.id))) {
@@ -1318,6 +1481,18 @@ export const assessSnapshotCompatibility = (
         }
         if (effect.kind === 'resource' && (!effect.resource.trim() || !Number.isFinite(effect.amount))) {
           errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid resource effect.`);
+        }
+        if (
+          effect.kind === 'periodic-resource' &&
+          (
+            !effect.resource.trim() ||
+            !Number.isFinite(effect.amount) ||
+            !Number.isInteger(effect.firstDelayMs) || effect.firstDelayMs < 0 ||
+            !Number.isInteger(effect.intervalMs) || effect.intervalMs <= 0 ||
+            !Number.isInteger(effect.repeatCount) || effect.repeatCount < 1
+          )
+        ) {
+          errors.push(`Rotation profile ${profile.id} action ${action.id} has an invalid periodic resource effect.`);
         }
         if (
           (effect.kind === 'resource' || effect.kind === 'mechanic') &&
@@ -1573,6 +1748,12 @@ export const assessSnapshotCompatibility = (
       set.calculationContext.evaluatorVersion !== setProfile.version
     )) {
       errors.push(`Curated set ${set.id} evaluator context does not match profile ${setProfile.id}.`);
+    }
+    if (setProfile && set.calculationContext.jobMode && set.calculationContext.jobMode !== setProfile.jobMode) {
+      errors.push(`Curated set ${set.id} mode ${set.calculationContext.jobMode} does not match profile mode ${setProfile.jobMode}.`);
+    }
+    if (set.calculationContext.evaluationMode && set.calculationContext.evaluationMode !== 'generic-hit') {
+      errors.push(`Curated set ${set.id} pins unsupported base evaluation mode ${set.calculationContext.evaluationMode}.`);
     }
   }
 

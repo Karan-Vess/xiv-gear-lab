@@ -7,6 +7,7 @@ import {
   copyBuildLoadout,
   equippedSetEvaluationFingerprint,
   isBuildWorkspaceState,
+  migrateBuildWorkspaceState,
   prepareBuildWorkspaceStateForStorage,
   resetIncompatibleWorkspaceBuilds,
   workspaceBuildsUsingItem,
@@ -78,6 +79,35 @@ describe('build workspaces', () => {
     expect(isBuildWorkspaceState(state)).toBe(true);
   });
 
+  it('migrates pre-M13 workspaces to explicit standard mode without losing independent builds', () => {
+    const legacy = structuredClone(createState()) as unknown as {
+      schemaVersion: string;
+      builds: Record<string, Record<string, unknown> & {
+        schemaVersion: string;
+        constraints: Record<string, unknown>;
+      }>;
+    };
+    legacy.schemaVersion = 'build-workspace-state@1';
+    for (const build of Object.values(legacy.builds)) {
+      build.schemaVersion = 'build-workspace@1';
+      delete build.jobMode;
+      delete build.evaluationMode;
+      delete build.constraints.jobMode;
+    }
+    legacy.builds['build-2']!.gcdTarget = '2.33';
+
+    const migrated = migrateBuildWorkspaceState(legacy);
+
+    expect(migrated?.schemaVersion).toBe('build-workspace-state@2');
+    expect(migrated?.builds['build-1']).toMatchObject({
+      schemaVersion: 'build-workspace@2',
+      jobMode: 'standard',
+      evaluationMode: 'generic-hit'
+    });
+    expect(migrated?.builds['build-1'].constraints.jobMode).toBe('standard');
+    expect(migrated?.builds['build-2'].gcdTarget).toBe('2.33');
+  });
+
   it('normalises interrupted searches before persistence without discarding results', () => {
     const state = createState();
     state.builds['build-2'].runState = 'running';
@@ -135,6 +165,8 @@ describe('build workspaces', () => {
   it('copies a loadout independently while retaining destination access and acquisition restrictions', () => {
     const state = createState();
     state.builds['build-1'].job = 'MNK';
+    state.builds['build-1'].jobMode = 'evolved';
+    state.builds['build-1'].constraints.jobMode = 'evolved';
     state.builds['build-1'].evaluationMode = 'dummy-300';
     state.builds['build-1'].rotationPotion = 'included';
     state.builds['build-1'].gcdTarget = '1.94';
@@ -148,6 +180,8 @@ describe('build workspaces', () => {
     const copied = copyBuildLoadout(state, 'build-1', 'build-2', 0, '2026-07-16T02:00:00.000Z');
 
     expect(copied.builds['build-2'].job).toBe('MNK');
+    expect(copied.builds['build-2'].jobMode).toBe('evolved');
+    expect(copied.builds['build-2'].constraints.jobMode).toBe('evolved');
     expect(copied.builds['build-2'].evaluationMode).toBe('dummy-300');
     expect(copied.builds['build-2'].rotationPotion).toBe('included');
     expect(copied.builds['build-2'].gcdTarget).toBe('1.94');

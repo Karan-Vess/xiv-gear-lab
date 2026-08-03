@@ -5,6 +5,7 @@ import {
   expectedAction100,
   gcdFromSpellSpeed,
   getCombatEvaluatorProfile,
+  getCombatEvaluatorProfileForSet,
   LEVEL_50,
   LEVEL_60,
   LEVEL_70,
@@ -15,7 +16,7 @@ import {
   tenacityIncomingDamageMultiplier,
   tenacityMultiplier
 } from './index';
-import { emptyStats, type CombatEvaluatorProfile, type EquipmentItem, type Materia } from '@xiv-gear-lab/domain';
+import { emptyStats, type CombatEvaluatorProfile, type EquipmentItem, type GearSet, type Materia } from '@xiv-gear-lab/domain';
 
 const whmProfile: CombatEvaluatorProfile = {
   id: 'test-whm@1',
@@ -94,6 +95,32 @@ describe('level 100 combat proxy calculations', () => {
   it('resolves a compatible declarative profile for an arbitrary future job ID', () => {
     const profile = { ...whmProfile, id: 'future-alpha@1', job: 'ALP' };
     expect(getCombatEvaluatorProfile('ALP', [profile])).toBe(profile);
+  });
+
+  it('resolves a saved result by its exact evolved profile instead of borrowing standard mode', () => {
+    const evolved = {
+      ...whmProfile,
+      id: 'test-whm-evolved@1',
+      rulesetId: 'test-level-110-evolved@1',
+      jobMode: 'evolved',
+      version: 'test-evolved@1'
+    };
+    const set = {
+      job: 'WHM',
+      calculationContext: {
+        snapshotId: 'test-snapshot',
+        rulesetId: evolved.rulesetId,
+        evaluatorProfileId: evolved.id,
+        evaluatorVersion: evolved.version,
+        calculationSchema: 'ffxiv-combat-level-100@1',
+        jobMode: 'evolved',
+        evaluationMode: 'generic-hit'
+      }
+    } as GearSet;
+
+    expect(getCombatEvaluatorProfileForSet(set, {
+      evaluatorProfiles: [whmProfile, evolved]
+    })).toBe(evolved);
   });
 
   it('applies profile-supplied role traits and haste', () => {

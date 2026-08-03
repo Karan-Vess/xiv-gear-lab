@@ -114,6 +114,9 @@ describe('integer-millisecond combat timing', () => {
       ...scripted(['strike', 'strike'])
     });
     expect(beyond.records.map((record) => record.appliedAtMs)).toEqual([1]);
+    expect(beyond.summary.pendingApplicationsByAction).toEqual({ strike: 1 });
+    expect(beyond.summary.pendingApplicationPotency).toBe(100);
+    expect(exact.summary.pendingApplicationsByAction).toEqual({});
   });
 
   it('separates cast completion snapshots from later damage application', () => {
@@ -139,6 +142,104 @@ describe('integer-millisecond combat timing', () => {
     expect(castRecord.appliedAtMs).toBe(2600);
     expect(castRecord.snapshotBuffIds).toEqual([]);
     expect(castRecord.damage).toBe(200);
+  });
+
+  it('overlaps cast occupancy with the action lock instead of adding both delays', () => {
+    const shortCast = action('short-cast', {
+      castMs: 2300,
+      animationLockMs: 600
+    });
+    const result = runCombatTimeline({
+      profile: profileFor([shortCast], {
+        assumptions: {
+          ...profileFor([]).assumptions,
+          latencyMs: 20
+        }
+      }),
+      combatStats,
+      durationMs: 5000,
+      ...scripted(['short-cast', 'short-cast', 'short-cast'])
+    });
+
+    expect(result.records.map((record) => record.startedAtMs)).toEqual([0, 2500]);
+    expect(result.summary.clippedMs).toBe(0);
+  });
+
+  it('scales cast duration with the same speed and haste context as its recast', () => {
+    const cast = action('scaled-cast', {
+      castMs: 2000,
+      speedScaling: 'spell-speed'
+    });
+    const fasterStats = {
+      ...combatStats,
+      speedStatValue: 1800,
+      hastePercent: 10
+    };
+    const expectedCastMs = adjustedRecastMs(2000, 1800, 420, 2780, 10);
+    const expectedRecastMs = adjustedRecastMs(2500, 1800, 420, 2780, 10);
+    const result = runCombatTimeline({
+      profile: profileFor([cast]),
+      combatStats: fasterStats,
+      durationMs: expectedRecastMs + expectedCastMs,
+      ...scripted(['scaled-cast', 'scaled-cast'])
+    });
+
+    expect(result.records.map((record) => [record.startedAtMs, record.appliedAtMs])).toEqual([
+      [0, expectedCastMs],
+      [expectedRecastMs, expectedRecastMs + expectedCastMs]
+    ]);
+    expect(result.summary.clippedMs).toBe(0);
+  });
+
+  it('records only the unavoidable cast overrun when a hardcast exceeds its recast', () => {
+    const longCast = action('long-cast', {
+      castMs: 2800,
+      animationLockMs: 600
+    });
+    const result = runCombatTimeline({
+      profile: profileFor([longCast], {
+        assumptions: {
+          ...profileFor([]).assumptions,
+          latencyMs: 20
+        }
+      }),
+      combatStats,
+      durationMs: 6000,
+      ...scripted(['long-cast', 'long-cast', 'long-cast'])
+    });
+
+    expect(result.records.map((record) => record.startedAtMs)).toEqual([0, 2820]);
+    expect(result.summary.clippedMs).toBe(640);
+  });
+
+  it('allows the remaining recast window after a short cast to hold a legal weave', () => {
+    const cast = action('cast', {
+      castMs: 1500,
+      animationLockMs: 600
+    });
+    const weave = action('weave', {
+      kind: 'ogcd',
+      potency: 50,
+      recastMs: 60_000
+    });
+    const result = runCombatTimeline({
+      profile: profileFor([cast, weave], {
+        assumptions: {
+          ...profileFor([]).assumptions,
+          latencyMs: 20
+        }
+      }),
+      combatStats,
+      durationMs: 5000,
+      ...scripted(['cast', 'weave', 'cast'])
+    });
+
+    expect(result.records.map((record) => [record.actionId, record.startedAtMs])).toEqual([
+      ['cast', 0],
+      ['weave', 1520],
+      ['cast', 2500]
+    ]);
+    expect(result.summary.clippedMs).toBe(0);
   });
 
   it('allows a legal double weave and measures an intentionally clipped weave', () => {
@@ -276,6 +377,40 @@ describe('integer-millisecond combat timing', () => {
     });
     expect(result.records.filter((record) => record.source === 'dot').map((record) => record.appliedAtMs))
       .toEqual([3000, 6000, 9000, 12_000]);
+    expect(result.summary.dotCadenceById['test-dot']).toEqual({
+      applications: 2,
+      refreshes: 1,
+      earlyRefreshMs: 9500,
+      lateRefreshMs: 0,
+      missedTicks: 0
+    });
+  });
+
+  it('measures DoT downtime and server ticks missed before a late refresh', () => {
+    const dot = action('dot', {
+      potency: 0,
+      recastMs: 10_000,
+      effects: [{
+        kind: 'dot',
+        dotId: 'short-dot',
+        durationMs: 4000,
+        tickPotency: 30
+      }]
+    });
+    const result = runCombatTimeline({
+      profile: profileFor([dot]),
+      combatStats,
+      durationMs: 11_000,
+      ...scripted(['dot', 'dot'])
+    });
+
+    expect(result.summary.dotCadenceById['short-dot']).toEqual({
+      applications: 2,
+      refreshes: 1,
+      earlyRefreshMs: 0,
+      lateRefreshMs: 6000,
+      missedTicks: 2
+    });
   });
 
   it('tracks resource overcap, costs and expected proc values deterministically', () => {
@@ -542,5 +677,40 @@ describe('integer-millisecond combat timing', () => {
     expect(result.records.find((record) => record.actionId === 'spender')?.startedAtMs).toBe(2500);
     expect(result.records.find((record) => record.actionId === 'cast-generator')?.appliedAtMs).toBe(3000);
     expect(result.finalState.resources.periodic).toBe(3);
+  });
+
+  it('resumes the rotation when an action-scheduled resource tick makes a GCD usable', () => {
+    const lucid = action('lucid', {
+      kind: 'ogcd',
+      recastMs: 60_000,
+      cooldownMs: 60_000,
+      effects: [{
+        kind: 'periodic-resource',
+        resource: 'mp',
+        amount: 1,
+        firstDelayMs: 3000,
+        intervalMs: 3000,
+        repeatCount: 2
+      }]
+    });
+    const spell = action('spell', {
+      resourceCosts: [{ resource: 'mp', amount: 1 }]
+    });
+    const result = runCombatTimeline({
+      profile: profileFor([lucid, spell]),
+      combatStats,
+      durationMs: 7000,
+      initialResources: { mp: 0 },
+      resourceCaps: { mp: 1 },
+      chooseAction: (state) => {
+        if (state.nowMs === 0) return 'lucid';
+        if ((state.resources.mp ?? 0) >= 1) return 'spell';
+        return undefined;
+      }
+    });
+
+    expect(result.records.filter((record) => record.actionId === 'spell').map((record) => record.startedAtMs))
+      .toEqual([3000, 6000]);
+    expect(result.summary.finalResources.mp).toBe(0);
   });
 });

@@ -4,6 +4,7 @@ import {
   buildRotationTimingCacheKey,
   CombatEvaluatorRegistry,
   durationForMode,
+  durationForRequest,
   labelForMode,
   resolveRotationMethod,
   ROTATION_PROFILE_SCHEMA_VERSION,
@@ -134,6 +135,13 @@ describe('bounded combat evaluator contracts', () => {
     expect(durationForMode('dummy-300')).toBe(300_000);
     expect(labelForMode('opener-30')).toBe('30-second burst');
     expect(labelForMode('dummy-300')).toBe('Five-minute dummy rotation');
+    expect(durationForRequest(request({ durationOverrideMs: 510_000 }))).toBe(510_000);
+    expect(buildRotationTimingCacheKey(request({ durationOverrideMs: 510_000 })))
+      .not.toBe(buildRotationTimingCacheKey(request()));
+    expect(() => durationForRequest(request({
+      mode: 'opener-30',
+      durationOverrideMs: 31_000
+    }))).toThrow('cannot be overridden');
   });
 
   it('uses the current community opener and safely falls back from stale data', () => {

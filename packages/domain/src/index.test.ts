@@ -5,7 +5,9 @@ import {
   effectiveLevel,
   emptyStats,
   getEvaluatorCapability,
+  getJobModeKind,
   jobAvailableAtAccess,
+  resolveEvaluatorCapability,
   type CombatEvaluatorProfile,
   type CombatRotationProfile,
   type ContentAccessGraph,
@@ -40,6 +42,7 @@ const futureRegistry: GameRegistry = {
           id: 'standard',
           name: 'Standard',
           introducedIn: 'future',
+          kind: 'standard',
           capabilities: {
             'generic-hit': available('alpha-generic@1'),
             'opener-30': pending,
@@ -50,6 +53,7 @@ const futureRegistry: GameRegistry = {
           id: 'evolved',
           name: 'Evolved',
           introducedIn: 'future',
+          kind: 'evolved',
           capabilities: {
             'generic-hit': pending,
             'opener-30': pending,
@@ -72,6 +76,7 @@ const futureRegistry: GameRegistry = {
         id: 'standard',
         name: 'Standard',
         introducedIn: 'future',
+        kind: 'standard',
         capabilities: {
           'generic-hit': pending,
           'opener-30': pending,
@@ -134,7 +139,8 @@ const futureSnapshot: GearSnapshot = {
     gamePatch: '8.0',
     minimumLevel: 100,
     maximumLevel: 110,
-    jobMode: 'standard'
+    jobMode: 'standard',
+    jobModeKind: 'standard'
   }],
   evaluatorProfiles: [alphaProfile],
   items: [],
@@ -171,6 +177,49 @@ describe('data-driven expansion and job access', () => {
     expect(getEvaluatorCapability(futureRegistry, 'ALP', 'standard', 'generic-hit')).toEqual(available('alpha-generic@1'));
     expect(getEvaluatorCapability(futureRegistry, 'ALP', 'evolved', 'generic-hit')?.status).toBe('pending');
     expect(getEvaluatorCapability(futureRegistry, 'BET', 'standard', 'generic-hit')?.status).toBe('pending');
+    expect(getJobModeKind(futureRegistry.jobs[0]!.modes[1]!)).toBe('evolved');
+  });
+
+  it('resolves capabilities against the exact mode and ruleset payload without borrowing standard logic', () => {
+    const snapshot = structuredClone(futureSnapshot);
+    snapshot.registry.jobs[0]!.modes[1]!.capabilities['generic-hit'] = available('alpha-evolved@1');
+
+    expect(resolveEvaluatorCapability(
+      snapshot,
+      'ALP',
+      'evolved',
+      'generic-hit',
+      'future-evolved@1'
+    )).toMatchObject({
+      status: 'pending'
+    });
+
+    snapshot.rulesets.push({
+      id: 'future-evolved@1',
+      schemaVersion: 'combat-ruleset@1',
+      calculationSchema: 'ffxiv-combat-level-100@1',
+      expansionId: 'future',
+      gamePatch: '8.0',
+      minimumLevel: 100,
+      maximumLevel: 110,
+      jobMode: 'evolved',
+      jobModeKind: 'evolved'
+    });
+    snapshot.evaluatorProfiles.push({
+      ...alphaProfile,
+      id: 'alpha-evolved@1',
+      rulesetId: 'future-evolved@1',
+      jobMode: 'evolved',
+      version: 'synthetic-evolved@1'
+    });
+
+    expect(resolveEvaluatorCapability(
+      snapshot,
+      'ALP',
+      'evolved',
+      'generic-hit',
+      'future-evolved@1'
+    )).toEqual(available('alpha-evolved@1'));
   });
 });
 
@@ -396,6 +445,13 @@ describe('snapshot compatibility gate', () => {
         provider: 'XIV Gear Lab',
         gamePatch: '8.0'
       }],
+      validation: {
+        status: 'independently-cross-checked',
+        checkedAt: '2026-07-29',
+        referenceIds: ['official-action'],
+        checks: ['Action potency and timing fixture.'],
+        limitations: ['Synthetic priority is not a community opener.']
+      },
       limitation: 'Synthetic generated priority.'
     };
     snapshot.rotationProfiles = [rotationProfile];
@@ -410,9 +466,11 @@ describe('snapshot compatibility gate', () => {
     const unsafe = structuredClone(snapshot);
     unsafe.rotationProfiles![0]!.references[0]!.url = undefined;
     unsafe.rotationProfiles![0]!.priorityRules[0]!.actionId = 'missing-action';
+    unsafe.rotationProfiles![0]!.validation!.referenceIds = ['missing-validation-reference'];
     const report = assessSnapshotCompatibility(unsafe, compatibleRuntime);
     expect(report.errors).toContain('Rotation profile alpha-rotation@1 external reference official-action has no direct URL.');
     expect(report.errors).toContain('Rotation profile alpha-rotation@1 priority rule use-filler references missing action missing-action.');
+    expect(report.errors).toContain('Rotation profile alpha-rotation@1 validation references missing methodology missing-validation-reference.');
 
     expect(assessSnapshotCompatibility(snapshot, runtime).errors)
       .toContain('Rotation profile alpha-rotation@1 uses unsupported schema combat-rotation-profile@1.');

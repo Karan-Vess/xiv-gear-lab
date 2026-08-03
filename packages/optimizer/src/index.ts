@@ -5,11 +5,12 @@ import {
   assessItemAccess,
   assertSnapshotCompatible,
   emptyStats,
-  getEvaluatorCapability,
   gearSlotItemLevelWeight,
   gearSlotWeightTotal,
   gearSlotsForJob,
+  getEvaluatorCapability,
   isAugmentedCraftedItem,
+  resolveEvaluatorCapability,
   resolveOptimizerConstraints,
   type CombatEvaluatorProfile,
   type CatalogueReadinessIssue,
@@ -47,7 +48,7 @@ export const OPTIMIZER_RUNTIME_COMPATIBILITY = {
   rulesetSchemas: ['combat-ruleset@1'],
   calculationSchemas: SUPPORTED_CALCULATION_SCHEMAS,
   evaluatorProfileSchemas: SUPPORTED_EVALUATOR_PROFILE_SCHEMAS,
-  rotationProfileSchemas: ['combat-rotation-profile@1']
+  rotationProfileSchemas: ['combat-rotation-profile@1', 'combat-rotation-profile@2']
 };
 
 const validatedSnapshots = new WeakSet<GearSnapshot>();
@@ -112,6 +113,13 @@ export interface OptimizerResult {
     proxyBestSetId: string;
     winnerChanged: boolean;
     timelineCacheHits: number;
+    stability?: {
+      durationMs: number;
+      bestSetId: string;
+      bestSetGcd: number;
+      winnerChanged: boolean;
+      gapToBestPercent: number;
+    };
   };
 }
 
@@ -833,6 +841,7 @@ const hasValidatedAcquisitionRoute = (item: EquipmentItem): boolean =>
 export interface CatalogueReadinessOptions {
   accessExpansion: string;
   accessLevel: number;
+  jobMode?: string;
   previousSnapshot?: GearSnapshot;
 }
 
@@ -859,7 +868,8 @@ export const assessCatalogueReadiness = (
     excludedItemIds: [],
     frontierLimit: 1,
     accessExpansion: options.accessExpansion,
-    accessLevel: options.accessLevel
+    accessLevel: options.accessLevel,
+    jobMode: options.jobMode ?? 'standard'
   }, snapshot.materia);
   const candidates = snapshot.items.filter((item) =>
     item.origin === 'official' &&
@@ -925,7 +935,13 @@ export const assessCatalogueReadiness = (
   }
   const accessProfile = (() => {
     try {
-      return getCombatEvaluatorProfileForAccess(job, snapshot, options.accessExpansion, options.accessLevel);
+      return getCombatEvaluatorProfileForAccess(
+        job,
+        snapshot,
+        options.accessExpansion,
+        options.accessLevel,
+        options.jobMode ?? 'standard'
+      );
     } catch {
       return undefined;
     }
@@ -993,7 +1009,8 @@ const toGearSet = (
     job,
     snapshot,
     constraints.accessExpansion ?? snapshot.registry.expansions.at(-1)!.id,
-    constraints.accessLevel ?? snapshot.registry.expansions.at(-1)!.levelCap
+    constraints.accessLevel ?? snapshot.registry.expansions.at(-1)!.levelCap,
+    constraints.jobMode
   );
   const ruleset = snapshot.rulesets.find((entry) => entry.id === profile.rulesetId);
   if (!ruleset) throw new Error(`Evaluator profile ${profile.id} references missing ruleset ${profile.rulesetId}.`);
@@ -1072,7 +1089,9 @@ const toGearSet = (
       rulesetId: ruleset.id,
       evaluatorProfileId: profile.id,
       evaluatorVersion: profile.version,
-      calculationSchema: ruleset.calculationSchema
+      calculationSchema: ruleset.calculationSchema,
+      jobMode: profile.jobMode,
+      evaluationMode: 'generic-hit'
     },
     recommendationConfidence,
     assumptions: [
@@ -1150,16 +1169,34 @@ export const optimizeCombatJob = (
     },
     explanation: [message]
   });
-  const capability = getEvaluatorCapability(snapshot.registry, job, 'standard', 'generic-hit');
-  if (capability?.status !== 'available') {
-    throw new Error(`Generic-hit evaluation is ${capability?.status ?? 'unsupported'} for ${job}.`);
+  let profile: CombatEvaluatorProfile;
+  try {
+    profile = getCombatEvaluatorProfileForAccess(
+      job,
+      snapshot,
+      resolved.accessExpansion ?? snapshot.registry.expansions.at(-1)!.id,
+      resolved.accessLevel ?? snapshot.registry.expansions.at(-1)!.levelCap,
+      resolved.jobMode
+    );
+  } catch (error) {
+    const declared = getEvaluatorCapability(snapshot.registry, job, resolved.jobMode, 'generic-hit');
+    if (!declared || declared.status !== 'available') {
+      throw new Error(
+        `Generic-hit evaluation is ${declared?.status ?? 'unsupported'} for ${job}. Mode ${resolved.jobMode}.${declared?.reason ? ` ${declared.reason}` : ''}`
+      );
+    }
+    throw error;
   }
-  const profile = getCombatEvaluatorProfileForAccess(
-    job,
+  const capability = resolveEvaluatorCapability(
     snapshot,
-    resolved.accessExpansion ?? snapshot.registry.expansions.at(-1)!.id,
-    resolved.accessLevel ?? snapshot.registry.expansions.at(-1)!.levelCap
+    job,
+    resolved.jobMode,
+    'generic-hit',
+    profile.rulesetId
   );
+  if (capability.status !== 'available' || capability.profileId !== profile.id) {
+    throw new Error(capability.reason ?? `Generic-hit evaluation is ${capability.status} for ${job} ${resolved.jobMode}.`);
+  }
   const gearSlots = gearSlotsForJob(job);
   const excluded = new Set(resolved.excludedItemIds.map(String));
   const required = new Set(resolved.requiredItemIds.map(String));
@@ -1655,7 +1692,9 @@ export const optimizeCombatJob = (
         rulesetId: profile.rulesetId,
         evaluatorProfileId: profile.id,
         evaluatorVersion: profile.version,
-        calculationSchema: snapshot.rulesets.find((entry) => entry.id === profile.rulesetId)!.calculationSchema
+        calculationSchema: snapshot.rulesets.find((entry) => entry.id === profile.rulesetId)!.calculationSchema,
+        jobMode: profile.jobMode,
+        evaluationMode: 'generic-hit'
       }
     );
     if (!profile.resourceStat || calculated.metrics.stats[profile.resourceStat] >= resolved.minResource) {
