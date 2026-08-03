@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through M14A in v0.12.0-alpha.1
+Status: revised through M14A portability follow-up in v0.12.0-alpha.2
 Date: 2026-08-03
-Current runnable baseline: Windows/browser-capable v0.12.0-alpha.1 with completed combat M13, level-cap catalogues for Dawntrail through A Realm Reborn, and a separate persistent M14 crafting workspace foundation. Validated crafter equipment and plan generation begin in M14B. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.12.0-alpha.2 with completed combat M13, level-cap catalogues for Dawntrail through A Realm Reborn, a separate persistent M14 crafting workspace foundation, and a genuinely portable desktop profile stored beside the executable. Validated crafter equipment and plan generation begin in M14B. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -576,7 +576,7 @@ Implementation sequence:
 
 ### M14 - Crafter gear and materia optimiser
 
-Status: **In progress in v0.12.0-alpha.1. M14A established isolated crafter contracts and a separate persistent Crafting & Gathering UI. The official current-tier pool and plan generation remain deliberately unavailable until M14B.**
+Status: **In progress in v0.12.0-alpha.2. M14A established isolated crafter contracts, a separate persistent Crafting & Gathering UI and a desktop profile that travels beside the portable executable. The official current-tier pool and plan generation remain deliberately unavailable until M14B.**
 
 Deliver:
 

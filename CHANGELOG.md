@@ -4,6 +4,17 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+## 0.12.0-alpha.2 - 2026-08-03
+
+### Changed
+
+- Made the Windows portable build store its complete Chromium profile in `XIV Gear Lab Data` beside the executable, including custom items, saved sets, open workspaces, UI preferences and downloaded catalogue snapshots.
+- Portable builds now refuse an unwritable location with a clear move-the-executable message instead of silently saving under AppData. Existing AppData profiles are deliberately not migrated during active development.
+
+### Validation
+
+- Added portable-path unit coverage and a packaged executable audit that compares Electron's active `userData` path with the directory supplied by the portable wrapper.
+
 ## 0.12.0-alpha.1 - 2026-08-03
 
 ### Added

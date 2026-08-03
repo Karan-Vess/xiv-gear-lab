@@ -1,9 +1,10 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { mkdtempSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, mkdtempSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { portableUserDataDirectory } from './portable-user-data.js';
 
 const updateDrillModuleStartedAt = Date.now();
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,9 @@ const updateDrillResultPath = process.env.XIV_GEAR_LAB_UPDATE_DRILL_RESULT;
 const updateDrillMode = process.env.XIV_GEAR_LAB_UPDATE_DRILL_MODE;
 const updateDrillUserData = process.env.XIV_GEAR_LAB_UPDATE_DRILL_USER_DATA;
 const updateDrillStartedAt = Number(process.env.XIV_GEAR_LAB_UPDATE_DRILL_STARTED_AT);
+const portableDataAudit = process.env.XIV_GEAR_LAB_PORTABLE_DATA_AUDIT === '1';
+const portableExecutableDirectory = process.env.PORTABLE_EXECUTABLE_DIR;
+const portableUserData = portableUserDataDirectory(portableExecutableDirectory);
 const automationResultPath = smokeResultPath ?? updateDrillResultPath;
 const trustedExternalHosts = new Set([
   'etro.gg',
@@ -35,11 +39,25 @@ const trustedExternalUrl = (value: string): boolean => {
   }
 };
 
-if (smokeScreenshot) app.setPath('userData', mkdtempSync(resolve(tmpdir(), 'xiv-gear-lab-packaged-smoke-')));
 if (updateDrillResultPath) {
   if (!['online', 'offline'].includes(updateDrillMode ?? '')) throw new Error('Update drill mode must be online or offline.');
   if (!updateDrillUserData) throw new Error('Update drill requires a persistent user-data directory.');
   app.setPath('userData', resolve(updateDrillUserData));
+} else if (smokeScreenshot && !portableDataAudit) {
+  app.setPath('userData', mkdtempSync(resolve(tmpdir(), 'xiv-gear-lab-packaged-smoke-')));
+} else if (portableUserData) {
+  try {
+    mkdirSync(portableUserData, { recursive: true });
+    accessSync(portableUserData, constants.R_OK | constants.W_OK);
+    app.setPath('userData', portableUserData);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    dialog.showErrorBox(
+      'XIV Gear Lab cannot save beside the executable',
+      `Move the portable executable to a folder you can write to, such as Documents or Downloads, then try again.\n\nData folder: ${portableUserData}\n\nTechnical reason: ${reason}`
+    );
+    throw new Error(`Portable user-data folder is not writable: ${portableUserData}. ${reason}`);
+  }
 }
 
 const createWindow = async () => {
@@ -209,6 +227,15 @@ const createWindow = async () => {
   }
 
   if (smokeScreenshot) {
+    const userDataAudit = {
+      requested: portableDataAudit,
+      portableExecutableDirectory,
+      expectedUserData: portableUserData,
+      actualUserData: app.getPath('userData')
+    };
+    if (portableDataAudit && (!portableUserData || userDataAudit.actualUserData !== portableUserData)) {
+      throw new Error(`Packaged portable user-data audit failed: ${JSON.stringify(userDataAudit)}`);
+    }
     let rendered = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       rendered = await window.webContents.executeJavaScript(
@@ -916,6 +943,7 @@ const createWindow = async () => {
     if (smokeResultPath) {
       await writeFile(smokeResultPath, JSON.stringify({
         status: 'passed',
+        userDataAudit,
         sourceCoverageAudit,
         constraintToggleAudit,
         itemLevelConstraintAudit,
