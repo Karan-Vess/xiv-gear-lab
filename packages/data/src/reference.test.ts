@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { recalculateGearSet } from '@xiv-gear-lab/calculations';
 import { assessSnapshotCompatibility } from '@xiv-gear-lab/domain';
-import { gearSnapshot } from './index';
+import { crafterGearPool, gearSnapshot } from './index';
+
+describe('M14 crafter data boundary', () => {
+  it('publishes all crafter identities without admitting placeholder game records', () => {
+    expect(crafterGearPool).toMatchObject({
+      schemaVersion: 'crafter-gear-pool@1',
+      patch: '7.55',
+      levelCap: 100,
+      status: 'foundation'
+    });
+    expect(crafterGearPool.jobs.map((job) => job.id)).toEqual(['CRP', 'BSM', 'ARM', 'GSM', 'LTW', 'WVR', 'ALC', 'CUL']);
+    expect(crafterGearPool.items).toEqual([]);
+    expect(crafterGearPool.limitations).toHaveLength(3);
+  });
+});
 
 describe('live combat-job reference fixtures', () => {
   it('loads the current roster and evaluator profiles from snapshot data', () => {

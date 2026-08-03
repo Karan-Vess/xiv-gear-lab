@@ -7,6 +7,7 @@ import {
   zeroCaps
 } from '@xiv-gear-lab/calculations';
 import {
+  crafterGearPool,
   downloadSnapshotCandidate,
   gearSnapshot as bundledGearSnapshot,
   type ActiveSnapshot
@@ -70,6 +71,14 @@ import {
 import { communitySourcesForResult, resultMethodologyDescription } from './provenance-display';
 import { gearSetTimingDisplay } from './timing-display';
 import { normalizeUiScale, readUiScale, UI_SCALE_OPTIONS, writeUiScale, type UiScale } from './ui-preferences';
+import { NonCombatWorkspace } from './NonCombatWorkspace';
+import {
+  readApplicationMode,
+  readNonCombatWorkspace,
+  writeApplicationMode,
+  writeNonCombatWorkspace,
+  type ApplicationMode
+} from './noncombat-workspace';
 import {
   BUILD_IDS,
   buildUsesItem,
@@ -1138,6 +1147,12 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
     message: 'Ready to search the verified current-tier pool.'
   }), []);
   const [view, setView] = useState<View>('optimize');
+  const [applicationMode, setApplicationMode] = useState<ApplicationMode>(() =>
+    readApplicationMode(window.localStorage)
+  );
+  const [nonCombatWorkspace, setNonCombatWorkspace] = useState(() =>
+    readNonCombatWorkspace(window.localStorage)
+  );
   const [uiScale, setUiScale] = useState<UiScale>(() => readUiScale(typeof window === 'undefined' ? undefined : window.localStorage));
   const [workspaceState, setWorkspaceState] = useState<BuildWorkspaceState>(initialWorkspaceState);
   const [levelDraft, setLevelDraft] = useState(String(latestExpansion.levelCap));
@@ -1158,6 +1173,14 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
   const [dataUpdateMessage, setDataUpdateMessage] = useState(dataRuntime.configurationMessage ?? dataRuntime.active.fallbackReason);
   const [dataUpdateTechnicalMessage, setDataUpdateTechnicalMessage] = useState<string>();
   const workerRef = useRef<{ worker: Worker; buildId: BuildId } | null>(null);
+
+  useEffect(() => {
+    writeApplicationMode(window.localStorage, applicationMode);
+  }, [applicationMode]);
+
+  useEffect(() => {
+    writeNonCombatWorkspace(window.localStorage, nonCombatWorkspace);
+  }, [nonCombatWorkspace]);
 
   useEffect(() => {
     writeUiScale(window.localStorage, uiScale);
@@ -2581,14 +2604,22 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           <div className="brand-orb" aria-hidden="true" />
           <div><strong>XIV Gear Lab</strong><span className="preview-label">Unfinished preview · not a release</span></div>
         </div>
+        <div className="application-mode-switch" role="group" aria-label="Application mode">
+          <button type="button" className={applicationMode === 'combat' ? 'active' : ''} onClick={() => { setApplicationMode('combat'); setView('optimize'); }}>Combat</button>
+          <button type="button" className={applicationMode === 'non-combat' ? 'active' : ''} onClick={() => { setApplicationMode('non-combat'); setView('optimize'); }}>Craft &amp; gather</button>
+        </div>
         <nav aria-label="Main navigation">
-          {([
+          {((applicationMode === 'combat' ? [
             ['optimize', 'Optimise', '⌁'],
             ['community', 'Community sets', '✦'],
             ['saved', 'Saved locally', '◇'],
             ['settings', 'Settings', 'Aa'],
             ['about', 'Data & sources', 'ⓘ']
-          ] as Array<[View, string, string]>).map(([id, label, icon]) => (
+          ] : [
+            ['optimize', 'Plan workspace', '⌁'],
+            ['settings', 'Settings', 'Aa'],
+            ['about', 'Data & sources', 'ⓘ']
+          ]) as Array<[View, string, string]>).map(([id, label, icon]) => (
             <button className={view === id ? 'active' : ''} onClick={() => setView(id)} key={id}>
               <span aria-hidden="true">{icon}</span>{label}
               {id === 'saved' && savedSets.length > 0 && <em>{savedSets.length}</em>}
@@ -2613,16 +2644,20 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
         <header className="topbar">
           <div>
             <p className="eyebrow">Unfinished preview · Windows-first prototype · browser-capable core</p>
-            <h1>{view === 'optimize' ? 'Build around how you actually play.' : view === 'community' ? 'Current community reference sets' : view === 'saved' ? 'Your locally saved sets' : view === 'settings' ? 'Make the interface comfortable.' : 'Data, provenance, and limits'}</h1>
+            <h1>{view === 'optimize' ? applicationMode === 'combat' ? 'Build around how you actually play.' : 'Plan the craft, not the clutter.' : view === 'community' ? 'Current community reference sets' : view === 'saved' ? 'Your locally saved sets' : view === 'settings' ? 'Make the interface comfortable.' : 'Data, provenance, and limits'}</h1>
           </div>
-          <div className="top-actions">
+          {applicationMode === 'combat' && <div className="top-actions">
             <button className="ghost" data-custom-library-open onClick={openCustomManager} disabled={!selectedSet}>Custom items{customItems.length > 0 ? ` · ${customItems.length}` : ''}</button>
             <button className="ghost" data-save-active-build onClick={saveCurrent}>Save {activeBuild.name}</button>
             <button className="primary small" onClick={prepareExport}>Export {activeBuild.name}</button>
-          </div>
+          </div>}
         </header>
 
-        {view === 'optimize' && (
+        {view === 'optimize' && applicationMode === 'non-combat' && (
+          <NonCombatWorkspace pool={crafterGearPool} state={nonCombatWorkspace} onChange={setNonCombatWorkspace} />
+        )}
+
+        {view === 'optimize' && applicationMode === 'combat' && (
           <>
             <div className="workspace-tabs" role="tablist" aria-label="Build workspaces and comparison">
               {BUILD_IDS.map((buildId) => {
@@ -2994,7 +3029,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           </>
         )}
 
-        {view === 'community' && (
+        {view === 'community' && applicationMode === 'combat' && (
           <div className="card-grid">
             {gearSnapshot.curatedSets.filter((set) => set.job === job).map((set) => (
               <button className="set-card" key={set.id} onClick={() => openSetInActiveBuild(set)}>
@@ -3008,7 +3043,7 @@ export function App({ dataRuntime }: { dataRuntime: DataRuntimeBootstrap }) {
           </div>
         )}
 
-        {view === 'saved' && (
+        {view === 'saved' && applicationMode === 'combat' && (
           <div className="card-grid">
             {savedSets.length === 0
               ? <div className="empty-state"><span>◇</span><h2>No saved sets yet</h2><p>Save any generated or community set. It is stored locally and remains available offline.</p></div>

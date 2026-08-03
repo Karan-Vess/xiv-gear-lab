@@ -1,6 +1,6 @@
 {
   "name": "xiv-gear-lab",
-  "version": "0.11.0",
+  "version": "0.12.0-alpha.1",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -28,6 +28,7 @@
     "drill:hosted-update": "node scripts/run-hosted-update-drill.mjs",
     "smoke:historical-ui": "electron scripts/stormblood-ui-smoke.mjs",
     "smoke:rotation-ui": "electron scripts/rotation-ui-smoke.mjs",
+    "smoke:m14a-ui": "electron scripts/m14a-ui-smoke.mjs",
     "validate:m13b": "tsx scripts/validate-m13b-pilots.ts",
     "validate:m13b:deep": "tsx scripts/validate-m13b-pilots.ts --deep",
     "validate:m13c:healers": "tsx scripts/validate-m13c-healers.ts",

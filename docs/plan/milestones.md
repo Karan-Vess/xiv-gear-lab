@@ -1,8 +1,8 @@
 # XIV Gear Lab roadmap, acceptance criteria, and test plan
 
-Status: revised through completed M13 in v0.11.0
+Status: revised through M14A in v0.12.0-alpha.1
 Date: 2026-08-03
-Current runnable baseline: Windows/browser-capable v0.11.0 with level-cap catalogues for Dawntrail, Endwalker, Shadowbringers, Stormblood, Heavensward and A Realm Reborn. Intermediate levelling equipment remains deliberately out of scope.
+Current runnable baseline: Windows/browser-capable v0.12.0-alpha.1 with completed combat M13, level-cap catalogues for Dawntrail through A Realm Reborn, and a separate persistent M14 crafting workspace foundation. Validated crafter equipment and plan generation begin in M14B. Intermediate levelling equipment remains deliberately out of scope.
 
 Current signed data-channel release: preliminary Heavensward level 60 adds 1,025 cap items across all 13 available jobs, Grade III/IV materia, preliminary source families, a level-60 ruleset and 13 preliminary evaluator profiles. The frozen alpha.18 client downloaded and activated this release successfully through the owner-run workflow.
 
@@ -576,7 +576,7 @@ Implementation sequence:
 
 ### M14 - Crafter gear and materia optimiser
 
-Status: **Planned**.
+Status: **In progress in v0.12.0-alpha.1. M14A established isolated crafter contracts and a separate persistent Crafting & Gathering UI. The official current-tier pool and plan generation remain deliberately unavailable until M14B.**
 
 Deliver:
 
@@ -608,6 +608,13 @@ Tests:
 - Maximum-stat, budget, minimum-overmeld and balanced plan fixtures, including ties and cases where a nominally weaker equipment piece enables a better finished meld plan.
 - One finished plan validated against multiple recipes and rotations without set duplication; validation added or removed without rerunning equipment optimisation; outdated or incomplete validation assumptions remain labelled.
 - Independent Teamcraft/MIT-compatible formula and threshold fixtures where legally usable, including specialist, condition, durability and star-recipe boundaries; these fixtures validate the finished plan and do not define a separate per-recipe gear recommendation.
+
+Implementation sequence:
+
+- **M14A, crafter boundary and workspace (complete in v0.12.0-alpha.1):** separate crafter jobs, Craftsmanship/Control/CP stats, current-tier pool, materia, consumable and constraint schemas; persistent Combat / Craft & Gather mode switching; independent crafting controls; and an explicitly inactive M15 Gathering landing state. Placeholder item or formula numbers are not admitted.
+- **M14B, official pool and complete-plan solver:** ingest and validate the newest eligible level-cap HQ crafted and scrip gear, crafting materia, food and medicine; implement legal mixed equipment-plus-meld generation with locks and hard stat thresholds.
+- **M14C, practical alternatives and explanation:** add maximum, balanced, budget and minimum-overmeld objectives, explicit cap/waste/difficulty accounting, actionable impossible-plan failures and useful plan comparisons.
+- **M14D, optional validation and acceptance:** add versioned recipe/rotation threshold checks without per-recipe set duplication, finish provenance and independent fixtures, then run owner and packaged-desktop acceptance.
 
 ### M15 - Gatherer gear and materia optimiser
 

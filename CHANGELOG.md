@@ -4,6 +4,22 @@ This file records notable changes to XIV Gear Lab. It is maintained from 2026-07
 
 ## Unreleased
 
+## 0.12.0-alpha.1 - 2026-08-03
+
+### Added
+
+- Started M14 with separate versioned crafter job, stat, equipment, materia, consumable and plan-constraint contracts that cannot be mistaken for combat data.
+- Added a persistent Combat / Craft & Gather mode switch and an independent crafting workspace for job, Craftsmanship, Control, CP, source, consumable, melding and plan-objective settings.
+- Reserved a separate Gathering workspace for M15 instead of mixing gathering controls into either combat or crafting.
+
+### Changed
+
+- Advanced the preview line to v0.12.0-alpha.1 and made the unfinished M14A data state explicit: no crafter plan is generated until validated official equipment, materia and consumables are admitted in M14B.
+
+### Validation
+
+- Added migration and damaged-storage coverage for non-combat settings, a fail-closed crafter data-boundary fixture and a packaged Electron mode-separation/persistence smoke test.
+
 ## 0.11.0 - 2026-08-03
 
 ### Changed

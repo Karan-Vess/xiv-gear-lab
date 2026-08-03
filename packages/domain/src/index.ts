@@ -51,6 +51,130 @@ export const SOURCE_FAMILIES = [
   'unknown'
 ] as const;
 export type SourceFamily = (typeof SOURCE_FAMILIES)[number];
+
+export const NON_COMBAT_DISCIPLINES = ['crafting', 'gathering'] as const;
+export type NonCombatDiscipline = (typeof NON_COMBAT_DISCIPLINES)[number];
+
+export const CRAFTER_JOBS = [
+  'CRP',
+  'BSM',
+  'ARM',
+  'GSM',
+  'LTW',
+  'WVR',
+  'ALC',
+  'CUL'
+] as const;
+export type CrafterJob = (typeof CRAFTER_JOBS)[number];
+
+export const CRAFTING_STAT_KEYS = ['craftsmanship', 'control', 'cp'] as const;
+export type CraftingStatKey = (typeof CRAFTING_STAT_KEYS)[number];
+export type CraftingStatBlock = Record<CraftingStatKey, number>;
+
+export const CRAFTER_SOURCE_FAMILIES = ['crafted', 'scrip'] as const;
+export type CrafterSourceFamily = (typeof CRAFTER_SOURCE_FAMILIES)[number];
+export type CrafterPlanObjective = 'maximum' | 'balanced' | 'budget' | 'minimum-overmeld';
+export type CrafterConsumableMode = 'none' | 'automatic' | 'locked';
+
+export const emptyCraftingStats = (): CraftingStatBlock => ({
+  craftsmanship: 0,
+  control: 0,
+  cp: 0
+});
+
+export interface CrafterJobDefinition {
+  id: CrafterJob;
+  name: string;
+  minimumLevel: number;
+}
+
+/**
+ * Crafter data intentionally has its own contract. Combat stat blocks and
+ * evaluator rules must not silently acquire crafting-only fields.
+ */
+export interface CrafterEquipmentItem {
+  id: number | string;
+  origin: 'official';
+  name: string;
+  jobs: CrafterJob[];
+  slot: ItemSlot;
+  level: number;
+  itemLevel: number;
+  stats: CraftingStatBlock;
+  statCaps: CraftingStatBlock;
+  materiaSlots: number;
+  advancedMelding: boolean;
+  unique: boolean;
+  sourceFamily: CrafterSourceFamily;
+  quality: 'hq' | 'not-applicable';
+  progressionTier: string;
+  iconPath?: string;
+  iconUrl?: string;
+  provenance: Provenance[];
+}
+
+export interface CrafterMateria {
+  id: number;
+  name: string;
+  stat: CraftingStatKey;
+  value: number;
+  grade: number;
+  requiredLevel: number;
+  advancedMeldingLimit: 'forbidden' | 'first-slot-only' | 'unrestricted';
+  iconPath?: string;
+  iconUrl?: string;
+  provenance: Provenance[];
+}
+
+export interface CrafterConsumableBonus {
+  stat: CraftingStatKey;
+  percent: number;
+  cap: number;
+}
+
+export interface CrafterConsumable {
+  id: number;
+  name: string;
+  kind: 'food' | 'medicine';
+  itemLevel: number;
+  requiredLevel: number;
+  bonuses: CrafterConsumableBonus[];
+  iconPath?: string;
+  iconUrl?: string;
+  provenance: Provenance[];
+}
+
+export interface CrafterGearPool {
+  schemaVersion: 'crafter-gear-pool@1';
+  patch: string;
+  levelCap: number;
+  progressionTier: string;
+  status: 'foundation' | 'ready' | 'partial';
+  jobs: CrafterJobDefinition[];
+  items: CrafterEquipmentItem[];
+  materia: CrafterMateria[];
+  food: CrafterConsumable[];
+  medicine: CrafterConsumable[];
+  limitations: string[];
+}
+
+export interface CrafterConstraints {
+  schemaVersion: 'crafter-constraints@1';
+  job: CrafterJob;
+  level: number;
+  allowedSources: CrafterSourceFamily[];
+  lockedItemIdsBySlot: Partial<Record<GearSlot, number | string>>;
+  excludedItemIds: Array<number | string>;
+  minimumStats: CraftingStatBlock;
+  foodMode: CrafterConsumableMode;
+  lockedFoodId?: number;
+  medicineMode: CrafterConsumableMode;
+  lockedMedicineId?: number;
+  allowedMateriaStats: CraftingStatKey[];
+  allowedMateriaGrades: number[];
+  allowAdvancedMelding: boolean;
+  objective: CrafterPlanObjective;
+}
 /**
  * Job identifiers are provider data, not a closed TypeScript union. Known IDs
  * are still validated through the active snapshot registry before use.

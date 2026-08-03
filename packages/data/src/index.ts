@@ -14,6 +14,7 @@ import { CURRENT_ROTATION_PROFILES } from './rotation-profiles';
 export * from './runtime-updates';
 export * from './catalogue-metadata';
 export * from './rotation-profiles';
+export * from './crafter-data';
 
 const legacySnapshot = snapshotJson as unknown as Omit<GearSnapshot, 'registry' | 'rulesets' | 'evaluatorProfiles'>;
 
